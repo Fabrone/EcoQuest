@@ -80,6 +80,3 @@ class EcoItem extends SpriteComponent with TapCallbacks, HasGameReference<EcoQue
     game.onTileTapped(this);
   }
 }
-
-/*
-*/
