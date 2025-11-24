@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "847988643992",
+    "project_id": "ecoquest-9b88b",
+    "storage_bucket": "ecoquest-9b88b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:847988643992:android:af6cad9fa111afe63a58ed",
+        "android_client_info": {
+          "package_name": "com.example.ecoquest"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBDmG0Iil4NvQdfV36jUZ6Fu_ByBA6S4dY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

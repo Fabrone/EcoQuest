@@ -1,14 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart'; 
+import 'firebase_options.dart'; 
 import 'game/eco_quest_game.dart';
-
-void main() {
-  runApp(const EcoQuestApp());
-}
 
 // Global Score Notifier
 final ValueNotifier<int> scoreNotifier = ValueNotifier<int>(0);
+
+Future<void> main() async {
+  // 1. Ensure Flutter bindings are initialized
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 2. Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  // 3. Run the App
+  runApp(const EcoQuestApp());
+}
 
 class EcoQuestApp extends StatelessWidget {
   const EcoQuestApp({super.key});
