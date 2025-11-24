@@ -28,6 +28,7 @@ dev_dependencies:
 
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -43,3 +44,18 @@ flutter:
   assets:
     - assets/audio/
     - assets/images/
+    - assets/icons/
+
+flutter_launcher_icons:
+  # Enable generation for the platforms you need
+  android: true
+  ios: true
+  web: true
+  
+  image_path: "assets/icons/icon.png"
+  
+  # Customize adaptive icon backgrounds for Android 8+
+  # Note: Requires a separate background image path if enabled
+  # android_12:
+  #   image_path: "assets/icons/android_foreground.png"
+  #   foreground_image: "assets/icons/android_background.png"
