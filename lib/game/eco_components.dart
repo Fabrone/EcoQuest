@@ -4,86 +4,82 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'eco_quest_game.dart';
 
-class TileComponent extends PositionComponent with HasGameRef<EcoQuestGame> {
+class TileComponent extends PositionComponent {
   Point gridPosition = const Point(0, 0);
-  bool isGold = false;
+  bool isRestored = false;
+  final double sizeVal;
+
+  TileComponent({this.sizeVal = 64.0});
 
   @override
   void render(Canvas canvas) {
     super.render(canvas);
-    // Draw the tile background
-    // If you have sprites: sprite?.render(canvas, ...);
-    // Using Paint for prototype clarity
+    
     final paint = Paint()
-      ..color = isGold ? const Color(0xFFFFD700) : const Color(0xFF5D4037) // Gold vs Dirt
+      ..color = isRestored ? const Color(0xFF388E3C) : const Color(0xFF5D4037)
       ..style = PaintingStyle.fill;
     
+    // FIXED: withOpacity -> withValues
     final border = Paint()
-      ..color = Colors.black26
+      ..color = Colors.black.withValues(alpha: 0.3)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
+      ..strokeWidth = 1.0;
 
-    // Draw a rect
-    canvas.drawRect(size.toRect(), paint);
-    canvas.drawRect(size.toRect(), border);
+    Rect rect = size.toRect();
+    canvas.drawRect(rect, paint);
+    canvas.drawRect(rect, border);
   }
 
-  void turnGold() {
-    isGold = true;
+  void restoreNature() {
+    isRestored = true;
   }
 }
 
-class EcoItem extends SpriteComponent with TapCallbacks, HasGameRef<EcoQuestGame> {
+// FIXED: HasGameRef -> HasGameReference
+class EcoItem extends SpriteComponent with TapCallbacks, HasGameReference<EcoQuestGame> {
   final String type;
   Point gridPosition = const Point(0, 0);
   bool isSelected = false;
+  final double sizeVal;
 
-  EcoItem({required this.type});
+  EcoItem({required this.type, required this.sizeVal});
 
   @override
   Future<void> onLoad() async {
-    // Try to load sprite. If asset missing, it will fail gracefully or show error.
-    // Ensure 'assets/images/$type.png' exists.
     try {
-      sprite = await gameRef.loadSprite('$type.png');
+      // FIXED: gameRef -> game
+      sprite = await game.loadSprite('$type.png');
     } catch (e) {
-      // Fallback if image is missing: Draw a colored circle
-      print("Missing asset for $type");
+      debugPrint("Failed to load image for $type: $e");
     }
   }
 
   @override
   void render(Canvas canvas) {
-    if (sprite == null) {
-      // Fallback rendering if no sprite found
-      final paint = Paint()..color = _getColorFromType(type);
-      canvas.drawCircle(Offset(size.x/2, size.y/2), size.x/3, paint);
-    } else {
-      super.render(canvas);
-    }
+    super.render(canvas);
 
-    // Selection Indicator
     if (isSelected) {
+      // FIXED: withOpacity -> withValues
       final highlight = Paint()
-        ..color = Colors.white.withOpacity(0.5)
+        ..color = Colors.white.withValues(alpha: 0.4) 
         ..style = PaintingStyle.fill;
-      canvas.drawRect(size.toRect(), highlight);
+      
+      canvas.drawCircle(Offset(size.x/2, size.y/2), size.x/3, highlight);
+      
+      final border = Paint()
+        ..color = Colors.yellow
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0;
+      canvas.drawRect(size.toRect(), border);
     }
   }
 
   @override
   void onTapUp(TapUpEvent event) {
-    gameRef.onItemSelected(this);
-  }
-
-  Color _getColorFromType(String type) {
-    switch (type) {
-      case 'green_leaf': return Colors.green;
-      case 'sun': return Colors.orange;
-      case 'cloud': return Colors.blueAccent;
-      case 'flower': return Colors.pink;
-      case 'seed': return Colors.brown;
-      default: return Colors.teal;
-    }
+    // FIXED: gameRef -> game
+    game.onTileTapped(this);
   }
 }
+
+/*
+*/

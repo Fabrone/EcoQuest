@@ -1,71 +1,97 @@
 import 'dart:math';
 import 'package:flame/components.dart';
+import 'package:flame/effects.dart';
 import 'package:flame/game.dart';
 import 'package:flame_audio/flame_audio.dart';
+import 'package:flutter/material.dart';
+import '../main.dart';
 import 'eco_components.dart';
 
-class EcoQuestGame extends FlameGame with HasGameRef {
-  // Grid Configuration
+// FIXED: Removed HasGameRef, using standard mixins if needed, 
+// but HasGameReference is applied on the Components side. 
+class EcoQuestGame extends FlameGame {
+  
+  // Configuration
   static const int rows = 8;
   static const int cols = 8;
-  final double tileSize = 64.0; // Size of each tile in pixels
   
-  // Game State
+  // Dynamic sizing logic
+  late double tileSize; 
+  late double boardWidth;
+  late double boardHeight;
+  late double startX;
+  late double startY;
+
+  // State
   late List<List<TileComponent>> gridTiles;
   late List<List<EcoItem?>> gridItems;
-  
-  // Selection Logic
   EcoItem? selectedItem;
-  bool isProcessing = false; // Lock input while animations play
-  int score = 0;
+  bool isProcessing = false;
 
-  // Eco-friendly asset list
   final List<String> itemTypes = [
-    'pinnate_leaf', 'leaf_design', 'blue_butterfly', 'red_flower', 'yellow_flower', 'pink_flower', 'flower_red', 'clouds', 'sun', 
-    'green_tree', 'flower_simple', 'rainy', 'bird' 
+     'pinnate_leaf', 'leaf_design', 'blue_butterfly', 'red_flower', 'yellow_flower', 'pink_flower', 'flower_red', 'clouds', 'sun', 
+    'green_tree', 'flower_simple', 'rainy', 'bird'
   ];
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
-    
-    // Center the camera/world
-    camera.viewfinder.anchor = Anchor.topLeft;
+    debugPrint("--- GAME LOADING STARTED ---");
 
-    // Initialize Data Structures
+    // 1. Dynamic Sizing Calculation (Responsive Fit)
+    // We calculate the maximum possible tile size that allows the grid to fit
+    // within the screen width OR height, leaving a small margin.
+    double maxW = size.x / cols;
+    double maxH = size.y / rows;
+    tileSize = min(maxW, maxH) * 0.95; // 95% to leave a small margin
+
+    boardWidth = cols * tileSize;
+    boardHeight = rows * tileSize;
+    startX = (size.x - boardWidth) / 2;
+    startY = (size.y - boardHeight) / 2;
+
+    debugPrint("Screen: $size, TileSize: $tileSize");
+
+    // 2. Add Background
+    try {
+      final bgSprite = await loadSprite('tile_bg.png');
+      add(SpriteComponent()
+        ..sprite = bgSprite
+        ..size = size
+        ..anchor = Anchor.topLeft);
+    } catch (e) {
+      // Fallback
+      add(RectangleComponent(size: size, paint: Paint()..color = const Color(0xFF2D1E17))); 
+    }
+
+    // 3. Audio
+    await FlameAudio.audioCache.load('bubble-pop.mp3');
+
+    // 4. Init Data
     gridTiles = List.generate(rows, (_) => List.generate(cols, (_) => TileComponent()));
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
-    // Build the Board
-    await _buildBoard();
-  }
-
-  Future<void> _buildBoard() async {
-    // Calculate offset to center the grid in the 3/4 view
-    double boardWidth = cols * tileSize;
-    double boardHeight = rows * tileSize;
-    double startX = (size.x - boardWidth) / 2;
-    double startY = (size.y - boardHeight) / 2;
-
+    // 5. Build Board
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        // 1. Create Background Tile
-        final tile = TileComponent()
-          ..position = Vector2(startX + c * tileSize, startY + r * tileSize)
+        Vector2 pos = Vector2(startX + c * tileSize, startY + r * tileSize);
+
+        // Create Tile
+        final tile = TileComponent(sizeVal: tileSize)
+          ..position = pos
           ..size = Vector2(tileSize, tileSize)
           ..gridPosition = Point(r, c);
-        
         gridTiles[r][c] = tile;
         add(tile);
 
-        // 2. Create Eco Item (Ensure no initial matches)
+        // Create Item
         String type;
         do {
           type = itemTypes[Random().nextInt(itemTypes.length)];
-        } while (_hasMatchAt(r, c, type));
+        } while (_causesMatch(r, c, type));
 
-        final item = EcoItem(type: type)
-          ..position = Vector2(startX + c * tileSize, startY + r * tileSize)
+        final item = EcoItem(type: type, sizeVal: tileSize)
+          ..position = pos.clone()
           ..size = Vector2(tileSize, tileSize)
           ..gridPosition = Point(r, c);
         
@@ -73,56 +99,58 @@ class EcoQuestGame extends FlameGame with HasGameRef {
         add(item);
       }
     }
+
+    overlays.add('HUD');
   }
 
-  // Initial board generation check to prevent pre-existing matches
-  bool _hasMatchAt(int r, int c, String type) {
+  bool _causesMatch(int r, int c, String type) {
     if (c >= 2 && gridItems[r][c - 1]?.type == type && gridItems[r][c - 2]?.type == type) return true;
     if (r >= 2 && gridItems[r - 1][c]?.type == type && gridItems[r - 2][c]?.type == type) return true;
     return false;
   }
 
-  // Input Handling
-  void onItemSelected(EcoItem item) {
+  // --- GAMEPLAY LOGIC ---
+
+  void onTileTapped(EcoItem tappedItem) {
     if (isProcessing) return;
 
     if (selectedItem == null) {
-      // Select first item
-      selectedItem = item;
-      item.isSelected = true;
+      selectedItem = tappedItem;
+      tappedItem.isSelected = true;
+      FlameAudio.play('bubble-pop.mp3', volume: 0.2);
     } else {
-      // Select second item
       EcoItem first = selectedItem!;
-      EcoItem second = item;
+      EcoItem second = tappedItem;
       
       first.isSelected = false;
       selectedItem = null;
 
-      if (first == second) return; // Tapped same item twice
+      if (first == second) return;
 
-      // Check adjacency
-      if ((first.gridPosition.x - second.gridPosition.x).abs() + 
-          (first.gridPosition.y - second.gridPosition.y).abs() == 1) {
-        _swapAndCheck(first, second);
+      int rDiff = (first.gridPosition.x - second.gridPosition.x).abs() as int;
+      int cDiff = (first.gridPosition.y - second.gridPosition.y).abs() as int;
+
+      if (rDiff + cDiff == 1) {
+        _swapItems(first, second);
       }
     }
   }
 
-  Future<void> _swapAndCheck(EcoItem item1, EcoItem item2) async {
+  Future<void> _swapItems(EcoItem item1, EcoItem item2) async {
     isProcessing = true;
 
-    // 1. Visually Swap
     final pos1 = item1.position.clone();
     final pos2 = item2.position.clone();
-    
-    // Using Flame Effects for smooth animation
-    // Note: In a real app, use MoveEffect.to. For prototype, we swap positions instantly or use simple lerp
-    item1.position = pos2;
-    item2.position = pos1;
 
-    // 2. Swap in Data Structure
-    final p1 = item1.gridPosition;
-    final p2 = item2.gridPosition;
+    // Visual Swap
+    item1.add(MoveToEffect(pos2, EffectController(duration: 0.2)));
+    item2.add(MoveToEffect(pos1, EffectController(duration: 0.2)));
+    
+    await Future.delayed(const Duration(milliseconds: 220));
+
+    // Logical Swap
+    Point p1 = item1.gridPosition;
+    Point p2 = item2.gridPosition;
 
     gridItems[p1.x as int][p1.y as int] = item2;
     gridItems[p2.x as int][p2.y as int] = item1;
@@ -130,40 +158,38 @@ class EcoQuestGame extends FlameGame with HasGameRef {
     item1.gridPosition = p2;
     item2.gridPosition = p1;
 
-    // 3. Check Matches
+    // Check Matches
     List<EcoItem> matches = _findMatches();
-
+    
     if (matches.isNotEmpty) {
       await _processMatches(matches);
     } else {
-      // No match? Swap back (Illegal move)
-      await Future.delayed(const Duration(milliseconds: 200));
-      item1.position = pos1;
-      item2.position = pos2;
+      // Revert if no match
+      item1.add(MoveToEffect(pos1, EffectController(duration: 0.2)));
+      item2.add(MoveToEffect(pos2, EffectController(duration: 0.2)));
       
-      // Revert data
       gridItems[p1.x as int][p1.y as int] = item1;
       gridItems[p2.x as int][p2.y as int] = item2;
-      
       item1.gridPosition = p1;
       item2.gridPosition = p2;
+      
       isProcessing = false;
     }
   }
 
   List<EcoItem> _findMatches() {
-    Set<EcoItem> matchedItems = {};
-
+    Set<EcoItem> matchSet = {};
+    
     // Horizontal
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols - 2; c++) {
-        EcoItem? t1 = gridItems[r][c];
-        EcoItem? t2 = gridItems[r][c+1];
-        EcoItem? t3 = gridItems[r][c+2];
+        EcoItem? i1 = gridItems[r][c];
+        EcoItem? i2 = gridItems[r][c+1];
+        EcoItem? i3 = gridItems[r][c+2];
         
-        if (t1 != null && t2 != null && t3 != null) {
-          if (t1.type == t2.type && t2.type == t3.type) {
-            matchedItems.addAll([t1, t2, t3]);
+        if (i1 != null && i2 != null && i3 != null) {
+          if (i1.type == i2.type && i2.type == i3.type) {
+            matchSet.addAll([i1, i2, i3]);
           }
         }
       }
@@ -172,54 +198,55 @@ class EcoQuestGame extends FlameGame with HasGameRef {
     // Vertical
     for (int c = 0; c < cols; c++) {
       for (int r = 0; r < rows - 2; r++) {
-        EcoItem? t1 = gridItems[r][c];
-        EcoItem? t2 = gridItems[r+1][c];
-        EcoItem? t3 = gridItems[r+2][c];
-
-        if (t1 != null && t2 != null && t3 != null) {
-          if (t1.type == t2.type && t2.type == t3.type) {
-            matchedItems.addAll([t1, t2, t3]);
+        EcoItem? i1 = gridItems[r][c];
+        EcoItem? i2 = gridItems[r+1][c];
+        EcoItem? i3 = gridItems[r+2][c];
+        
+        if (i1 != null && i2 != null && i3 != null) {
+          if (i1.type == i2.type && i2.type == i3.type) {
+            matchSet.addAll([i1, i2, i3]);
           }
         }
       }
     }
-    return matchedItems.toList();
+    return matchSet.toList();
   }
 
   Future<void> _processMatches(List<EcoItem> matches) async {
-    // Play Sound
-    FlameAudio.play('burst.mp3');
-
-    // 1. Remove items and Update Backgrounds
+    FlameAudio.play('bubble-pop.mp3');
+    scoreNotifier.value += (matches.length * 10);
+    
     for (var item in matches) {
-      // Turn tile gold (Jewel Quest mechanic)
-      gridTiles[item.gridPosition.x as int][item.gridPosition.y as int].turnGold();
+      int r = item.gridPosition.x as int;
+      int c = item.gridPosition.y as int;
       
-      // "Burst" animation (Scale down to 0 then remove)
-      // For prototype, we just remove from parent
-      gridItems[item.gridPosition.x as int][item.gridPosition.y as int] = null;
-      remove(item);
-      score += 10; // Add score
+      gridTiles[r][c].restoreNature();
+      
+      gridItems[r][c] = null;
+      item.removeFromParent();
     }
 
-    // 2. Drop down logic (Simplified for prototype: spawn new immediately in place)
-    // To do real gravity, you iterate columns from bottom up.
-    // Here we just refill empty slots for Level 1 simplicity.
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    // Spawn new items
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
         if (gridItems[r][c] == null) {
-             final newItem = EcoItem(type: itemTypes[Random().nextInt(itemTypes.length)])
-              ..position = gridTiles[r][c].position.clone()
-              ..size = Vector2(tileSize, tileSize)
-              ..gridPosition = Point(r, c);
-            
-            gridItems[r][c] = newItem;
-            add(newItem);
+          String newType = itemTypes[Random().nextInt(itemTypes.length)];
+          EcoItem newItem = EcoItem(type: newType, sizeVal: tileSize)
+            ..position = gridTiles[r][c].position.clone()
+            ..size = Vector2(tileSize, tileSize)
+            ..gridPosition = Point(r, c);
+          
+          newItem.scale = Vector2.zero();
+          newItem.add(ScaleEffect.to(Vector2.all(1.0), EffectController(duration: 0.3, curve: Curves.elasticOut)));
+          
+          gridItems[r][c] = newItem;
+          add(newItem);
         }
       }
     }
-    
-    // Check for chain reactions (Cascades)
+
     List<EcoItem> newMatches = _findMatches();
     if (newMatches.isNotEmpty) {
       await Future.delayed(const Duration(milliseconds: 300));
