@@ -20,16 +20,16 @@ class EcoQuestGame extends FlameGame {
   late double startX;
   late double startY;
 
-  // State Management - NO TILES, only items
+  // State Management
   late List<List<EcoItem?>> gridItems;
   EcoItem? selectedItem;
   bool isProcessing = false;
   
   // Utilities State
-  int hintsRemaining = 3;
+  int hintsRemaining = 5; 
   int undoRemaining = 3;
   
-  // Undo State - Store complete swap information
+  // Undo State
   int? undoRow1, undoCol1, undoRow2, undoCol2;
   String? undoType1, undoType2;
 
@@ -38,10 +38,9 @@ class EcoQuestGame extends FlameGame {
   @override
   Future<void> onLoad() async {
     super.onLoad();
-    debugPrint("🎮 GAME LOADING STARTED");
 
-    // Dynamic Sizing - Board takes 3/5 of screen height
-    double availableHeight = size.y * 0.6; // 60% of screen = 3/5
+    // Dynamic Sizing
+    double availableHeight = size.y * 0.6; 
     double maxW = size.x / cols;
     double maxH = availableHeight / rows;
     tileSize = min(maxW, maxH) * 0.95;
@@ -51,8 +50,6 @@ class EcoQuestGame extends FlameGame {
     startX = (size.x - boardWidth) / 2;
     startY = (size.y - boardHeight) / 2;
 
-    debugPrint("📐 Screen: $size, TileSize: $tileSize, Board: $boardWidth x $boardHeight");
-
     // Background
     try {
       final bgSprite = await loadSprite('tile_bg.png');
@@ -60,10 +57,8 @@ class EcoQuestGame extends FlameGame {
         ..sprite = bgSprite
         ..size = size
         ..anchor = Anchor.topLeft
-        ..priority = -1); // Background lowest priority
-      debugPrint("✅ Background loaded successfully");
+        ..priority = -1);
     } catch (e) {
-      debugPrint("⚠️ Background image not found, using fallback");
       add(RectangleComponent(
         size: size, 
         paint: Paint()..color = const Color(0xFF2D1E17),
@@ -73,53 +68,60 @@ class EcoQuestGame extends FlameGame {
 
     // Audio
     await FlameAudio.audioCache.load('bubble-pop.mp3');
-    debugPrint("🔊 Audio loaded");
 
-    // Init Data - NO TILES ARRAY
+    // Init Data
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
-    // Build Board - ITEMS ONLY
-    debugPrint("🏗️ Building game grid...");
+    // --- LEVEL 1 PREDEFINED LOGIC ---
+    // Instead of random, we build a specific tutorial grid first.
+    debugPrint("🏗️ Building Predefined Level 1...");
+    _buildTutorialGrid();
+
+    overlays.add('HUD');
+  }
+
+  // --- PREDEFINED LEVEL GENERATION ---
+  void _buildTutorialGrid() {
+    // This map ensures an easy first move:
+    // Row 0: [Leaf, Leaf, Butterfly, Leaf] -> Swap Butterfly & Leaf to match 3
+    List<List<String>> fixedMap = [
+      ['pinnate_leaf', 'pinnate_leaf', 'blue_butterfly', 'pinnate_leaf'],
+      ['red_flower', 'yellow_flower', 'leaf_design', 'red_flower'],
+      ['leaf_design', 'pinnate_leaf', 'blue_butterfly', 'yellow_flower'],
+      ['yellow_flower', 'red_flower', 'pinnate_leaf', 'leaf_design'],
+    ];
+
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        Vector2 pos = Vector2(startX + c * tileSize, startY + r * tileSize);
-
-        String type;
-        do {
-          type = level1ItemTypes[Random().nextInt(level1ItemTypes.length)];
-        } while (_causesMatch(r, c, type));
-
-        final item = EcoItem(type: type, sizeVal: tileSize)
-          ..position = pos.clone()
-          ..size = Vector2(tileSize, tileSize)
-          ..gridPosition = Point(r, c)
-          ..priority = 1; // Items on top
-        
-        gridItems[r][c] = item;
-        add(item);
+        _spawnItemAt(r, c, fixedMap[r][c], animate: false);
       }
     }
-
-    debugPrint("✅ Grid built: $rows x $cols with ${level1ItemTypes.length} item types");
-    overlays.add('HUD');
-    debugPrint("🎮 GAME LOADING COMPLETE");
   }
 
-  bool _causesMatch(int r, int c, String type) {
-    if (c >= 2 && gridItems[r][c - 1]?.type == type && gridItems[r][c - 2]?.type == type) return true;
-    if (r >= 2 && gridItems[r - 1][c]?.type == type && gridItems[r - 2][c]?.type == type) return true;
-    return false;
-  }
+  // Helper to spawn items
+  void _spawnItemAt(int r, int c, String type, {bool animate = true}) {
+    Vector2 finalPos = Vector2(startX + c * tileSize, startY + r * tileSize);
+    Vector2 spawnPos = animate ? Vector2(startX + c * tileSize, startY - tileSize) : finalPos;
 
-  // INPUT HANDLING
-  void onDragStart(EcoItem draggedItem) {
-    if (isProcessing) {
-      debugPrint("⏸️ Drag ignored: Game is processing");
-      return;
+    final item = EcoItem(type: type, sizeVal: tileSize)
+      ..position = spawnPos
+      ..size = Vector2(tileSize, tileSize)
+      ..gridPosition = Point(r, c)
+      ..priority = 1;
+    
+    gridItems[r][c] = item;
+    add(item);
+
+    if (animate) {
+      item.add(MoveToEffect(finalPos, EffectController(duration: 0.4, curve: Curves.bounceOut)));
     }
+  }
+
+  // --- INPUT HANDLING ---
+  void onDragStart(EcoItem draggedItem) {
+    if (isProcessing) return;
     selectedItem = draggedItem;
     draggedItem.isSelected = true;
-    debugPrint("👆 Drag started on: ${draggedItem.type} at (${draggedItem.gridPosition.x},${draggedItem.gridPosition.y})");
   }
   
   void onDragEnd(Vector2 dragDelta) {
@@ -133,44 +135,33 @@ class EcoQuestGame extends FlameGame {
     int r2 = first.gridPosition.x as int;
     int c2 = first.gridPosition.y as int;
 
-    // Reduced threshold for quicker response
-    if (dx.abs() > tileSize * 0.15 || dy.abs() > tileSize * 0.15) {
+    if (dx.abs() > tileSize * 0.1 || dy.abs() > tileSize * 0.1) {
       if (dx.abs() > dy.abs()) {
         c2 += (dx > 0 ? 1 : -1);
-        debugPrint("➡️ Swipe ${dx > 0 ? 'RIGHT' : 'LEFT'}");
       } else {
         r2 += (dy > 0 ? 1 : -1);
-        debugPrint("⬇️ Swipe ${dy > 0 ? 'DOWN' : 'UP'}");
       }
     } else {
-      debugPrint("❌ Drag too short, cancelled");
       selectedItem = null;
       return;
     }
 
-    if (r2 < 0 || r2 >= rows || c2 < 0 || c2 >= cols) {
-      debugPrint("🚫 Swipe out of bounds");
-      selectedItem = null;
-      return;
-    }
-
-    EcoItem? second = gridItems[r2][c2];
-    if (second != null) {
-      debugPrint("🔄 Attempting swap: (${first.gridPosition.x},${first.gridPosition.y}) <-> ($r2,$c2)");
-      _swapItems(first, second);
+    if (r2 >= 0 && r2 < rows && c2 >= 0 && c2 < cols) {
+      EcoItem? second = gridItems[r2][c2];
+      if (second != null) {
+        _swapItems(first, second);
+      }
     }
     selectedItem = null;
   }
   
-  // CORE GAME LOGIC
+  // --- CORE GAME LOGIC ---
   Future<void> _swapItems(EcoItem item1, EcoItem item2) async {
     isProcessing = true;
-    debugPrint("⚡ SWAP START: ${item1.type} <-> ${item2.type}");
 
     final pos1 = item1.position.clone();
     final pos2 = item2.position.clone();
 
-    // Faster swap animation
     item1.add(MoveToEffect(pos2, EffectController(duration: 0.15)));
     item2.add(MoveToEffect(pos1, EffectController(duration: 0.15)));
     
@@ -188,21 +179,13 @@ class EcoQuestGame extends FlameGame {
     List<EcoItem> matches = _findMatches();
     
     if (matches.isNotEmpty) {
-      debugPrint("✅ MATCH FOUND: ${matches.length} items matched");
-      
-      // Store undo information
-      undoRow1 = p1.x as int;
-      undoCol1 = p1.y as int;
-      undoRow2 = p2.x as int;
-      undoCol2 = p2.y as int;
-      undoType1 = item1.type;
-      undoType2 = item2.type;
-      
-      debugPrint("💾 Undo saved: ($undoRow1,$undoCol1)-($undoRow2,$undoCol2) | Types: $undoType1 <-> $undoType2");
+      // Save Undo
+      undoRow1 = p1.x as int; undoCol1 = p1.y as int;
+      undoRow2 = p2.x as int; undoCol2 = p2.y as int;
+      undoType1 = item1.type; undoType2 = item2.type;
       
       await _processMatches(matches);
     } else {
-      debugPrint("❌ No match - Reverting swap");
       // Revert
       item1.add(MoveToEffect(pos1, EffectController(duration: 0.15)));
       item2.add(MoveToEffect(pos2, EffectController(duration: 0.15)));
@@ -221,7 +204,7 @@ class EcoQuestGame extends FlameGame {
   List<EcoItem> _findMatches() {
     Set<EcoItem> matchSet = {};
     
-    // Horizontal matches
+    // Horizontal
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols - 2; c++) {
         EcoItem? i1 = gridItems[r][c];
@@ -233,7 +216,7 @@ class EcoQuestGame extends FlameGame {
       }
     }
 
-    // Vertical matches
+    // Vertical
     for (int c = 0; c < cols; c++) {
       for (int r = 0; r < rows - 2; r++) {
         EcoItem? i1 = gridItems[r][c];
@@ -244,66 +227,53 @@ class EcoQuestGame extends FlameGame {
         }
       }
     }
-    
-    if (matchSet.isNotEmpty) {
-      debugPrint("🔍 Found ${matchSet.length} items in matches");
-    }
-    
     return matchSet.toList();
   }
 
   Future<void> _processMatches(List<EcoItem> matches) async {
-    debugPrint("💥 PROCESSING MATCHES: ${matches.length} items");
-    
     FlameAudio.play('bubble-pop.mp3');
     int points = matches.length * 10;
     scoreNotifier.value += points;
-    debugPrint("🎯 Score +$points → Total: ${scoreNotifier.value}");
     
-    // Crash animation - NO COLOR CHANGES
     for (var item in matches) {
       int r = item.gridPosition.x as int;
       int c = item.gridPosition.y as int;
-      
-      debugPrint("   💨 Removing ${item.type} at ($r,$c)");
-      
-      item.add(ScaleEffect.to(Vector2.all(0.0), EffectController(duration: 0.2)));
-      item.add(OpacityEffect.fadeOut(EffectController(duration: 0.2)));
-      
+      item.add(ScaleEffect.to(Vector2.zero(), EffectController(duration: 0.2)));
       gridItems[r][c] = null;
     }
     
     await Future.delayed(const Duration(milliseconds: 250));
+    
+    // FIX: Added curly braces for loop
     for (var item in matches) {
       item.removeFromParent();
     }
-    debugPrint("🗑️ ${matches.length} items removed from game tree");
 
     await _applyGravity();
     await _spawnNewItems();
 
-    // Check for chain reactions
     List<EcoItem> newMatches = _findMatches();
     if (newMatches.isNotEmpty) {
-      debugPrint("⚡ CHAIN REACTION! Found ${newMatches.length} new matches");
       await Future.delayed(const Duration(milliseconds: 300));
       await _processMatches(newMatches);
     } else {
-      debugPrint("✅ Match processing complete");
+      // Auto-shuffle if stuck
+      if (!_hasPossibleMoves()) {
+        debugPrint("⛔ No moves left! Shuffling...");
+        await _shuffleBoard();
+      }
       isProcessing = false;
     }
   }
 
   Future<void> _applyGravity() async {
-    debugPrint("🌍 Applying gravity...");
     bool moved = false;
-    int totalMoves = 0;
-    
     for (int c = 0; c < cols; c++) {
       for (int r = rows - 2; r >= 0; r--) {
         if (gridItems[r][c] != null && gridItems[r + 1][c] == null) {
           int fallDist = 0;
           for (int rFall = r + 1; rFall < rows; rFall++) {
+            // FIX: Added curly braces for if/else
             if (gridItems[rFall][c] == null) {
               fallDist++;
             } else {
@@ -313,7 +283,6 @@ class EcoQuestGame extends FlameGame {
 
           if (fallDist > 0) {
             moved = true;
-            totalMoves++;
             EcoItem item = gridItems[r][c]!;
             
             gridItems[r + fallDist][c] = item;
@@ -322,165 +291,162 @@ class EcoQuestGame extends FlameGame {
             item.gridPosition = Point(r + fallDist, c);
             Vector2 newPos = Vector2(startX + c * tileSize, startY + (r + fallDist) * tileSize);
             item.add(MoveToEffect(newPos, EffectController(duration: 0.15 * fallDist)));
-            
-            debugPrint("   ⬇️ ${item.type} falls from row $r to ${r + fallDist}");
           }
         }
       }
     }
-    
-    if (moved) {
-      debugPrint("✅ Gravity complete: $totalMoves items fell");
-      await Future.delayed(const Duration(milliseconds: 150));
-    } else {
-      debugPrint("   No gravity needed");
-    }
+    if (moved) await Future.delayed(const Duration(milliseconds: 150));
   }
 
   Future<void> _spawnNewItems() async {
-    debugPrint("🌱 Spawning new items...");
-    int spawned = 0;
-    
     for (int c = 0; c < cols; c++) {
       for (int r = 0; r < rows; r++) {
         if (gridItems[r][c] == null) {
-          spawned++;
           String newType = level1ItemTypes[Random().nextInt(level1ItemTypes.length)];
-          
-          Vector2 spawnPos = Vector2(startX + c * tileSize, startY - tileSize);
-
-          EcoItem newItem = EcoItem(type: newType, sizeVal: tileSize)
-            ..position = spawnPos
-            ..size = Vector2(tileSize, tileSize)
-            ..gridPosition = Point(r, c)
-            ..priority = 1;
-          
-          gridItems[r][c] = newItem;
-          add(newItem);
-
-          Vector2 targetPos = Vector2(startX + c * tileSize, startY + r * tileSize);
-          newItem.add(MoveToEffect(targetPos, EffectController(duration: 0.5, curve: Curves.easeIn)));
-          
-          debugPrint("   ✨ Spawned $newType at ($r,$c)");
+          _spawnItemAt(r, c, newType, animate: true);
         }
       }
     }
-    
-    debugPrint("✅ Spawned $spawned new items");
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 400));
   }
-  
-  // HINT LOGIC
-  void useHint() {
-    if (isProcessing || hintsRemaining <= 0) return;
-    
-    debugPrint("💡 HINT: Scanning grid for possible matches...");
-    
+
+  // --- SMART HELPERS ---
+
+  bool _hasPossibleMoves() {
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
         EcoItem? current = gridItems[r][c];
         if (current == null) continue;
 
-        for (var dir in [Vector2(0, 1), Vector2(1, 0)]) {
-          int r2 = r + dir.x.toInt();
-          int c2 = c + dir.y.toInt();
-
-          if (r2 >= rows || c2 >= cols) continue;
-          
-          EcoItem? neighbor = gridItems[r2][c2];
-          if (neighbor == null) continue;
-
-          // Temporary swap
-          gridItems[r][c] = neighbor;
-          gridItems[r2][c2] = current;
-
-          if (_findMatches().isNotEmpty) {
-            debugPrint("✅ HINT FOUND: ${current.type} at ($r,$c) <-> ${neighbor.type} at ($r2,$c2)");
-            
-            // Highlight items
-            final yellowColor = Colors.yellow.withValues(alpha: 0.6);
-            final controller = EffectController(duration: 0.3, repeatCount: 3, reverseDuration: 0.3);
-            
-            current.add(ColorEffect(yellowColor, controller));
-            neighbor.add(ColorEffect(yellowColor, controller));
-            
-            // Revert temporary swap
-            gridItems[r][c] = current;
-            gridItems[r2][c2] = neighbor;
-            
-            hintsRemaining--;
-            debugPrint("💡 Hints remaining: $hintsRemaining");
-            
-            overlays.remove('HUD');
-            overlays.add('HUD');
-            return;
+        List<Point> neighbors = [Point(r + 1, c), Point(r, c + 1)];
+        for (var n in neighbors) {
+          if (n.x < rows && n.y < cols) {
+            EcoItem? other = gridItems[n.x as int][n.y as int];
+            if (other != null) {
+              gridItems[r][c] = other;
+              gridItems[n.x as int][n.y as int] = current;
+              
+              bool hasMatch = _findMatches().isNotEmpty;
+              
+              gridItems[r][c] = current;
+              gridItems[n.x as int][n.y as int] = other;
+              
+              if (hasMatch) return true;
+            }
           }
-
-          // Revert temporary swap
-          gridItems[r][c] = current;
-          gridItems[r2][c2] = neighbor;
         }
       }
     }
-    
-    debugPrint("❌ HINT: No matches found on board");
+    return false;
   }
 
-  // UNDO LOGIC
-  Future<void> undoLastSwap() async {
-    if (isProcessing || undoRemaining <= 0) return;
+  Future<void> _shuffleBoard() async {
+     isProcessing = true;
+     List<EcoItem> allItems = [];
+     for(var list in gridItems) {
+       for(var item in list) {
+         if(item != null) allItems.add(item);
+       }
+     }
+     
+     do {
+       allItems.shuffle();
+       int index = 0;
+       for (int r = 0; r < rows; r++) {
+         for (int c = 0; c < cols; c++) {
+           gridItems[r][c] = allItems[index];
+           allItems[index].gridPosition = Point(r, c);
+           index++;
+         }
+       }
+     } while (!_hasPossibleMoves() || _findMatches().isNotEmpty);
+
+     for (var item in allItems) {
+       int r = item.gridPosition.x as int;
+       int c = item.gridPosition.y as int;
+       Vector2 targetPos = Vector2(startX + c * tileSize, startY + r * tileSize);
+       item.add(MoveToEffect(targetPos, EffectController(duration: 0.5, curve: Curves.easeInOut)));
+     }
+     
+     await Future.delayed(const Duration(milliseconds: 550));
+     isProcessing = false;
+  }
+
+  // Helper for Hints
+  SequenceEffect _getBlinkEffect() {
+    return SequenceEffect([
+      ScaleEffect.by(Vector2.all(1.2), EffectController(duration: 0.2)),
+      ScaleEffect.by(Vector2.all(1/1.2), EffectController(duration: 0.2)),
+    ], infinite: false, repeatCount: 3);
+  }
+
+  void useHint() {
+    if (isProcessing) return;
     
-    if (undoRow1 == null || undoCol1 == null || undoRow2 == null || undoCol2 == null) {
-      debugPrint("❌ UNDO: No move to undo");
-      return;
+    if (hintsRemaining > 0 && !_hasPossibleMoves()) {
+       _shuffleBoard();
+       return;
     }
-    
-    debugPrint("↩️ UNDO: Reversing last swap ($undoRow1,$undoCol1) <-> ($undoRow2,$undoCol2)");
+
+    if (hintsRemaining > 0) {
+      for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+          EcoItem? current = gridItems[r][c];
+          if (current == null) continue;
+
+          List<Point> neighbors = [Point(r + 1, c), Point(r, c + 1)];
+          for (var n in neighbors) {
+            if (n.x < rows && n.y < cols) {
+              EcoItem? other = gridItems[n.x as int][n.y as int];
+              if (other != null) {
+                gridItems[r][c] = other;
+                gridItems[n.x as int][n.y as int] = current;
+                
+                bool matchFound = _findMatches().isNotEmpty;
+                
+                gridItems[r][c] = current;
+                gridItems[n.x as int][n.y as int] = other;
+
+                if (matchFound) {
+                  // FIX: Use helper method instead of clone()
+                  current.add(_getBlinkEffect());
+                  other.add(_getBlinkEffect());
+                  
+                  hintsRemaining--;
+                  overlays.remove('HUD');
+                  overlays.add('HUD');
+                  return;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> undoLastSwap() async {
+    if (isProcessing || undoRemaining <= 0 || undoRow1 == null) return;
     isProcessing = true;
     undoRemaining--;
     
-    // Find items at their current positions (after swap they moved)
-    EcoItem? item1 = gridItems[undoRow2!][undoCol2!];
-    EcoItem? item2 = gridItems[undoRow1!][undoCol1!];
-    
-    if (item1 == null || item2 == null) {
-      debugPrint("❌ UNDO FAILED: Items are null (may have been matched)");
-      isProcessing = false;
-      return;
-    }
-    
-    if (item1.type != undoType1 || item2.type != undoType2) {
-      debugPrint("❌ UNDO FAILED: Items changed (${item1.type} vs $undoType1, ${item2.type} vs $undoType2)");
-      isProcessing = false;
-      return;
-    }
-    
-    // Swap back to original positions
-    final pos1Original = Vector2(startX + undoCol1! * tileSize, startY + undoRow1! * tileSize);
-    final pos2Original = Vector2(startX + undoCol2! * tileSize, startY + undoRow2! * tileSize);
+    EcoItem? i1 = gridItems[undoRow2!][undoCol2!];
+    EcoItem? i2 = gridItems[undoRow1!][undoCol1!];
 
-    item1.add(MoveToEffect(pos1Original, EffectController(duration: 0.15)));
-    item2.add(MoveToEffect(pos2Original, EffectController(duration: 0.15)));
-    
-    await Future.delayed(const Duration(milliseconds: 160));
+    if (i1 != null && i2 != null) {
+       final pos1 = Vector2(startX + undoCol1! * tileSize, startY + undoRow1! * tileSize);
+       final pos2 = Vector2(startX + undoCol2! * tileSize, startY + undoRow2! * tileSize);
 
-    gridItems[undoRow1!][undoCol1!] = item1;
-    gridItems[undoRow2!][undoCol2!] = item2;
-    
-    item1.gridPosition = Point(undoRow1!, undoCol1!);
-    item2.gridPosition = Point(undoRow2!, undoCol2!);
-    
-    debugPrint("✅ UNDO COMPLETE: ${item1.type} and ${item2.type} restored");
-    
-    // Clear undo state
-    undoRow1 = null;
-    undoCol1 = null;
-    undoRow2 = null;
-    undoCol2 = null;
-    undoType1 = null;
-    undoType2 = null;
-    
-    debugPrint("↩️ Undo uses remaining: $undoRemaining");
+       i1.add(MoveToEffect(pos1, EffectController(duration: 0.2)));
+       i2.add(MoveToEffect(pos2, EffectController(duration: 0.2)));
+       
+       await Future.delayed(const Duration(milliseconds: 200));
+       
+       gridItems[undoRow1!][undoCol1!] = i1;
+       gridItems[undoRow2!][undoCol2!] = i2;
+       i1.gridPosition = Point(undoRow1!, undoCol1!);
+       i2.gridPosition = Point(undoRow2!, undoCol2!);
+    }
 
     overlays.remove('HUD');
     overlays.add('HUD');

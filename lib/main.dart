@@ -1,19 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_core/firebase_core.dart'; 
-import 'firebase_options.dart'; 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Import this
+import 'firebase_options.dart';
 import 'game/eco_quest_game.dart';
 
 // Global Notifiers
 final ValueNotifier<int> scoreNotifier = ValueNotifier<int>(0);
-
+final ValueNotifier<int> highScoreNotifier = ValueNotifier<int>(0); // New High Score
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  await _loadHighScore(); // Load score on startup
   runApp(const EcoQuestApp());
+}
+
+Future<void> _loadHighScore() async {
+  final prefs = await SharedPreferences.getInstance();
+  highScoreNotifier.value = prefs.getInt('high_score') ?? 0;
+}
+
+Future<void> updateHighScore(int newScore) async {
+  if (newScore > highScoreNotifier.value) {
+    highScoreNotifier.value = newScore;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('high_score', newScore);
+  }
 }
 
 class EcoQuestApp extends StatelessWidget {
@@ -46,11 +61,6 @@ class _GameScreenState extends State<GameScreen> {
   void initState() {
     super.initState();
     game = EcoQuestGame();
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
   }
 
   @override
@@ -100,70 +110,76 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildGameWidget() {
+Widget _buildGameWidget() {
     return GameWidget(
       game: game,
       overlayBuilderMap: {
         'HUD': (BuildContext context, EcoQuestGame game) {
-          return ValueListenableBuilder(
+          return ValueListenableBuilder<int>(
             valueListenable: scoreNotifier,
-            builder: (context, _, child) {
+            builder: (context, currentScore, child) {
+              // Check for High Score Update
+              if (currentScore > highScoreNotifier.value) {
+                updateHighScore(currentScore);
+              }
+
               return SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.all(10.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          // Score Board
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.6),
-                              borderRadius: BorderRadius.circular(15),
-                              border: Border.all(color: Colors.white, width: 2),
+                      // --- SCORE BOARD ---
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: Column(
+                          children: [
+                            ValueListenableBuilder<int>(
+                              valueListenable: highScoreNotifier,
+                              builder: (ctx, best, _) {
+                                return Text(
+                                  'BEST: $best',
+                                  style: GoogleFonts.vt323(color: Colors.yellow, fontSize: 18),
+                                );
+                              }
                             ),
-                            child: Text(
-                              'Eco Points: ${scoreNotifier.value}',
+                            Text(
+                              'SCORE: $currentScore',
                               style: GoogleFonts.vt323(
                                 color: Colors.white,
-                                fontSize: 24,
+                                fontSize: 28,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                          ),
-                          
-                          // HINT Button
-                          ElevatedButton.icon(
-                            onPressed: game.isProcessing ? null : () {
-                              if (game.hintsRemaining > 0) {
-                                game.useHint();
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text("No hints remaining!"),
-                                    duration: Duration(seconds: 1),
-                                  ),
-                                );
-                              }
-                            },
-                            icon: Icon(
-                              Icons.lightbulb_outline,
-                              color: game.hintsRemaining > 0 ? Colors.yellow : Colors.grey,
-                            ),
-                            label: Text("HINT (${game.hintsRemaining})"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green[800],
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
+                      const SizedBox(height: 10),
+
+                      // --- HINT BUTTON ---
+                      ElevatedButton.icon(
+                        onPressed: game.isProcessing ? null : () {
+                           game.useHint();
+                        },
+                        icon: Icon(
+                          Icons.lightbulb_outline,
+                          color: game.hintsRemaining > 0 ? Colors.yellow : Colors.grey,
+                        ),
+                        label: Text("HINT (${game.hintsRemaining})"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[800],
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                      
                       const Spacer(),
-                      // UNDO Button
+                      
+                      // --- UNDO BUTTON ---
                       Padding(
                         padding: const EdgeInsets.only(bottom: 20.0, right: 10.0),
                         child: FloatingActionButton.extended(
@@ -174,10 +190,7 @@ class _GameScreenState extends State<GameScreen> {
                           backgroundColor: (game.undoRemaining > 0) ? Colors.orange[700] : Colors.grey,
                           foregroundColor: Colors.white,
                           icon: const Icon(Icons.undo, size: 24),
-                          label: Text(
-                            "Undo (${game.undoRemaining})",
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                          ),
+                          label: Text("Undo (${game.undoRemaining})"),
                         ),
                       ),
                     ],
