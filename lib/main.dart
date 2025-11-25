@@ -5,19 +5,14 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; 
 import 'game/eco_quest_game.dart';
 
-// Global Score Notifier
+// Global Notifiers
 final ValueNotifier<int> scoreNotifier = ValueNotifier<int>(0);
 
 Future<void> main() async {
-  // 1. Ensure Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 2. Initialize Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
-  // 3. Run the App
   runApp(const EcoQuestApp());
 }
 
@@ -30,31 +25,46 @@ class EcoQuestApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.green,
-        scaffoldBackgroundColor: const Color(0xFF2D1E17), // Dark earth background
+        scaffoldBackgroundColor: const Color(0xFF2D1E17),
       ),
       home: const GameScreen(),
     );
   }
 }
 
-class GameScreen extends StatelessWidget {
+class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
+
+  @override
+  State<GameScreen> createState() => _GameScreenState();
+}
+
+class _GameScreenState extends State<GameScreen> {
+  late final EcoQuestGame game;
+
+  @override
+  void initState() {
+    super.initState();
+    game = EcoQuestGame();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // LayoutBuilder allows us to check constraints for responsiveness
       body: LayoutBuilder(
         builder: (context, constraints) {
-          // If width is less than 600px, assume Mobile (Portrait/Small)
           bool isMobile = constraints.maxWidth < 600;
 
           if (isMobile) {
-            // MOBILE LAYOUT: Column (Garden Top, Game Bottom)
             return Column(
               children: [
                 const SizedBox(
-                  height: 120, // Fixed height for header on mobile
+                  height: 100,
                   child: AnimatedGardenPanel(isCompact: true),
                 ),
                 Expanded(
@@ -63,7 +73,6 @@ class GameScreen extends StatelessWidget {
               ],
             );
           } else {
-            // DESKTOP/TABLET LAYOUT: Row (Garden Left, Game Right)
             return Row(
               children: [
                 Expanded(
@@ -93,59 +102,89 @@ class GameScreen extends StatelessWidget {
 
   Widget _buildGameWidget() {
     return GameWidget(
-      game: EcoQuestGame(),
+      game: game,
       overlayBuilderMap: {
         'HUD': (BuildContext context, EcoQuestGame game) {
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(10.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Score Board
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      // FIXED: withOpacity -> withValues
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: ValueListenableBuilder<int>(
-                      valueListenable: scoreNotifier,
-                      builder: (context, value, child) {
-                        return Text(
-                          'Eco Points: $value',
-                          style: GoogleFonts.vt323(
-                            color: Colors.white,
-                            fontSize: 24, // Slightly smaller for safety
-                            fontWeight: FontWeight.bold,
+          return ValueListenableBuilder(
+            valueListenable: scoreNotifier,
+            builder: (context, _, child) {
+              return SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Score Board
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(15),
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: Text(
+                              'Eco Points: ${scoreNotifier.value}',
+                              style: GoogleFonts.vt323(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                  // Hint Button
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text("Hint: Look for patterns of 3!"),
-                          duration: Duration(seconds: 1),
+                          
+                          // HINT Button
+                          ElevatedButton.icon(
+                            onPressed: game.isProcessing ? null : () {
+                              if (game.hintsRemaining > 0) {
+                                game.useHint();
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text("No hints remaining!"),
+                                    duration: Duration(seconds: 1),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: Icon(
+                              Icons.lightbulb_outline,
+                              color: game.hintsRemaining > 0 ? Colors.yellow : Colors.grey,
+                            ),
+                            label: Text("HINT (${game.hintsRemaining})"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green[800],
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      // UNDO Button
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 20.0, right: 10.0),
+                        child: FloatingActionButton.extended(
+                          heroTag: "undoBtn",
+                          onPressed: (game.isProcessing || game.undoRemaining <= 0) ? null : () {
+                            game.undoLastSwap();
+                          },
+                          backgroundColor: (game.undoRemaining > 0) ? Colors.orange[700] : Colors.grey,
+                          foregroundColor: Colors.white,
+                          icon: const Icon(Icons.undo, size: 24),
+                          label: Text(
+                            "Undo (${game.undoRemaining})",
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
                         ),
-                      );
-                    },
-                    icon: const Icon(Icons.lightbulb, color: Colors.yellow, size: 20),
-                    label: const Text("HINT"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[800],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           );
         },
       },
@@ -159,7 +198,6 @@ class AnimatedGardenPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // If compact (Mobile top bar), simplify the design
     if (isCompact) {
       return Container(
         width: double.infinity,
@@ -184,7 +222,6 @@ class AnimatedGardenPanel extends StatelessWidget {
       );
     }
 
-    // Full Sidebar Design
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [

@@ -46,14 +46,21 @@ flutter:
     - assets/images/
     - assets/icons/
 
+# Configuration for the flutter_launcher_icons package
 flutter_launcher_icons:
-  # Enable generation for the platforms you need
-  android: true
+  # 1. Main configuration keys (android, ios, web, etc.)
+  android: "launcher_icon" # Use a specific name
   ios: true
-  web: true
   
+  # 2. Source image path
   image_path: "assets/icons/icon.png"
-  
+
+  # 3. Web configuration (Must be a map/nested block)
+  web:
+    generate: true
+    image_path: "assets/icons/icon.png"
+    background_color: "#FFFFFF"
+    theme_color: "#000000"
   # Customize adaptive icon backgrounds for Android 8+
   # Note: Requires a separate background image path if enabled
   # android_12:

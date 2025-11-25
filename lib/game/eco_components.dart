@@ -4,39 +4,10 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'eco_quest_game.dart';
 
-class TileComponent extends PositionComponent {
-  Point gridPosition = const Point(0, 0);
-  bool isRestored = false;
-  final double sizeVal;
+// REMOVED TileComponent - No longer needed!
+// Items render directly on the background
 
-  TileComponent({this.sizeVal = 64.0});
-
-  @override
-  void render(Canvas canvas) {
-    super.render(canvas);
-    
-    final paint = Paint()
-      ..color = isRestored ? const Color(0xFF388E3C) : const Color(0xFF5D4037)
-      ..style = PaintingStyle.fill;
-    
-    // FIXED: withOpacity -> withValues
-    final border = Paint()
-      ..color = Colors.black.withValues(alpha: 0.3)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-
-    Rect rect = size.toRect();
-    canvas.drawRect(rect, paint);
-    canvas.drawRect(rect, border);
-  }
-
-  void restoreNature() {
-    isRestored = true;
-  }
-}
-
-// FIXED: HasGameRef -> HasGameReference
-class EcoItem extends SpriteComponent with TapCallbacks, HasGameReference<EcoQuestGame> {
+class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQuestGame> {
   final String type;
   Point gridPosition = const Point(0, 0);
   bool isSelected = false;
@@ -47,10 +18,10 @@ class EcoItem extends SpriteComponent with TapCallbacks, HasGameReference<EcoQue
   @override
   Future<void> onLoad() async {
     try {
-      // FIXED: gameRef -> game
       sprite = await game.loadSprite('$type.png');
+      debugPrint("✅ Loaded sprite: $type");
     } catch (e) {
-      debugPrint("Failed to load image for $type: $e");
+      debugPrint("❌ Failed to load image for $type: $e");
     }
   }
 
@@ -59,7 +30,6 @@ class EcoItem extends SpriteComponent with TapCallbacks, HasGameReference<EcoQue
     super.render(canvas);
 
     if (isSelected) {
-      // FIXED: withOpacity -> withValues
       final highlight = Paint()
         ..color = Colors.white.withValues(alpha: 0.4) 
         ..style = PaintingStyle.fill;
@@ -73,10 +43,26 @@ class EcoItem extends SpriteComponent with TapCallbacks, HasGameReference<EcoQue
       canvas.drawRect(size.toRect(), border);
     }
   }
+  
+  // SWIPE INPUT - Quick response
+  Vector2 dragDelta = Vector2.zero();
 
   @override
-  void onTapUp(TapUpEvent event) {
-    // FIXED: gameRef -> game
-    game.onTileTapped(this);
+  void onDragStart(DragStartEvent event) {
+    super.onDragStart(event);
+    dragDelta = Vector2.zero();
+    game.onDragStart(this);
+  }
+
+  @override
+  void onDragUpdate(DragUpdateEvent event) {
+    super.onDragUpdate(event);
+    dragDelta += event.localDelta;
+  }
+
+  @override
+  void onDragEnd(DragEndEvent event) {
+    super.onDragEnd(event);
+    game.onDragEnd(dragDelta);
   }
 }
