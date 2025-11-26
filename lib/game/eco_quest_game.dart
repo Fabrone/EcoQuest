@@ -33,6 +33,9 @@ class EcoQuestGame extends FlameGame {
   int? undoRow1, undoCol1, undoRow2, undoCol2;
   String? undoType1, undoType2;
 
+  // Timer State
+  late TimerComponent _timerComponent;
+
   final List<String> level1ItemTypes = ['pinnate_leaf', 'leaf_design', 'blue_butterfly', 'red_flower', 'yellow_flower'];
 
   @override
@@ -60,7 +63,8 @@ class EcoQuestGame extends FlameGame {
         ..priority = -1);
     } catch (e) {
       add(RectangleComponent(
-        size: size, 
+        // size, // Argument removed and added as named
+        size: size, // FIX: Use named argument for size
         paint: Paint()..color = const Color(0xFF2D1E17),
         priority: -1
       )); 
@@ -73,17 +77,85 @@ class EcoQuestGame extends FlameGame {
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
     // --- LEVEL 1 PREDEFINED LOGIC ---
-    // Instead of random, we build a specific tutorial grid first.
     debugPrint("🏗️ Building Predefined Level 1...");
     _buildTutorialGrid();
+    
+    // Timer setup
+    _setupTimer();
 
     overlays.add('HUD');
   }
 
+  // NEW: Setup the Timer
+  void _setupTimer() {
+    levelTimeNotifier.value = 120; // Set initial time
+    
+    // Remove old timer if it exists
+    children.whereType<TimerComponent>().forEach((tc) => tc.removeFromParent());
+    
+    // Create and start new timer component
+    _timerComponent = TimerComponent(
+      period: 1.0, 
+      repeat: true,
+      onTick: _onTimerTick,
+    );
+    add(_timerComponent);
+    resumeEngine(); // Ensure the engine is running to count down
+  }
+  
+  // NEW: Timer tick handler
+  void _onTimerTick() {
+    if (levelTimeNotifier.value > 0) {
+      levelTimeNotifier.value--;
+    } else {
+      _triggerGameOver();
+    }
+  }
+
+  // NEW: Game Over trigger
+  void _triggerGameOver() {
+    pauseEngine(); 
+    
+    // Stop the timer if it's still running
+    if (!_timerComponent.timer.finished) {
+      _timerComponent.timer.stop();
+    }
+
+    if (!overlays.isActive('GameOver')) {
+      overlays.add('GameOver');
+    }
+  }
+
+  // NEW: Restart logic to reset timer and board
+  void restartGame() {
+    // Reset Data
+    scoreNotifier.value = 0;
+    hintsRemaining = 5;
+    undoRemaining = 3;
+    isProcessing = false;
+    
+    // Clear Board
+    final items = children.whereType<EcoItem>().toList();
+    for(var i in items) {
+      i.removeFromParent();
+    }
+    
+    gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
+
+    // Rebuild
+    _buildTutorialGrid();
+    
+    // Reset Timer
+    _setupTimer(); 
+    
+    // Refresh HUD
+    overlays.remove('HUD');
+    overlays.add('HUD');
+  }
+
+
   // --- PREDEFINED LEVEL GENERATION ---
   void _buildTutorialGrid() {
-    // This map ensures an easy first move:
-    // Row 0: [Leaf, Leaf, Butterfly, Leaf] -> Swap Butterfly & Leaf to match 3
     List<List<String>> fixedMap = [
       ['pinnate_leaf', 'pinnate_leaf', 'blue_butterfly', 'pinnate_leaf'],
       ['red_flower', 'yellow_flower', 'leaf_design', 'red_flower'],
@@ -98,7 +170,6 @@ class EcoQuestGame extends FlameGame {
     }
   }
 
-  // Helper to spawn items
   void _spawnItemAt(int r, int c, String type, {bool animate = true}) {
     Vector2 finalPos = Vector2(startX + c * tileSize, startY + r * tileSize);
     Vector2 spawnPos = animate ? Vector2(startX + c * tileSize, startY - tileSize) : finalPos;
@@ -244,7 +315,6 @@ class EcoQuestGame extends FlameGame {
     
     await Future.delayed(const Duration(milliseconds: 250));
     
-    // FIX: Added curly braces for loop
     for (var item in matches) {
       item.removeFromParent();
     }
@@ -257,10 +327,14 @@ class EcoQuestGame extends FlameGame {
       await Future.delayed(const Duration(milliseconds: 300));
       await _processMatches(newMatches);
     } else {
-      // Auto-shuffle if stuck
+      // Auto-shuffle if stuck and time hasn't run out
       if (!_hasPossibleMoves()) {
-        debugPrint("⛔ No moves left! Shuffling...");
-        await _shuffleBoard();
+        if (levelTimeNotifier.value > 0) {
+            debugPrint("⛔ No moves left! Auto-Shuffling...");
+            await _shuffleBoard();
+        } else {
+            _triggerGameOver();
+        }
       }
       isProcessing = false;
     }
@@ -273,7 +347,6 @@ class EcoQuestGame extends FlameGame {
         if (gridItems[r][c] != null && gridItems[r + 1][c] == null) {
           int fallDist = 0;
           for (int rFall = r + 1; rFall < rows; rFall++) {
-            // FIX: Added curly braces for if/else
             if (gridItems[rFall][c] == null) {
               fallDist++;
             } else {
@@ -383,6 +456,7 @@ class EcoQuestGame extends FlameGame {
   void useHint() {
     if (isProcessing) return;
     
+    // Auto-shuffle if stuck, consuming a hint if possible
     if (hintsRemaining > 0 && !_hasPossibleMoves()) {
        _shuffleBoard();
        return;
@@ -408,7 +482,6 @@ class EcoQuestGame extends FlameGame {
                 gridItems[n.x as int][n.y as int] = other;
 
                 if (matchFound) {
-                  // FIX: Use helper method instead of clone()
                   current.add(_getBlinkEffect());
                   other.add(_getBlinkEffect());
                   
@@ -430,6 +503,11 @@ class EcoQuestGame extends FlameGame {
     isProcessing = true;
     undoRemaining--;
     
+    // Resume engine if it was paused for game over (in case the user used a 'test' undo)
+    if (paused) {
+      resumeEngine();
+    }
+
     EcoItem? i1 = gridItems[undoRow2!][undoCol2!];
     EcoItem? i2 = gridItems[undoRow1!][undoCol1!];
 

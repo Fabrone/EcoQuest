@@ -1,20 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For SystemNavigator
 import 'package:flame/game.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Import this
+import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'game/eco_quest_game.dart';
 
 // Global Notifiers
 final ValueNotifier<int> scoreNotifier = ValueNotifier<int>(0);
-final ValueNotifier<int> highScoreNotifier = ValueNotifier<int>(0); // New High Score
+final ValueNotifier<int> highScoreNotifier = ValueNotifier<int>(0);
+final ValueNotifier<int> levelTimeNotifier = ValueNotifier<int>(120); // Initial time set to 120 seconds
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  await _loadHighScore(); // Load score on startup
+  await _loadHighScore();
   runApp(const EcoQuestApp());
 }
 
@@ -118,7 +121,6 @@ Widget _buildGameWidget() {
           return ValueListenableBuilder<int>(
             valueListenable: scoreNotifier,
             builder: (context, currentScore, child) {
-              // Check for High Score Update
               if (currentScore > highScoreNotifier.value) {
                 updateHighScore(currentScore);
               }
@@ -129,7 +131,7 @@ Widget _buildGameWidget() {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // --- SCORE BOARD ---
+                      // --- SCORE & TIME BOARD ---
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         decoration: BoxDecoration(
@@ -155,6 +157,17 @@ Widget _buildGameWidget() {
                                 fontSize: 28,
                                 fontWeight: FontWeight.bold,
                               ),
+                            ),
+                            // --- TIME REMAINING ---
+                            ValueListenableBuilder<int>(
+                              valueListenable: levelTimeNotifier,
+                              builder: (ctx, time, _) {
+                                final color = time <= 10 ? Colors.red : Colors.lightBlueAccent;
+                                return Text(
+                                  'TIME: ${time.toString().padLeft(2, '0')}s',
+                                  style: GoogleFonts.vt323(color: color, fontSize: 24),
+                                );
+                              }
                             ),
                           ],
                         ),
@@ -198,6 +211,52 @@ Widget _buildGameWidget() {
                 ),
               );
             },
+          );
+        },
+        
+        // --- GAME OVER OVERLAY (for time running out) ---
+        'GameOver': (BuildContext context, EcoQuestGame game) {
+          return Container(
+            color: Colors.black87,
+            child: Center(
+              child: Container(
+                width: 300,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2D1E17),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.red, width: 3),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text("TIME'S UP!", style: GoogleFonts.vt323(fontSize: 40, color: Colors.red)),
+                    const SizedBox(height: 10),
+                    Text("Score: ${scoreNotifier.value}", style: GoogleFonts.lobster(fontSize: 24, color: Colors.white)),
+                    const SizedBox(height: 20),
+                    
+                    // Replay Button
+                    ElevatedButton(
+                      onPressed: () {
+                        game.restartGame();
+                        game.overlays.remove('GameOver');
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                      child: const Text("Replay Level", style: TextStyle(color: Colors.white)),
+                    ),
+                    const SizedBox(height: 10),
+                    
+                    // Exit Button
+                    TextButton(
+                      onPressed: () {
+                         SystemNavigator.pop();
+                      },
+                      child: const Text("Exit Application", style: TextStyle(color: Colors.white54)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           );
         },
       },
