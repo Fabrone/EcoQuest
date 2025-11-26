@@ -54,12 +54,12 @@ flutter_launcher_icons:
   ios: true
   
   # 2. Source image path
-  image_path: "assets/icons/icon.png"
+  image_path: "assets/icons/icon.jpeg"
 
   # 3. Web configuration (Must be a map/nested block)
   web:
     generate: true
-    image_path: "assets/icons/icon.png"
+    image_path: "assets/icons/icon.jpeg"
     background_color: "#FFFFFF"
     theme_color: "#000000"
   # Customize adaptive icon backgrounds for Android 8+

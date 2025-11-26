@@ -4,9 +4,6 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'eco_quest_game.dart';
 
-// REMOVED TileComponent - No longer needed!
-// Items render directly on the background
-
 class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQuestGame> {
   final String type;
   Point gridPosition = const Point(0, 0);
