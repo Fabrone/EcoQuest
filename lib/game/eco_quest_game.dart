@@ -25,13 +25,19 @@ class EcoQuestGame extends FlameGame {
   EcoItem? selectedItem;
   bool isProcessing = false;
   
-  // Utilities State
-  int hintsRemaining = 5; 
-  int undoRemaining = 3;
+  // Level Management
+  int currentLevel = 1;
+  static const Map<int, int> levelTargets = {
+    1: 1000,
+    2: 1100,
+    3: 1200,
+    4: 1300,
+    5: 1400,
+    6: 1500,
+  };
   
-  // Undo State
-  int? undoRow1, undoCol1, undoRow2, undoCol2;
-  String? undoType1, undoType2;
+  // Utilities State
+  int hintsRemaining = 5;
 
   // Timer State
   late TimerComponent _timerComponent;
@@ -43,7 +49,7 @@ class EcoQuestGame extends FlameGame {
     super.onLoad();
 
     // Dynamic Sizing
-    double availableHeight = size.y * 0.6; 
+    double availableHeight = size.y * 0.7; 
     double maxW = size.x / cols;
     double maxH = availableHeight / rows;
     tileSize = min(maxW, maxH) * 0.95;
@@ -63,8 +69,7 @@ class EcoQuestGame extends FlameGame {
         ..priority = -1);
     } catch (e) {
       add(RectangleComponent(
-        // size, // Argument removed and added as named
-        size: size, // FIX: Use named argument for size
+        size: size,
         paint: Paint()..color = const Color(0xFF2D1E17),
         priority: -1
       )); 
@@ -76,8 +81,8 @@ class EcoQuestGame extends FlameGame {
     // Init Data
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
-    // --- LEVEL 1 PREDEFINED LOGIC ---
-    debugPrint("🏗️ Building Predefined Level 1...");
+    // Build initial level
+    debugPrint("🗃️ Building Level $currentLevel...");
     _buildTutorialGrid();
     
     // Timer setup
@@ -86,52 +91,66 @@ class EcoQuestGame extends FlameGame {
     overlays.add('HUD');
   }
 
-  // NEW: Setup the Timer
   void _setupTimer() {
-    levelTimeNotifier.value = 120; // Set initial time
+    levelTimeNotifier.value = 120;
     
-    // Remove old timer if it exists
     children.whereType<TimerComponent>().forEach((tc) => tc.removeFromParent());
     
-    // Create and start new timer component
     _timerComponent = TimerComponent(
       period: 1.0, 
       repeat: true,
       onTick: _onTimerTick,
     );
     add(_timerComponent);
-    resumeEngine(); // Ensure the engine is running to count down
+    resumeEngine();
   }
   
-  // NEW: Timer tick handler
   void _onTimerTick() {
     if (levelTimeNotifier.value > 0) {
       levelTimeNotifier.value--;
     } else {
-      _triggerGameOver();
+      _triggerGameOver(false);
     }
   }
 
-  // NEW: Game Over trigger
-  void _triggerGameOver() {
+  void _triggerGameOver(bool success) {
     pauseEngine(); 
     
-    // Stop the timer if it's still running
     if (!_timerComponent.timer.finished) {
       _timerComponent.timer.stop();
     }
+
+    // Pass success state to overlay
+    gameSuccessNotifier.value = success;
 
     if (!overlays.isActive('GameOver')) {
       overlays.add('GameOver');
     }
   }
-
-  // NEW: Restart logic to reset timer and board
+  
+  void checkLevelCompletion() {
+    int targetScore = levelTargets[currentLevel] ?? 1000;
+    
+    if (scoreNotifier.value >= targetScore) {
+      // Level completed successfully!
+      _triggerGameOver(true);
+    }
+  }
+  
+  void proceedToNextLevel() {
+    if (currentLevel < 6) {
+      currentLevel++;
+      restartGame();
+    } else {
+      // Game fully completed!
+      debugPrint("🎉 All levels completed!");
+    }
+  }
+  
   void restartGame() {
     // Reset Data
     scoreNotifier.value = 0;
     hintsRemaining = 5;
-    undoRemaining = 3;
     isProcessing = false;
     
     // Clear Board
@@ -151,10 +170,12 @@ class EcoQuestGame extends FlameGame {
     // Refresh HUD
     overlays.remove('HUD');
     overlays.add('HUD');
+    
+    overlays.remove('GameOver');
+    
+    currentLevelNotifier.value = currentLevel;
   }
 
-
-  // --- PREDEFINED LEVEL GENERATION ---
   void _buildTutorialGrid() {
     List<List<String>> fixedMap = [
       ['pinnate_leaf', 'pinnate_leaf', 'blue_butterfly', 'pinnate_leaf'],
@@ -188,7 +209,6 @@ class EcoQuestGame extends FlameGame {
     }
   }
 
-  // --- INPUT HANDLING ---
   void onDragStart(EcoItem draggedItem) {
     if (isProcessing) return;
     selectedItem = draggedItem;
@@ -226,7 +246,6 @@ class EcoQuestGame extends FlameGame {
     selectedItem = null;
   }
   
-  // --- CORE GAME LOGIC ---
   Future<void> _swapItems(EcoItem item1, EcoItem item2) async {
     isProcessing = true;
 
@@ -250,14 +269,8 @@ class EcoQuestGame extends FlameGame {
     List<EcoItem> matches = _findMatches();
     
     if (matches.isNotEmpty) {
-      // Save Undo
-      undoRow1 = p1.x as int; undoCol1 = p1.y as int;
-      undoRow2 = p2.x as int; undoCol2 = p2.y as int;
-      undoType1 = item1.type; undoType2 = item2.type;
-      
       await _processMatches(matches);
     } else {
-      // Revert
       item1.add(MoveToEffect(pos1, EffectController(duration: 0.15)));
       item2.add(MoveToEffect(pos2, EffectController(duration: 0.15)));
       
@@ -275,7 +288,6 @@ class EcoQuestGame extends FlameGame {
   List<EcoItem> _findMatches() {
     Set<EcoItem> matchSet = {};
     
-    // Horizontal
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols - 2; c++) {
         EcoItem? i1 = gridItems[r][c];
@@ -287,7 +299,6 @@ class EcoQuestGame extends FlameGame {
       }
     }
 
-    // Vertical
     for (int c = 0; c < cols; c++) {
       for (int r = 0; r < rows - 2; r++) {
         EcoItem? i1 = gridItems[r][c];
@@ -322,18 +333,20 @@ class EcoQuestGame extends FlameGame {
     await _applyGravity();
     await _spawnNewItems();
 
+    // Check level completion after processing
+    checkLevelCompletion();
+
     List<EcoItem> newMatches = _findMatches();
     if (newMatches.isNotEmpty) {
       await Future.delayed(const Duration(milliseconds: 300));
       await _processMatches(newMatches);
     } else {
-      // Auto-shuffle if stuck and time hasn't run out
       if (!_hasPossibleMoves()) {
         if (levelTimeNotifier.value > 0) {
             debugPrint("⛔ No moves left! Auto-Shuffling...");
             await _shuffleBoard();
         } else {
-            _triggerGameOver();
+            _triggerGameOver(false);
         }
       }
       isProcessing = false;
@@ -382,8 +395,6 @@ class EcoQuestGame extends FlameGame {
     }
     await Future.delayed(const Duration(milliseconds: 400));
   }
-
-  // --- SMART HELPERS ---
 
   bool _hasPossibleMoves() {
     for (int r = 0; r < rows; r++) {
@@ -445,7 +456,6 @@ class EcoQuestGame extends FlameGame {
      isProcessing = false;
   }
 
-  // Helper for Hints
   SequenceEffect _getBlinkEffect() {
     return SequenceEffect([
       ScaleEffect.by(Vector2.all(1.2), EffectController(duration: 0.2)),
@@ -456,7 +466,6 @@ class EcoQuestGame extends FlameGame {
   void useHint() {
     if (isProcessing) return;
     
-    // Auto-shuffle if stuck, consuming a hint if possible
     if (hintsRemaining > 0 && !_hasPossibleMoves()) {
        _shuffleBoard();
        return;
@@ -496,38 +505,5 @@ class EcoQuestGame extends FlameGame {
         }
       }
     }
-  }
-
-  Future<void> undoLastSwap() async {
-    if (isProcessing || undoRemaining <= 0 || undoRow1 == null) return;
-    isProcessing = true;
-    undoRemaining--;
-    
-    // Resume engine if it was paused for game over (in case the user used a 'test' undo)
-    if (paused) {
-      resumeEngine();
-    }
-
-    EcoItem? i1 = gridItems[undoRow2!][undoCol2!];
-    EcoItem? i2 = gridItems[undoRow1!][undoCol1!];
-
-    if (i1 != null && i2 != null) {
-       final pos1 = Vector2(startX + undoCol1! * tileSize, startY + undoRow1! * tileSize);
-       final pos2 = Vector2(startX + undoCol2! * tileSize, startY + undoRow2! * tileSize);
-
-       i1.add(MoveToEffect(pos1, EffectController(duration: 0.2)));
-       i2.add(MoveToEffect(pos2, EffectController(duration: 0.2)));
-       
-       await Future.delayed(const Duration(milliseconds: 200));
-       
-       gridItems[undoRow1!][undoCol1!] = i1;
-       gridItems[undoRow2!][undoCol2!] = i2;
-       i1.gridPosition = Point(undoRow1!, undoCol1!);
-       i2.gridPosition = Point(undoRow2!, undoCol2!);
-    }
-
-    overlays.remove('HUD');
-    overlays.add('HUD');
-    isProcessing = false;
   }
 }

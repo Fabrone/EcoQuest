@@ -41,7 +41,6 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
     }
   }
   
-  // SWIPE INPUT - Quick response
   Vector2 dragDelta = Vector2.zero();
 
   @override
