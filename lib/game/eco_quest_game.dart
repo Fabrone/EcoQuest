@@ -48,11 +48,12 @@ class EcoQuestGame extends FlameGame {
   Future<void> onLoad() async {
     super.onLoad();
 
-    // Dynamic Sizing
-    double availableHeight = size.y * 0.7; 
-    double maxW = size.x / cols;
+    // Dynamic Sizing - Reserve space for UI elements
+    double availableHeight = size.y * 0.65; 
+    double availableWidth = size.x * 0.8;
+    double maxW = availableWidth / cols;
     double maxH = availableHeight / rows;
-    tileSize = min(maxW, maxH) * 0.95;
+    tileSize = min(maxW, maxH) * 0.9;
 
     boardWidth = cols * tileSize;
     boardHeight = rows * tileSize;
@@ -87,8 +88,8 @@ class EcoQuestGame extends FlameGame {
     
     // Timer setup
     _setupTimer();
-
-    overlays.add('HUD');
+    
+    // NO overlays.add('HUD') - we handle UI in Flutter widgets now
   }
 
   void _setupTimer() {
@@ -120,7 +121,6 @@ class EcoQuestGame extends FlameGame {
       _timerComponent.timer.stop();
     }
 
-    // Pass success state to overlay
     gameSuccessNotifier.value = success;
 
     if (!overlays.isActive('GameOver')) {
@@ -132,7 +132,6 @@ class EcoQuestGame extends FlameGame {
     int targetScore = levelTargets[currentLevel] ?? 1000;
     
     if (scoreNotifier.value >= targetScore) {
-      // Level completed successfully!
       _triggerGameOver(true);
     }
   }
@@ -142,18 +141,15 @@ class EcoQuestGame extends FlameGame {
       currentLevel++;
       restartGame();
     } else {
-      // Game fully completed!
       debugPrint("🎉 All levels completed!");
     }
   }
   
   void restartGame() {
-    // Reset Data
     scoreNotifier.value = 0;
     hintsRemaining = 5;
     isProcessing = false;
     
-    // Clear Board
     final items = children.whereType<EcoItem>().toList();
     for(var i in items) {
       i.removeFromParent();
@@ -161,18 +157,10 @@ class EcoQuestGame extends FlameGame {
     
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
-    // Rebuild
     _buildTutorialGrid();
-    
-    // Reset Timer
     _setupTimer(); 
     
-    // Refresh HUD
-    overlays.remove('HUD');
-    overlays.add('HUD');
-    
     overlays.remove('GameOver');
-    
     currentLevelNotifier.value = currentLevel;
   }
 
@@ -333,7 +321,6 @@ class EcoQuestGame extends FlameGame {
     await _applyGravity();
     await _spawnNewItems();
 
-    // Check level completion after processing
     checkLevelCompletion();
 
     List<EcoItem> newMatches = _findMatches();
@@ -495,8 +482,6 @@ class EcoQuestGame extends FlameGame {
                   other.add(_getBlinkEffect());
                   
                   hintsRemaining--;
-                  overlays.remove('HUD');
-                  overlays.add('HUD');
                   return;
                 }
               }
