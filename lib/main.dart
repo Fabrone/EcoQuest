@@ -81,27 +81,32 @@ class _GameScreenState extends State<GameScreen> {
             bool isLandscape = constraints.maxWidth > constraints.maxHeight;
             bool isTabletOrDesktop = constraints.maxWidth >= 600;
 
+            // Strict 30% / 70% Split
             if (isLandscape || isTabletOrDesktop) {
               return Row(
                 children: [
+                  // 30% Left: Progress
                   SizedBox(
                     width: constraints.maxWidth * 0.3,
                     child: const EnvironmentalProgressPanel(),
                   ),
+                  // 70% Right: Game Area
                   Expanded(
-                    child: _buildGameSection(constraints),
+                    child: _buildGameSectionWrapper(constraints),
                   ),
                 ],
               );
             } else {
               return Column(
                 children: [
+                  // 30% Top: Progress
                   SizedBox(
                     height: constraints.maxHeight * 0.3,
                     child: const EnvironmentalProgressPanel(),
                   ),
+                  // 70% Bottom: Game Area
                   Expanded(
-                    child: _buildGameSection(constraints),
+                    child: _buildGameSectionWrapper(constraints),
                   ),
                 ],
               );
@@ -112,10 +117,11 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildGameSection(BoxConstraints constraints) {
+  // Wrapper for the 70% section (Background + Content)
+  Widget _buildGameSectionWrapper(BoxConstraints constraints) {
     return Stack(
       children: [
-        // Unified Background
+        // 1. Unified Background for the 70% section
         Positioned.fill(
           child: Container(
             decoration: BoxDecoration(
@@ -128,173 +134,178 @@ class _GameScreenState extends State<GameScreen> {
                   const Color(0xFF4A2511).withValues(alpha: 0.3),
                 ],
               ),
+              image: const DecorationImage(
+                // Assuming you might have a subtle background texture
+                // If not, this gradient + custom painter acts as the background
+                image: AssetImage('assets/images/tile_bg.png'), 
+                fit: BoxFit.cover,
+                opacity: 0.2,
+              ),
             ),
             child: CustomPaint(
               painter: GridPatternPainter(),
             ),
           ),
         ),
-        
-        // Floating Cards Layout
-        _buildFloatingCardsLayout(constraints),
+
+        // 2. Content (Header + Board)
+        Column(
+          children: [
+            // Top Section (approx 20% visual weight, but auto-sized)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+              child: _buildUnifiedHeader(),
+            ),
+
+            // Game Board Section (Fills remaining space, centered)
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: AspectRatio(
+                    aspectRatio: 1.0, // Force square for 4x4 grid
+                    child: _buildStyledGameBoard(),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
 
-  Widget _buildFloatingCardsLayout(BoxConstraints constraints) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          children: [
-            // Top Row: Stats Cards
-            _buildTopStatsRow(),
-            
-            const SizedBox(height: 12),
-            
-            // Middle: Game Board Card (FLOATING)
-            Expanded(
-              child: _buildFloatingGameBoard(),
-            ),
-            
-            const SizedBox(height: 12),
-            
-            // Bottom: Progress & Controls
-            _buildBottomControls(),
-          ],
-        ),
+  // The 6 items: Level, EcoPoints, Time, Hint, Restart, Exit
+  Widget _buildUnifiedHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: ValueListenableBuilder<int>(
+        valueListenable: scoreNotifier,
+        builder: (context, score, _) {
+          if (score > highScoreNotifier.value) updateHighScore(score);
+          
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              // 1. Level
+              ValueListenableBuilder<int>(
+                valueListenable: currentLevelNotifier,
+                builder: (ctx, level, _) => _buildCompactStat('LVL', '$level', Colors.amber),
+              ),
+              
+              _buildDivider(),
+
+              // 2. Points
+              _buildCompactStat('PTS', '$score', Colors.green),
+
+              _buildDivider(),
+
+              // 3. Time
+              ValueListenableBuilder<int>(
+                valueListenable: levelTimeNotifier,
+                builder: (ctx, time, _) => _buildCompactStat(
+                  'TIME', 
+                  '${time}s', 
+                  time <= 10 ? Colors.red : Colors.lightBlue
+                ),
+              ),
+
+              _buildDivider(),
+
+              // 4. Hint
+              IconButton(
+                icon: const Icon(Icons.lightbulb, color: Colors.amber),
+                iconSize: 24,
+                tooltip: 'Hint',
+                onPressed: () {
+                  if (game.hintsRemaining > 0 && !game.isProcessing) {
+                    game.useHint();
+                  }
+                },
+              ),
+
+              // 5. Restart
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.orange),
+                iconSize: 24,
+                tooltip: 'Restart',
+                onPressed: () => _showRestartDialog(context, game),
+              ),
+
+              // 6. Exit
+              IconButton(
+                icon: const Icon(Icons.exit_to_app, color: Colors.red),
+                iconSize: 24,
+                tooltip: 'Exit',
+                onPressed: () => _showExitDialog(context),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildTopStatsRow() {
-    return ValueListenableBuilder<int>(
-      valueListenable: scoreNotifier,
-      builder: (context, currentScore, _) {
-        if (currentScore > highScoreNotifier.value) {
-          updateHighScore(currentScore);
-        }
-        
-        return Row(
-          children: [
-            Expanded(
-              child: ValueListenableBuilder<int>(
-                valueListenable: currentLevelNotifier,
-                builder: (ctx, level, _) {
-                  return _buildFloatingCard(
-                    icon: Icons.stars,
-                    label: 'LEVEL',
-                    value: '$level',
-                    color: Colors.amber,
-                  );
-                },
-              ),
-            ),
-            
-            const SizedBox(width: 12),
-            
-            Expanded(
-              child: _buildFloatingCard(
-                icon: Icons.eco,
-                label: 'ECOPOINTS',
-                value: '$currentScore',
-                color: Colors.green,
-              ),
-            ),
-            
-            const SizedBox(width: 12),
-            
-            Expanded(
-              child: ValueListenableBuilder<int>(
-                valueListenable: levelTimeNotifier,
-                builder: (ctx, time, _) {
-                  final color = time <= 10 ? Colors.red : Colors.lightBlue;
-                  return _buildFloatingCard(
-                    icon: Icons.timer,
-                    label: 'TIME',
-                    value: '${time}s',
-                    color: color,
-                  );
-                },
-              ),
-            ),
-          ],
-        );
-      },
+  Widget _buildCompactStat(String label, String value, Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.vt323(
+            color: Colors.white60,
+            fontSize: 14,
+            height: 1,
+          ),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.vt323(
+            color: color,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            height: 1,
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildFloatingCard({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
+  Widget _buildDivider() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      height: 24,
+      width: 1,
+      color: Colors.white24,
+    );
+  }
+
+  // The Game Board with the specific card styling
+  Widget _buildStyledGameBoard() {
+    return Container(
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.75),
+        // Transparent BG inside because parent has the image/gradient
+        color: Colors.black.withValues(alpha: 0.3), 
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: color,
-          width: 3,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.4),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            style: GoogleFonts.vt323(
-              color: Colors.white70,
-              fontSize: 14,
-              letterSpacing: 1.2,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: GoogleFonts.vt323(
-              color: color,
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFloatingGameBoard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.75),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
           color: Colors.amber.shade700,
-          width: 4,
+          width: 4, // Prominent border
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.amber.withValues(alpha: 0.3),
+            color: Colors.amber.withValues(alpha: 0.2),
             blurRadius: 20,
             spreadRadius: 2,
-            offset: const Offset(0, 6),
+            offset: const Offset(0, 0),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         child: GameWidget(
           game: game,
           overlayBuilderMap: {
@@ -302,191 +313,6 @@ class _GameScreenState extends State<GameScreen> {
               return _buildGameOverDialog(context, game);
             },
           },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomControls() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Target Progress Card
-        ValueListenableBuilder<int>(
-          valueListenable: scoreNotifier,
-          builder: (ctx, score, _) {
-            return ValueListenableBuilder<int>(
-              valueListenable: currentLevelNotifier,
-              builder: (ctx, level, _) {
-                int target = EcoQuestGame.levelTargets[level] ?? 1000;
-                double progress = (score / target).clamp(0.0, 1.0);
-                
-                return Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.75),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: progress >= 1.0 ? Colors.amber : Colors.green,
-                      width: 3,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: (progress >= 1.0 ? Colors.amber : Colors.green).withValues(alpha: 0.4),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'TARGET',
-                            style: GoogleFonts.vt323(
-                              color: Colors.white70,
-                              fontSize: 16,
-                              letterSpacing: 1.2,
-                            ),
-                          ),
-                          Text(
-                            '$score / $target',
-                            style: GoogleFonts.vt323(
-                              color: progress >= 1.0 ? Colors.amber : Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          backgroundColor: Colors.grey[850],
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            progress >= 1.0 ? Colors.amber : Colors.green,
-                          ),
-                          minHeight: 10,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-        ),
-        
-        const SizedBox(height: 12),
-        
-        // Action Buttons Row
-        Row(
-          children: [
-            Expanded(
-              child: _buildActionCard(
-                icon: Icons.lightbulb,
-                label: 'HINT',
-                subLabel: '(${game.hintsRemaining})',
-                color: Colors.amber,
-                onPressed: game.hintsRemaining > 0 && !game.isProcessing
-                    ? () {
-                        setState(() {
-                          game.useHint();
-                        });
-                      }
-                    : null,
-              ),
-            ),
-            
-            const SizedBox(width: 12),
-            
-            Expanded(
-              child: _buildActionCard(
-                icon: Icons.refresh,
-                label: 'RESTART',
-                subLabel: '',
-                color: Colors.orange,
-                onPressed: () => _showRestartDialog(context, game),
-              ),
-            ),
-            
-            const SizedBox(width: 12),
-            
-            Expanded(
-              child: _buildActionCard(
-                icon: Icons.exit_to_app,
-                label: 'EXIT',
-                subLabel: '',
-                color: Colors.red,
-                onPressed: () => _showExitDialog(context),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionCard({
-    required IconData icon,
-    required String label,
-    required String subLabel,
-    required Color color,
-    required VoidCallback? onPressed,
-  }) {
-    final isEnabled = onPressed != null;
-    final displayColor = isEnabled ? color : Colors.grey[700]!;
-    
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.75),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: displayColor,
-            width: 3,
-          ),
-          boxShadow: isEnabled ? [
-            BoxShadow(
-              color: displayColor.withValues(alpha: 0.4),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ] : [],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: displayColor,
-              size: 32,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: GoogleFonts.vt323(
-                color: isEnabled ? Colors.white : Colors.grey[600],
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
-              ),
-            ),
-            if (subLabel.isNotEmpty)
-              Text(
-                subLabel,
-                style: GoogleFonts.vt323(
-                  color: isEnabled ? Colors.white70 : Colors.grey[700],
-                  fontSize: 12,
-                ),
-              ),
-          ],
         ),
       ),
     );

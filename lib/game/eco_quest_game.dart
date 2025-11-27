@@ -45,36 +45,26 @@ class EcoQuestGame extends FlameGame {
   final List<String> level1ItemTypes = ['pinnate_leaf', 'leaf_design', 'blue_butterfly', 'red_flower', 'yellow_flower'];
 
   @override
+  Color backgroundColor() => const Color(0x00000000); // Totally Transparent
+
+  @override
   Future<void> onLoad() async {
     super.onLoad();
 
-    // Dynamic Sizing - Reserve space for UI elements
-    double availableHeight = size.y * 0.65; 
-    double availableWidth = size.x * 0.8;
-    double maxW = availableWidth / cols;
-    double maxH = availableHeight / rows;
-    tileSize = min(maxW, maxH) * 0.9;
+    // Sizing: We now assume the GameWidget is inside an AspectRatio(1.0) container.
+    // We want the grid to fill most of this space.
+    double availableSize = min(size.x, size.y);
+    tileSize = availableSize / cols;
 
     boardWidth = cols * tileSize;
     boardHeight = rows * tileSize;
+    
+    // Center the grid explicitly
     startX = (size.x - boardWidth) / 2;
     startY = (size.y - boardHeight) / 2;
 
-    // Background
-    try {
-      final bgSprite = await loadSprite('tile_bg.png');
-      add(SpriteComponent()
-        ..sprite = bgSprite
-        ..size = size
-        ..anchor = Anchor.topLeft
-        ..priority = -1);
-    } catch (e) {
-      add(RectangleComponent(
-        size: size,
-        paint: Paint()..color = const Color(0xFF2D1E17),
-        priority: -1
-      )); 
-    }
+    // REMOVED: Background sprite loading. 
+    // The background is now handled by the Flutter Container in main.dart.
 
     // Audio
     await FlameAudio.audioCache.load('bubble-pop.mp3');
@@ -88,8 +78,6 @@ class EcoQuestGame extends FlameGame {
     
     // Timer setup
     _setupTimer();
-    
-    // NO overlays.add('HUD') - we handle UI in Flutter widgets now
   }
 
   void _setupTimer() {
