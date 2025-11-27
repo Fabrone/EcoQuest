@@ -81,11 +81,12 @@ class _GameScreenState extends State<GameScreen> {
             bool isLandscape = constraints.maxWidth > constraints.maxHeight;
             bool isTabletOrDesktop = constraints.maxWidth >= 600;
 
-            // Strict 30% / 70% Split
+            // Strict 30% / 70% Split Logic
             if (isLandscape || isTabletOrDesktop) {
               return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 30% Left: Progress
+                  // 30% Left: Progress Panel
                   SizedBox(
                     width: constraints.maxWidth * 0.3,
                     child: const EnvironmentalProgressPanel(),
@@ -98,8 +99,9 @@ class _GameScreenState extends State<GameScreen> {
               );
             } else {
               return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 30% Top: Progress
+                  // 30% Top: Progress Panel
                   SizedBox(
                     height: constraints.maxHeight * 0.3,
                     child: const EnvironmentalProgressPanel(),
@@ -117,11 +119,11 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // Wrapper for the 70% section (Background + Content)
+  // Wrapper for the 70% section (Background + Header + Game Board)
   Widget _buildGameSectionWrapper(BoxConstraints constraints) {
     return Stack(
       children: [
-        // 1. Unified Background for the 70% section
+        // 1. Unified Background for the whole 70% section
         Positioned.fill(
           child: Container(
             decoration: BoxDecoration(
@@ -135,11 +137,9 @@ class _GameScreenState extends State<GameScreen> {
                 ],
               ),
               image: const DecorationImage(
-                // Assuming you might have a subtle background texture
-                // If not, this gradient + custom painter acts as the background
                 image: AssetImage('assets/images/tile_bg.png'), 
                 fit: BoxFit.cover,
-                opacity: 0.2,
+                opacity: 0.15,
               ),
             ),
             child: CustomPaint(
@@ -148,22 +148,24 @@ class _GameScreenState extends State<GameScreen> {
           ),
         ),
 
-        // 2. Content (Header + Board)
+        // 2. Content: Header + Centered Board
         Column(
           children: [
-            // Top Section (approx 20% visual weight, but auto-sized)
+            // Top Section: Unified Header
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
               child: _buildUnifiedHeader(),
             ),
 
-            // Game Board Section (Fills remaining space, centered)
+            // Middle Section: The Game Board (Centered & Square)
+            // This Expanded ensures it takes available space, and Center positions it
             Expanded(
               child: Center(
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
+                  // AspectRatio 1.0 ensures the grid remains a perfect square
                   child: AspectRatio(
-                    aspectRatio: 1.0, // Force square for 4x4 grid
+                    aspectRatio: 1.0, 
                     child: _buildStyledGameBoard(),
                   ),
                 ),
@@ -175,14 +177,21 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // The 6 items: Level, EcoPoints, Time, Hint, Restart, Exit
+  // The 6 items: Level, EcoPoints, Time, Hint, Restart, Exit aligned at top
   Widget _buildUnifiedHeader() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          )
+        ],
       ),
       child: ValueListenableBuilder<int>(
         valueListenable: scoreNotifier,
@@ -190,7 +199,7 @@ class _GameScreenState extends State<GameScreen> {
           if (score > highScoreNotifier.value) updateHighScore(score);
           
           return Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               // 1. Level
               ValueListenableBuilder<int>(
@@ -218,31 +227,28 @@ class _GameScreenState extends State<GameScreen> {
               _buildDivider(),
 
               // 4. Hint
-              IconButton(
-                icon: const Icon(Icons.lightbulb, color: Colors.amber),
-                iconSize: 24,
-                tooltip: 'Hint',
-                onPressed: () {
+              _buildIconButton(
+                icon: Icons.lightbulb, 
+                color: Colors.amber, 
+                onTap: () {
                   if (game.hintsRemaining > 0 && !game.isProcessing) {
                     game.useHint();
                   }
-                },
+                }
               ),
 
               // 5. Restart
-              IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.orange),
-                iconSize: 24,
-                tooltip: 'Restart',
-                onPressed: () => _showRestartDialog(context, game),
+              _buildIconButton(
+                icon: Icons.refresh, 
+                color: Colors.orange, 
+                onTap: () => _showRestartDialog(context, game)
               ),
 
               // 6. Exit
-              IconButton(
-                icon: const Icon(Icons.exit_to_app, color: Colors.red),
-                iconSize: 24,
-                tooltip: 'Exit',
-                onPressed: () => _showExitDialog(context),
+              _buildIconButton(
+                icon: Icons.exit_to_app, 
+                color: Colors.red, 
+                onTap: () => _showExitDialog(context)
               ),
             ],
           );
@@ -261,18 +267,28 @@ class _GameScreenState extends State<GameScreen> {
             color: Colors.white60,
             fontSize: 14,
             height: 1,
+            fontWeight: FontWeight.bold,
           ),
         ),
         Text(
           value,
           style: GoogleFonts.vt323(
             color: color,
-            fontSize: 22,
+            fontSize: 24,
             fontWeight: FontWeight.bold,
-            height: 1,
+            height: 1.1,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildIconButton({required IconData icon, required Color color, required VoidCallback onTap}) {
+    return IconButton(
+      icon: Icon(icon, color: color),
+      iconSize: 26,
+      visualDensity: VisualDensity.compact,
+      onPressed: onTap,
     );
   }
 
@@ -284,20 +300,21 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // The Game Board with the specific card styling
+  // The Game Board with the specific Yellow Outline Card Styling
   Widget _buildStyledGameBoard() {
     return Container(
       decoration: BoxDecoration(
-        // Transparent BG inside because parent has the image/gradient
-        color: Colors.black.withValues(alpha: 0.3), 
-        borderRadius: BorderRadius.circular(16),
+        // Transparent BG inside so parent background shows through, 
+        // but slightly darkened to make items pop
+        color: Colors.black.withValues(alpha: 0.25), 
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: Colors.amber.shade700,
-          width: 4, // Prominent border
+          width: 4.0, // Prominent border
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.amber.withValues(alpha: 0.2),
+            color: Colors.amber.withValues(alpha: 0.15),
             blurRadius: 20,
             spreadRadius: 2,
             offset: const Offset(0, 0),
@@ -305,7 +322,7 @@ class _GameScreenState extends State<GameScreen> {
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         child: GameWidget(
           game: game,
           overlayBuilderMap: {
@@ -317,6 +334,8 @@ class _GameScreenState extends State<GameScreen> {
       ),
     );
   }
+
+  // --- Dialogs (Maintained Structure) ---
 
   Widget _buildGameOverDialog(BuildContext context, EcoQuestGame game) {
     return ValueListenableBuilder<bool>(
@@ -637,6 +656,13 @@ class EnvironmentalProgressPanel extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black45,
+            blurRadius: 10,
+            offset: Offset(2, 0),
+          )
+        ],
       ),
       child: ValueListenableBuilder<int>(
         valueListenable: scoreNotifier,
@@ -648,6 +674,7 @@ class EnvironmentalProgressPanel extends StatelessWidget {
               double progress = (score / target).clamp(0.0, 1.0);
               
               return SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
                   child: Column(
@@ -660,13 +687,16 @@ class EnvironmentalProgressPanel extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
                       
-                      Text(
-                        'LAND RESTORATION',
-                        style: GoogleFonts.vt323(
-                          fontSize: 26,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.5,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'LAND RESTORATION',
+                          style: GoogleFonts.vt323(
+                            fontSize: 26,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                          ),
                         ),
                       ),
                       
@@ -760,6 +790,8 @@ class EnvironmentalProgressPanel extends StatelessWidget {
                 color: isActive ? Colors.white : Colors.grey[400],
                 fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
               ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ),
           if (isActive)

@@ -14,14 +14,15 @@ class EcoQuestGame extends FlameGame {
   static const int cols = 4;
   
   // Dynamic sizing logic
-  late double tileSize; 
-  late double boardWidth;
-  late double boardHeight;
-  late double startX;
-  late double startY;
+  double tileSize = 0; 
+  double boardWidth = 0;
+  double boardHeight = 0;
+  double startX = 0;
+  double startY = 0;
 
   // State Management
-  late List<List<EcoItem?>> gridItems;
+  // FIX: Initialize gridItems immediately to avoid LateInitializationError during initial onGameResize.
+  List<List<EcoItem?>> gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
   EcoItem? selectedItem;
   bool isProcessing = false;
   
@@ -45,32 +46,19 @@ class EcoQuestGame extends FlameGame {
   final List<String> level1ItemTypes = ['pinnate_leaf', 'leaf_design', 'blue_butterfly', 'red_flower', 'yellow_flower'];
 
   @override
-  Color backgroundColor() => const Color(0x00000000); // Totally Transparent
+  Color backgroundColor() => const Color(0x00000000); // Transparent to show main.dart background
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
 
-    // Sizing: We now assume the GameWidget is inside an AspectRatio(1.0) container.
-    // We want the grid to fill most of this space.
-    double availableSize = min(size.x, size.y);
-    tileSize = availableSize / cols;
+    // The initialization of gridItems has been moved to its declaration.
 
-    boardWidth = cols * tileSize;
-    boardHeight = rows * tileSize;
-    
-    // Center the grid explicitly
-    startX = (size.x - boardWidth) / 2;
-    startY = (size.y - boardHeight) / 2;
-
-    // REMOVED: Background sprite loading. 
-    // The background is now handled by the Flutter Container in main.dart.
+    // Initial Calculation of Dimensions
+    _updateLayout(size);
 
     // Audio
     await FlameAudio.audioCache.load('bubble-pop.mp3');
-
-    // Init Data
-    gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
     // Build initial level
     debugPrint("🗃️ Building Level $currentLevel...");
@@ -78,6 +66,48 @@ class EcoQuestGame extends FlameGame {
     
     // Timer setup
     _setupTimer();
+  }
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    // Recalculate dimensions whenever the game widget changes size
+    _updateLayout(size);
+    // Reposition all existing items to fit the new layout
+    _repositionActiveItems();
+  }
+
+  void _updateLayout(Vector2 gameSize) {
+    // We want the board to fill the available space minus a small padding
+    // Since main.dart forces AspectRatio 1.0, x and y should be roughly equal
+    double availableSize = min(gameSize.x, gameSize.y);
+    
+    // Slight padding so items don't touch the exact edge of the yellow border
+    double padding = 16.0; 
+    
+    tileSize = (availableSize - (padding * 2)) / cols;
+    boardWidth = cols * tileSize;
+    boardHeight = rows * tileSize;
+    
+    // Center the grid explicitly
+    startX = (gameSize.x - boardWidth) / 2;
+    startY = (gameSize.y - boardHeight) / 2;
+  }
+
+  void _repositionActiveItems() {
+    // Loop through the grid and update positions/sizes of all active items
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        EcoItem? item = gridItems[r][c];
+        if (item != null) {
+          // Snap to new position based on grid coordinates
+          Vector2 newPos = Vector2(startX + c * tileSize, startY + r * tileSize);
+          item.position = newPos;
+          item.size = Vector2(tileSize, tileSize);
+          // Also update the internal sizeVal if needed for logic, though Flame uses .size
+        }
+      }
+    }
   }
 
   void _setupTimer() {
@@ -143,6 +173,7 @@ class EcoQuestGame extends FlameGame {
       i.removeFromParent();
     }
     
+    // Re-initialize gridItems for a fresh game state
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
     _buildTutorialGrid();
