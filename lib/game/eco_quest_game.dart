@@ -21,21 +21,28 @@ class EcoQuestGame extends FlameGame {
   double startY = 0;
 
   // State Management
-  // FIX: Initialize gridItems immediately to avoid LateInitializationError during initial onGameResize.
   List<List<EcoItem?>> gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
   EcoItem? selectedItem;
   bool isProcessing = false;
   
   // Level Management
   int currentLevel = 1;
-  static const Map<int, int> levelTargets = {
-    1: 1000,
-    2: 1100,
-    3: 1200,
-    4: 1300,
-    5: 1400,
-    6: 1500,
-  };
+  
+  // Phase Management - NEW
+  int currentPhase = 1; // 1 = Restoration, 2 = Dye Extraction
+  int plantsCollected = 0;
+  
+  // Forest Restoration Images
+  List<String> forestImages = [
+    'forest_0.png', 'forest_1.png', 'forest_2.png', 'forest_3.png', 'forest_4.png',
+    'forest_5.png', 'forest_6.png', 'forest_7.png', 'forest_8.png', 'forest_9.png'
+  ];
+  
+  // Temporary high score for image progression
+  static const int targetHighScore = 2000;
+  
+  // Track tile restoration state
+  List<List<bool>> restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
   
   // Utilities State
   int hintsRemaining = 5;
@@ -46,22 +53,18 @@ class EcoQuestGame extends FlameGame {
   final List<String> level1ItemTypes = ['pinnate_leaf', 'leaf_design', 'blue_butterfly', 'red_flower', 'yellow_flower'];
 
   @override
-  Color backgroundColor() => const Color(0x00000000); // Transparent to show main.dart background
+  Color backgroundColor() => const Color(0x00000000);
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
 
-    // The initialization of gridItems has been moved to its declaration.
-
-    // Initial Calculation of Dimensions
     _updateLayout(size);
 
     // Audio
     await FlameAudio.audioCache.load('bubble-pop.mp3');
 
-    // Build initial level
-    debugPrint("🗃️ Building Level $currentLevel...");
+    debugPrint("🗃️ Building Level $currentLevel - Phase $currentPhase...");
     _buildTutorialGrid();
     
     // Timer setup
@@ -71,47 +74,37 @@ class EcoQuestGame extends FlameGame {
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    // Recalculate dimensions whenever the game widget changes size
     _updateLayout(size);
-    // Reposition all existing items to fit the new layout
     _repositionActiveItems();
   }
 
   void _updateLayout(Vector2 gameSize) {
-    // We want the board to fill the available space minus a small padding
-    // Since main.dart forces AspectRatio 1.0, x and y should be roughly equal
     double availableSize = min(gameSize.x, gameSize.y);
-    
-    // Slight padding so items don't touch the exact edge of the yellow border
     double padding = 16.0; 
     
     tileSize = (availableSize - (padding * 2)) / cols;
     boardWidth = cols * tileSize;
     boardHeight = rows * tileSize;
     
-    // Center the grid explicitly
     startX = (gameSize.x - boardWidth) / 2;
     startY = (gameSize.y - boardHeight) / 2;
   }
 
   void _repositionActiveItems() {
-    // Loop through the grid and update positions/sizes of all active items
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
         EcoItem? item = gridItems[r][c];
         if (item != null) {
-          // Snap to new position based on grid coordinates
           Vector2 newPos = Vector2(startX + c * tileSize, startY + r * tileSize);
           item.position = newPos;
           item.size = Vector2(tileSize, tileSize);
-          // Also update the internal sizeVal if needed for logic, though Flame uses .size
         }
       }
     }
   }
 
   void _setupTimer() {
-    levelTimeNotifier.value = 120;
+    levelTimeNotifier.value = 140; // Changed to 140 seconds
     
     children.whereType<TimerComponent>().forEach((tc) => tc.removeFromParent());
     
@@ -147,19 +140,50 @@ class EcoQuestGame extends FlameGame {
   }
   
   void checkLevelCompletion() {
-    int targetScore = levelTargets[currentLevel] ?? 1000;
+    // Check if all tiles are restored (green)
+    bool allRestored = true;
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        if (!restoredTiles[r][c]) {
+          allRestored = false;
+          break;
+        }
+      }
+      if (!allRestored) break;
+    }
     
-    if (scoreNotifier.value >= targetScore) {
-      _triggerGameOver(true);
+    if (allRestored) {
+      // Calculate plants collected based on score above 60% restoration
+      int sixtyPercentScore = (targetHighScore * 0.6).toInt();
+      if (scoreNotifier.value >= sixtyPercentScore) {
+        plantsCollected = ((scoreNotifier.value - sixtyPercentScore) / 10).toInt();
+      }
+      
+      _triggerPhaseTransition();
     }
   }
   
-  void proceedToNextLevel() {
-    if (currentLevel < 6) {
-      currentLevel++;
-      restartGame();
-    } else {
-      debugPrint("🎉 All levels completed!");
+  void _triggerPhaseTransition() {
+    pauseEngine();
+    
+    if (!_timerComponent.timer.finished) {
+      _timerComponent.timer.stop();
+    }
+    
+    // Store plants collected
+    plantsCollectedNotifier.value = plantsCollected;
+    
+    if (!overlays.isActive('PhaseComplete')) {
+      overlays.add('PhaseComplete');
+    }
+  }
+  
+  void startPhase2() {
+    currentPhase = 2;
+    overlays.remove('PhaseComplete');
+    
+    if (!overlays.isActive('DyeExtraction')) {
+      overlays.add('DyeExtraction');
     }
   }
   
@@ -167,19 +191,26 @@ class EcoQuestGame extends FlameGame {
     scoreNotifier.value = 0;
     hintsRemaining = 5;
     isProcessing = false;
+    currentPhase = 1;
+    plantsCollected = 0;
+    plantsCollectedNotifier.value = 0;
+    
+    // Reset tile restoration state
+    restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
     
     final items = children.whereType<EcoItem>().toList();
     for(var i in items) {
       i.removeFromParent();
     }
     
-    // Re-initialize gridItems for a fresh game state
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
     _buildTutorialGrid();
     _setupTimer(); 
     
     overlays.remove('GameOver');
+    overlays.remove('PhaseComplete');
+    overlays.remove('DyeExtraction');
     currentLevelNotifier.value = currentLevel;
   }
 
@@ -328,6 +359,10 @@ class EcoQuestGame extends FlameGame {
       int r = item.gridPosition.x as int;
       int c = item.gridPosition.y as int;
       item.add(ScaleEffect.to(Vector2.zero(), EffectController(duration: 0.2)));
+      
+      // Mark tile as restored (turn green)
+      restoredTiles[r][c] = true;
+      
       gridItems[r][c] = null;
     }
     
@@ -509,5 +544,14 @@ class EcoQuestGame extends FlameGame {
         }
       }
     }
+  }
+  
+  // Get current forest image index based on score
+  int getForestImageIndex() {
+    if (scoreNotifier.value <= 0) return 0;
+    
+    double percentage = (scoreNotifier.value / targetHighScore).clamp(0.0, 1.0);
+    int index = (percentage * 9).round();
+    return index;
   }
 }

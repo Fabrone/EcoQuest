@@ -10,9 +10,10 @@ import 'game/eco_quest_game.dart';
 // Global Notifiers
 final ValueNotifier<int> scoreNotifier = ValueNotifier<int>(0);
 final ValueNotifier<int> highScoreNotifier = ValueNotifier<int>(0);
-final ValueNotifier<int> levelTimeNotifier = ValueNotifier<int>(120);
+final ValueNotifier<int> levelTimeNotifier = ValueNotifier<int>(70);
 final ValueNotifier<int> currentLevelNotifier = ValueNotifier<int>(1);
 final ValueNotifier<bool> gameSuccessNotifier = ValueNotifier<bool>(false);
+final ValueNotifier<int> plantsCollectedNotifier = ValueNotifier<int>(0);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -70,10 +71,22 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
+    // Replaced WillPopScope with PopScope
+    return PopScope(
+      canPop: false, // Prevents the screen from closing automatically
+      onPopInvokedWithResult: (bool didPop, dynamic result) async {
+        if (didPop) {
+          return;
+        }
+        // Show the exit dialog
         final shouldExit = await _showExitDialog(context);
-        return shouldExit ?? false;
+
+        // If the user confirms (returns true), we manually pop the route
+        if (shouldExit ?? false) {
+          if (context.mounted) {
+            Navigator.of(context).pop();
+          }
+        }
       },
       child: Scaffold(
         body: LayoutBuilder(
@@ -81,17 +94,14 @@ class _GameScreenState extends State<GameScreen> {
             bool isLandscape = constraints.maxWidth > constraints.maxHeight;
             bool isTabletOrDesktop = constraints.maxWidth >= 600;
 
-            // Strict 30% / 70% Split Logic
             if (isLandscape || isTabletOrDesktop) {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 30% Left: Progress Panel
                   SizedBox(
                     width: constraints.maxWidth * 0.3,
                     child: const EnvironmentalProgressPanel(),
                   ),
-                  // 70% Right: Game Area
                   Expanded(
                     child: _buildGameSectionWrapper(constraints),
                   ),
@@ -101,12 +111,10 @@ class _GameScreenState extends State<GameScreen> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 30% Top: Progress Panel
                   SizedBox(
                     height: constraints.maxHeight * 0.3,
                     child: const EnvironmentalProgressPanel(),
                   ),
-                  // 70% Bottom: Game Area
                   Expanded(
                     child: _buildGameSectionWrapper(constraints),
                   ),
@@ -119,11 +127,9 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // Wrapper for the 70% section (Background + Header + Game Board)
   Widget _buildGameSectionWrapper(BoxConstraints constraints) {
     return Stack(
       children: [
-        // 1. Unified Background for the whole 70% section
         Positioned.fill(
           child: Container(
             decoration: BoxDecoration(
@@ -131,9 +137,9 @@ class _GameScreenState extends State<GameScreen> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  const Color(0xFF1B5E20).withValues(alpha: 0.3),
-                  const Color(0xFF2D1E17).withValues(alpha: 0.5),
-                  const Color(0xFF4A2511).withValues(alpha: 0.3),
+                  const Color(0xFF1B5E20).withValues(alpha:0.3),
+                  const Color(0xFF2D1E17).withValues(alpha:0.5),
+                  const Color(0xFF4A2511).withValues(alpha:0.3),
                 ],
               ),
               image: const DecorationImage(
@@ -148,22 +154,17 @@ class _GameScreenState extends State<GameScreen> {
           ),
         ),
 
-        // 2. Content: Header + Centered Board
         Column(
           children: [
-            // Top Section: Unified Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
               child: _buildUnifiedHeader(),
             ),
 
-            // Middle Section: The Game Board (Centered & Square)
-            // This Expanded ensures it takes available space, and Center positions it
             Expanded(
               child: Center(
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
-                  // AspectRatio 1.0 ensures the grid remains a perfect square
                   child: AspectRatio(
                     aspectRatio: 1.0, 
                     child: _buildStyledGameBoard(),
@@ -177,17 +178,16 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // The 6 items: Level, EcoPoints, Time, Hint, Restart, Exit aligned at top
   Widget _buildUnifiedHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
+        color: Colors.black.withValues(alpha:0.6),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white12, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
+            color: Colors.black.withValues(alpha:0.3),
             blurRadius: 8,
             offset: const Offset(0, 2),
           )
@@ -201,7 +201,6 @@ class _GameScreenState extends State<GameScreen> {
           return Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              // 1. Level
               ValueListenableBuilder<int>(
                 valueListenable: currentLevelNotifier,
                 builder: (ctx, level, _) => _buildCompactStat('LVL', '$level', Colors.amber),
@@ -209,12 +208,10 @@ class _GameScreenState extends State<GameScreen> {
               
               _buildDivider(),
 
-              // 2. Points
               _buildCompactStat('PTS', '$score', Colors.green),
 
               _buildDivider(),
 
-              // 3. Time
               ValueListenableBuilder<int>(
                 valueListenable: levelTimeNotifier,
                 builder: (ctx, time, _) => _buildCompactStat(
@@ -226,7 +223,6 @@ class _GameScreenState extends State<GameScreen> {
 
               _buildDivider(),
 
-              // 4. Hint
               _buildIconButton(
                 icon: Icons.lightbulb, 
                 color: Colors.amber, 
@@ -237,14 +233,12 @@ class _GameScreenState extends State<GameScreen> {
                 }
               ),
 
-              // 5. Restart
               _buildIconButton(
                 icon: Icons.refresh, 
                 color: Colors.orange, 
                 onTap: () => _showRestartDialog(context, game)
               ),
 
-              // 6. Exit
               _buildIconButton(
                 icon: Icons.exit_to_app, 
                 color: Colors.red, 
@@ -300,21 +294,18 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // The Game Board with the specific Yellow Outline Card Styling
   Widget _buildStyledGameBoard() {
     return Container(
       decoration: BoxDecoration(
-        // Transparent BG inside so parent background shows through, 
-        // but slightly darkened to make items pop
-        color: Colors.black.withValues(alpha: 0.25), 
+        color: Colors.black.withValues(alpha:0.25), 
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: Colors.amber.shade700,
-          width: 4.0, // Prominent border
+          width: 4.0,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.amber.withValues(alpha: 0.15),
+            color: Colors.amber.withValues(alpha:0.15),
             blurRadius: 20,
             spreadRadius: 2,
             offset: const Offset(0, 0),
@@ -329,20 +320,129 @@ class _GameScreenState extends State<GameScreen> {
             'GameOver': (BuildContext context, EcoQuestGame game) {
               return _buildGameOverDialog(context, game);
             },
+            'PhaseComplete': (BuildContext context, EcoQuestGame game) {
+              return _buildPhaseCompleteDialog(context, game);
+            },
+            'DyeExtraction': (BuildContext context, EcoQuestGame game) {
+              return DyeExtractionOverlay(game: game);
+            },
           },
         ),
       ),
     );
   }
 
-  // --- Dialogs (Maintained Structure) ---
+  // Phase Complete Dialog (Transition from Phase 1 to Phase 2)
+  Widget _buildPhaseCompleteDialog(BuildContext context, EcoQuestGame game) {
+    return Container(
+      color: Colors.black.withValues(alpha:0.92),
+      child: Center(
+        child: Container(
+          width: 400,
+          margin: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.green[900]!, Colors.green[700]!],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: Colors.amber,
+              width: 4,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.amber.withValues(alpha:0.6),
+                blurRadius: 30,
+                spreadRadius: 8,
+              ),
+            ],
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.park,
+                  size: 80,
+                  color: Colors.amber,
+                ),
+                const SizedBox(height: 16),
+                
+                Text(
+                  "FOREST RESTORED!",
+                  style: GoogleFonts.vt323(
+                    fontSize: 38,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                
+                const SizedBox(height: 20),
+                
+                ValueListenableBuilder<int>(
+                  valueListenable: plantsCollectedNotifier,
+                  builder: (ctx, plants, _) {
+                    return Column(
+                      children: [
+                        Text(
+                          'Plant Materials Collected',
+                          style: GoogleFonts.vt323(
+                            fontSize: 20,
+                            color: Colors.white70,
+                          ),
+                        ),
+                        Text(
+                          '$plants units',
+                          style: GoogleFonts.lobster(
+                            fontSize: 38,
+                            color: Colors.amber,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                
+                const SizedBox(height: 20),
+                
+                Text(
+                  'All tiles have been restored to green!\nTime to extract natural dyes.',
+                  style: GoogleFonts.vt323(
+                    fontSize: 18,
+                    color: Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                
+                const SizedBox(height: 24),
+                
+                _buildDialogButton(
+                  label: 'PROCEED TO DYE EXTRACTION',
+                  icon: Icons.science,
+                  color: Colors.amber,
+                  onPressed: () {
+                    game.startPhase2();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildGameOverDialog(BuildContext context, EcoQuestGame game) {
     return ValueListenableBuilder<bool>(
       valueListenable: gameSuccessNotifier,
       builder: (context, isSuccess, _) {
         return Container(
-          color: Colors.black.withValues(alpha: 0.92),
+          color: Colors.black.withValues(alpha:0.92),
           child: Center(
             child: Container(
               width: 400,
@@ -350,20 +450,18 @@ class _GameScreenState extends State<GameScreen> {
               padding: const EdgeInsets.all(28),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: isSuccess
-                      ? [Colors.green[900]!, Colors.green[700]!]
-                      : [Colors.red[900]!, Colors.red[700]!],
+                  colors: [Colors.red[900]!, Colors.red[700]!],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: isSuccess ? Colors.amber : Colors.red,
+                  color: Colors.red,
                   width: 4,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: (isSuccess ? Colors.amber : Colors.red).withValues(alpha: 0.6),
+                    color: Colors.red.withValues(alpha:0.6),
                     blurRadius: 30,
                     spreadRadius: 8,
                   ),
@@ -374,14 +472,14 @@ class _GameScreenState extends State<GameScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      isSuccess ? Icons.eco : Icons.warning_amber,
+                      Icons.warning_amber,
                       size: 80,
-                      color: isSuccess ? Colors.amber : Colors.red[300],
+                      color: Colors.red[300],
                     ),
                     const SizedBox(height: 16),
                     
                     Text(
-                      isSuccess ? "LEVEL COMPLETE!" : "TIME'S UP!",
+                      "TIME'S UP!",
                       style: GoogleFonts.vt323(
                         fontSize: 42,
                         color: Colors.white,
@@ -392,7 +490,14 @@ class _GameScreenState extends State<GameScreen> {
                     
                     const SizedBox(height: 12),
                     
-                    if (isSuccess) _buildStarRating(),
+                    Text(
+                      'The forest could not be fully restored in time.',
+                      style: GoogleFonts.vt323(
+                        fontSize: 18,
+                        color: Colors.white70,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                     
                     const SizedBox(height: 16),
                     
@@ -420,53 +525,10 @@ class _GameScreenState extends State<GameScreen> {
                       },
                     ),
                     
-                    const SizedBox(height: 8),
-                    
-                    ValueListenableBuilder<int>(
-                      valueListenable: highScoreNotifier,
-                      builder: (ctx, best, _) {
-                        return Text(
-                          'Best: $best',
-                          style: GoogleFonts.vt323(
-                            fontSize: 18,
-                            color: Colors.white60,
-                          ),
-                        );
-                      },
-                    ),
-                    
                     const SizedBox(height: 24),
                     
-                    if (isSuccess) ...[
-                      ValueListenableBuilder<int>(
-                        valueListenable: currentLevelNotifier,
-                        builder: (ctx, level, _) {
-                          if (level < 6) {
-                            return _buildDialogButton(
-                              label: 'NEXT LEVEL',
-                              icon: Icons.arrow_forward,
-                              color: Colors.amber,
-                              onPressed: () {
-                                game.proceedToNextLevel();
-                              },
-                            );
-                          } else {
-                            return Text(
-                              '🎉 ALL LEVELS COMPLETED! 🎉',
-                              style: GoogleFonts.vt323(
-                                fontSize: 24,
-                                color: Colors.amber,
-                              ),
-                              textAlign: TextAlign.center,
-                            );
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    
                     _buildDialogButton(
-                      label: isSuccess ? 'REPLAY LEVEL' : 'TRY AGAIN',
+                      label: 'TRY AGAIN',
                       icon: Icons.refresh,
                       color: Colors.green,
                       onPressed: () {
@@ -489,38 +551,6 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ),
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildStarRating() {
-    return ValueListenableBuilder<int>(
-      valueListenable: scoreNotifier,
-      builder: (context, score, _) {
-        return ValueListenableBuilder<int>(
-          valueListenable: currentLevelNotifier,
-          builder: (context, level, _) {
-            int target = EcoQuestGame.levelTargets[level] ?? 1000;
-            int stars = 1;
-            
-            if (score >= target * 1.5) {
-              stars = 3;
-            } else if (score >= target * 1.2) {
-              stars = 2;
-            }
-            
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(3, (index) {
-                return Icon(
-                  index < stars ? Icons.star : Icons.star_border,
-                  color: Colors.amber,
-                  size: 40,
-                );
-              }),
-            );
-          },
         );
       },
     );
@@ -643,7 +673,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 }
 
-// Environmental Progress Panel
+// Environmental Progress Panel with Forest Image Updates
 class EnvironmentalProgressPanel extends StatelessWidget {
   const EnvironmentalProgressPanel({super.key});
 
@@ -667,136 +697,110 @@ class EnvironmentalProgressPanel extends StatelessWidget {
       child: ValueListenableBuilder<int>(
         valueListenable: scoreNotifier,
         builder: (context, score, _) {
-          return ValueListenableBuilder<int>(
-            valueListenable: currentLevelNotifier,
-            builder: (context, level, _) {
-              int target = EcoQuestGame.levelTargets[level] ?? 1000;
-              double progress = (score / target).clamp(0.0, 1.0);
-              
-              return SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.landscape,
-                        size: 60,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(height: 16),
-                      
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          'LAND RESTORATION',
-                          style: GoogleFonts.vt323(
-                            fontSize: 26,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 20),
-                      
-                      _buildProgressStage(
-                        'Barren Land',
-                        Icons.landscape_outlined,
-                        progress >= 0.0,
-                        Colors.brown,
-                      ),
-                      _buildProgressStage(
-                        'Sprouts Growing',
-                        Icons.eco,
-                        progress >= 0.25,
-                        Colors.lightGreen,
-                      ),
-                      _buildProgressStage(
-                        'Trees Emerging',
-                        Icons.park,
-                        progress >= 0.5,
-                        Colors.green,
-                      ),
-                      _buildProgressStage(
-                        'Wildlife Returning',
-                        Icons.pets,
-                        progress >= 0.75,
-                        Colors.green[700]!,
-                      ),
-                      _buildProgressStage(
-                        'Thriving Ecosystem',
-                        Icons.forest,
-                        progress >= 1.0,
-                        Colors.green[900]!,
-                      ),
-                      
-                      const SizedBox(height: 20),
-                      
-                      Text(
-                        '${(progress * 100).toInt()}% Restored',
-                        style: GoogleFonts.vt323(
-                          fontSize: 30,
-                          color: Colors.amber,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 12),
-                      
-                      Text(
-                        'Every match helps restore the environment!',
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.vt323(
-                          fontSize: 16,
-                          color: Colors.white70,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
+          // Get forest image index based on score
+          int imageIndex = 0;
+          if (score > 0) {
+            double percentage = (score / EcoQuestGame.targetHighScore).clamp(0.0, 1.0);
+            imageIndex = (percentage * 9).round();
+          }
+          
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.landscape,
+                    size: 60,
+                    color: Colors.white,
                   ),
-                ),
-              );
-            },
+                  const SizedBox(height: 16),
+                  
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'FOREST RESTORATION',
+                      style: GoogleFonts.vt323(
+                        fontSize: 26,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  // Forest Image Display
+                  Container(
+                    height: 200,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white24, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha:0.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        )
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Image.asset(
+                        'assets/images/forest_$imageIndex.png',
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: Colors.brown.shade800,
+                            child: const Center(
+                              child: Icon(Icons.image_not_supported, color: Colors.white54, size: 50),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  Text(
+                    '${((score / EcoQuestGame.targetHighScore) * 100).clamp(0, 100).toInt()}% Restored',
+                    style: GoogleFonts.vt323(
+                      fontSize: 30,
+                      color: Colors.amber,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  Text(
+                    'Score: $score / ${EcoQuestGame.targetHighScore}',
+                    style: GoogleFonts.vt323(
+                      fontSize: 18,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  Text(
+                    'Match tiles to restore the forest ecosystem!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.vt323(
+                      fontSize: 16,
+                      color: Colors.white70,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildProgressStage(
-    String label,
-    IconData icon,
-    bool isActive,
-    Color color,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color: isActive ? color : Colors.grey[600],
-            size: 32,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              label,
-              style: GoogleFonts.vt323(
-                fontSize: 18,
-                color: isActive ? Colors.white : Colors.grey[400],
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-              ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-          ),
-          if (isActive)
-            const Icon(Icons.check_circle, color: Colors.amber, size: 24),
-        ],
       ),
     );
   }
@@ -807,7 +811,7 @@ class GridPatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.03)
+      ..color = Colors.white.withValues(alpha:0.03)
       ..strokeWidth = 1.0;
 
     const spacing = 40.0;
@@ -831,4 +835,348 @@ class GridPatternPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// Dye Extraction Overlay (Phase 2)
+class DyeExtractionOverlay extends StatefulWidget {
+  final EcoQuestGame game;
+  
+  const DyeExtractionOverlay({super.key, required this.game});
+
+  @override
+  State<DyeExtractionOverlay> createState() => _DyeExtractionOverlayState();
+}
+
+class _DyeExtractionOverlayState extends State<DyeExtractionOverlay> {
+  int currentStep = 0;
+  int dyeProduced = 0;
+  double dyeValue = 0.0;
+  
+  final List<String> stepTitles = [
+    'Collect Plant Materials',
+    'Crush in Mortar',
+    'Simmer in Beaker',
+    'Filter the Mixture',
+    'Dye Extracted!'
+  ];
+  
+  final List<String> stepDescriptions = [
+    'Tap to gather leaves, bark, roots, flowers, and fruits for dye extraction.',
+    'Crush the collected materials using a mortar and pestle to break down cell walls.',
+    'Heat the crushed materials in water to extract the natural pigments.',
+    'Filter the mixture to separate the liquid dye from plant residue.',
+    'Natural dye successfully extracted! Ready for use in customization and future levels.'
+  ];
+  
+  final List<IconData> stepIcons = [
+    Icons.spa,
+    Icons.circle,
+    Icons.science,
+    Icons.filter_alt,
+    Icons.colorize,
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Calculate dye produced based on plants collected
+    int plants = plantsCollectedNotifier.value;
+    dyeProduced = (plants * 0.8).toInt(); // 80% conversion rate
+    dyeValue = dyeProduced * 5.0; // Each unit worth 5 EcoCoins
+  }
+
+  void _nextStep() {
+    if (currentStep < stepTitles.length - 1) {
+      setState(() {
+        currentStep++;
+      });
+    } else {
+      // Show completion dialog
+      _showCompletionDialog();
+    }
+  }
+
+  void _showCompletionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2D1E17),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Colors.green, width: 3),
+        ),
+        title: Text(
+          'Phase 2 Complete!',
+          style: GoogleFonts.vt323(color: Colors.white, fontSize: 28),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 60),
+            const SizedBox(height: 16),
+            Text(
+              'Dye Produced: $dyeProduced ml',
+              style: GoogleFonts.vt323(color: Colors.amber, fontSize: 22),
+            ),
+            Text(
+              'Value: ${dyeValue.toStringAsFixed(1)} EcoCoins',
+              style: GoogleFonts.vt323(color: Colors.green, fontSize: 22),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'This dye can be used for avatar customization and will be carried forward to future levels!',
+              style: GoogleFonts.vt323(color: Colors.white70, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.game.restartGame();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: Text('REPLAY LEVEL', style: GoogleFonts.vt323(fontSize: 18)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: Text('EXIT', style: GoogleFonts.vt323(fontSize: 18)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black.withValues(alpha:0.95),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            children: [
+              // Header
+              Text(
+                'DYE EXTRACTION PROCESS',
+                style: GoogleFonts.vt323(
+                  fontSize: 32,
+                  color: Colors.amber,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
+                ),
+              ),
+              
+              const SizedBox(height: 8),
+              
+              Text(
+                'Phase 2 of 2',
+                style: GoogleFonts.vt323(
+                  fontSize: 18,
+                  color: Colors.white70,
+                ),
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // Progress Indicator
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(stepTitles.length, (index) {
+                  return Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: index <= currentStep 
+                              ? Colors.green 
+                              : Colors.grey.shade700,
+                          border: Border.all(
+                            color: index == currentStep 
+                                ? Colors.amber 
+                                : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            index < currentStep 
+                                ? Icons.check 
+                                : stepIcons[index],
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                      if (index < stepTitles.length - 1)
+                        Container(
+                          width: 30,
+                          height: 2,
+                          color: index < currentStep 
+                              ? Colors.green 
+                              : Colors.grey.shade700,
+                        ),
+                    ],
+                  );
+                }),
+              ),
+              
+              const SizedBox(height: 32),
+              
+              // Current Step Display
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.green.shade900,
+                        Colors.green.shade700,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.amber, width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.amber.withValues(alpha:0.3),
+                        blurRadius: 20,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        stepIcons[currentStep],
+                        size: 100,
+                        color: Colors.amber,
+                      ),
+                      
+                      const SizedBox(height: 24),
+                      
+                      Text(
+                        stepTitles[currentStep],
+                        style: GoogleFonts.vt323(
+                          fontSize: 28,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      Text(
+                        stepDescriptions[currentStep],
+                        style: GoogleFonts.vt323(
+                          fontSize: 18,
+                          color: Colors.white70,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      
+                      const SizedBox(height: 24),
+                      
+                      if (currentStep == 0)
+                        ValueListenableBuilder<int>(
+                          valueListenable: plantsCollectedNotifier,
+                          builder: (ctx, plants, _) {
+                            return Text(
+                              'Materials Available: $plants units',
+                              style: GoogleFonts.vt323(
+                                fontSize: 22,
+                                color: Colors.amber,
+                              ),
+                            );
+                          },
+                        ),
+                      
+                      if (currentStep == 4)
+                        Column(
+                          children: [
+                            Text(
+                              'Dye Produced: $dyeProduced ml',
+                              style: GoogleFonts.vt323(
+                                fontSize: 24,
+                                color: Colors.amber,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Estimated Value: ${dyeValue.toStringAsFixed(1)} EcoCoins',
+                              style: GoogleFonts.vt323(
+                                fontSize: 20,
+                                color: Colors.green.shade300,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // Action Button
+              SizedBox(
+                width: double.infinity,
+                height: 60,
+                child: ElevatedButton.icon(
+                  onPressed: _nextStep,
+                  icon: Icon(
+                    currentStep < stepTitles.length - 1 
+                        ? Icons.arrow_forward 
+                        : Icons.check_circle,
+                    size: 28,
+                  ),
+                  label: Text(
+                    currentStep < stepTitles.length - 1 
+                        ? 'NEXT STEP' 
+                        : 'COMPLETE',
+                    style: GoogleFonts.vt323(
+                      fontSize: 26,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: currentStep < stepTitles.length - 1 
+                        ? Colors.amber 
+                        : Colors.green,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 8,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

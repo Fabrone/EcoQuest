@@ -24,11 +24,61 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
 
   @override
   void render(Canvas canvas) {
+    // Draw tile background based on restoration state
+    int r = gridPosition.x as int;
+    int c = gridPosition.y as int;
+    
+    Paint tilePaint = Paint()
+      ..style = PaintingStyle.fill;
+    
+    // Check if tile is restored (green) or degraded (brown)
+    if (game.restoredTiles[r][c]) {
+      // Green glassy tile
+      tilePaint.color = Colors.green.withValues(alpha:0.3);
+    } else {
+      // Brown glassy tile
+      tilePaint.color = Colors.brown.withValues(alpha:0.3);
+    }
+    
+    // Draw rounded rectangle for glassy effect
+    RRect rRect = RRect.fromRectAndRadius(
+      size.toRect(),
+      const Radius.circular(8),
+    );
+    canvas.drawRRect(rRect, tilePaint);
+    
+    // Add glossy shine effect
+    Paint glossPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha:0.3),
+          Colors.transparent,
+          Colors.black.withValues(alpha:0.1),
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(size.toRect());
+    
+    canvas.drawRRect(rRect, glossPaint);
+    
+    // Draw border
+    Paint borderPaint = Paint()
+      ..color = game.restoredTiles[r][c] 
+          ? Colors.green.shade700.withValues(alpha:0.5)
+          : Colors.brown.shade700.withValues(alpha:0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    
+    canvas.drawRRect(rRect, borderPaint);
+    
+    // Draw sprite on top
     super.render(canvas);
 
+    // Selection highlight
     if (isSelected) {
       final highlight = Paint()
-        ..color = Colors.white.withValues(alpha: 0.4) 
+        ..color = Colors.white.withValues(alpha:0.4) 
         ..style = PaintingStyle.fill;
       
       canvas.drawCircle(Offset(size.x/2, size.y/2), size.x/3, highlight);
