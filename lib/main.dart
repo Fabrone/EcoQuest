@@ -1233,213 +1233,181 @@ class _DyeExtractionOverlayState extends State<DyeExtractionOverlay> {
     return Container(
       color: Colors.black.withValues(alpha:0.95),
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            children: [
-              // Header
-              Text(
-                'DYE EXTRACTION PROCESS',
-                style: GoogleFonts.vt323(
-                  fontSize: 32,
-                  color: Colors.amber,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 2,
-                ),
-              ),
-              
-              const SizedBox(height: 8),
-              
-              Text(
-                'Phase 2 of 2',
-                style: GoogleFonts.vt323(
-                  fontSize: 18,
-                  color: Colors.white70,
-                ),
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Progress Indicator
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(stepTitles.length, (index) {
-                  return Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: index <= currentStep 
-                              ? Colors.green 
-                              : Colors.grey.shade700,
-                          border: Border.all(
-                            color: index == currentStep 
-                                ? Colors.amber 
-                                : Colors.transparent,
-                            width: 3,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Use a fraction of the available height for top/bottom parts
+            final double topHeight = constraints.maxHeight * 0.22;   // header + progress
+            final double buttonHeight = 56;
+            // paddings
+            return Padding(
+              padding: const EdgeInsets.all(12.0), // smaller global padding
+              child: Column(
+                children: [
+                  // ── Header (fixed height) ─────────────────────────────────────
+                  SizedBox(
+                    height: topHeight * 0.55,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        FittedBox(
+                          child: Text(
+                            'DYE EXTRACTION PROCESS',
+                            style: GoogleFonts.vt323(
+                              fontSize: 28,
+                              color: Colors.amber,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 2,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
                         ),
-                        child: Center(
-                          child: Icon(
-                            index < currentStep 
-                                ? Icons.check 
-                                : stepIcons[index],
-                            color: Colors.white,
-                            size: 20,
-                          ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Phase 2 of 2',
+                          style: GoogleFonts.vt323(fontSize: 16, color: Colors.white70),
                         ),
-                      ),
-                      if (index < stepTitles.length - 1)
-                        Container(
-                          width: 30,
-                          height: 2,
-                          color: index < currentStep 
-                              ? Colors.green 
-                              : Colors.grey.shade700,
-                        ),
-                    ],
-                  );
-                }),
-              ),
-              
-              const SizedBox(height: 32),
-              
-              // Current Step Display
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.green.shade900,
-                        Colors.green.shade700,
                       ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.amber, width: 3),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.amber.withValues(alpha:0.3),
-                        blurRadius: 20,
-                        spreadRadius: 2,
-                      ),
-                    ],
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        stepIcons[currentStep],
-                        size: 100,
-                        color: Colors.amber,
-                      ),
-                      
-                      const SizedBox(height: 24),
-                      
-                      Text(
-                        stepTitles[currentStep],
-                        style: GoogleFonts.vt323(
-                          fontSize: 28,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      
-                      const SizedBox(height: 16),
-                      
-                      Text(
-                        stepDescriptions[currentStep],
-                        style: GoogleFonts.vt323(
-                          fontSize: 18,
-                          color: Colors.white70,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      
-                      const SizedBox(height: 24),
-                      
-                      if (currentStep == 0)
-                        ValueListenableBuilder<int>(
-                          valueListenable: plantsCollectedNotifier,
-                          builder: (ctx, plants, _) {
-                            return Text(
-                              'Materials Available: $plants units',
-                              style: GoogleFonts.vt323(
-                                fontSize: 22,
-                                color: Colors.amber,
+
+                  // ── Progress Indicator (scrollable horizontally) ─────────────
+                  SizedBox(
+                    height: topHeight * 0.45,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(stepTitles.length, (index) {
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: index <= currentStep ? Colors.green : Colors.grey.shade700,
+                                  border: Border.all(
+                                    color: index == currentStep ? Colors.amber : Colors.transparent,
+                                    width: 3,
+                                  ),
+                                ),
+                                child: Icon(
+                                  index < currentStep ? Icons.check : stepIcons[index],
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
                               ),
-                            );
-                          },
+                              if (index < stepTitles.length - 1)
+                                Container(
+                                  width: 36,
+                                  height: 2,
+                                  color: index < currentStep ? Colors.green : Colors.grey.shade700,
+                                  margin: const EdgeInsets.symmetric(horizontal: 6),
+                                ),
+                            ],
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Main Content (takes whatever is left) ─────────────────────
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.green.shade900, Colors.green.shade700],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                      
-                      if (currentStep == 4)
-                        Column(
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.amber, width: 3),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.amber.withValues(alpha:0.3),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
+                            Icon(stepIcons[currentStep], size: 72, color: Colors.amber),
+                            const SizedBox(height: 16),
                             Text(
-                              'Dye Produced: $dyeProduced ml',
-                              style: GoogleFonts.vt323(
-                                fontSize: 24,
-                                color: Colors.amber,
-                                fontWeight: FontWeight.bold,
-                              ),
+                              stepTitles[currentStep],
+                              style: GoogleFonts.vt323(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+                              textAlign: TextAlign.center,
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 12),
                             Text(
-                              'Estimated Value: ${dyeValue.toStringAsFixed(1)} EcoCoins',
-                              style: GoogleFonts.vt323(
-                                fontSize: 20,
-                                color: Colors.green.shade300,
-                              ),
+                              stepDescriptions[currentStep],
+                              style: GoogleFonts.vt323(fontSize: 15, color: Colors.white70),
+                              textAlign: TextAlign.center,
                             ),
+                            const SizedBox(height: 16),
+                            if (currentStep == 0)
+                              ValueListenableBuilder<int>(
+                                valueListenable: plantsCollectedNotifier,
+                                builder: (ctx, plants, _) => Text(
+                                  'Materials Available: $plants units',
+                                  style: GoogleFonts.vt323(fontSize: 19, color: Colors.amber),
+                                ),
+                              ),
+                            if (currentStep == 4)
+                              Column(
+                                children: [
+                                  Text(
+                                    'Dye Produced: $dyeProduced ml',
+                                    style: GoogleFonts.vt323(fontSize: 21, color: Colors.amber, fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Estimated Value: ${dyeValue.toStringAsFixed(1)} EcoCoins',
+                                    style: GoogleFonts.vt323(fontSize: 17, color: Colors.green.shade300),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Action Button
-              SizedBox(
-                width: double.infinity,
-                height: 60,
-                child: ElevatedButton.icon(
-                  onPressed: _nextStep,
-                  icon: Icon(
-                    currentStep < stepTitles.length - 1 
-                        ? Icons.arrow_forward 
-                        : Icons.check_circle,
-                    size: 28,
-                  ),
-                  label: Text(
-                    currentStep < stepTitles.length - 1 
-                        ? 'NEXT STEP' 
-                        : 'COMPLETE',
-                    style: GoogleFonts.vt323(
-                      fontSize: 26,
-                      letterSpacing: 2,
+                      ),
                     ),
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: currentStep < stepTitles.length - 1 
-                        ? Colors.amber 
-                        : Colors.green,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+
+                  const SizedBox(height: 12),
+
+                  // ── Action Button (fixed height) ─────────────────────────────
+                  SizedBox(
+                    height: buttonHeight,
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _nextStep,
+                      icon: Icon(
+                        currentStep < stepTitles.length - 1 ? Icons.arrow_forward : Icons.check_circle,
+                        size: 26,
+                      ),
+                      label: Text(
+                        currentStep < stepTitles.length - 1 ? 'NEXT STEP' : 'COMPLETE',
+                        style: GoogleFonts.vt323(fontSize: 22, letterSpacing: 1.5),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: currentStep < stepTitles.length - 1 ? Colors.amber : Colors.green,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 8,
+                      ),
                     ),
-                    elevation: 8,
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
