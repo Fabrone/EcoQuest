@@ -323,6 +323,9 @@ class _GameScreenState extends State<GameScreen> {
             'PhaseComplete': (BuildContext context, EcoQuestGame game) {
               return _buildPhaseCompleteDialog(context, game);
             },
+            'InsufficientMaterials': (BuildContext context, EcoQuestGame game) {
+              return _buildInsufficientMaterialsDialog(context, game);
+            },
             'DyeExtraction': (BuildContext context, EcoQuestGame game) {
               return DyeExtractionOverlay(game: game);
             },
@@ -469,6 +472,176 @@ class _GameScreenState extends State<GameScreen> {
                       onPressed: () {
                         game.startPhase2();
                       },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInsufficientMaterialsDialog(BuildContext context, EcoQuestGame game) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.92),
+      child: Center(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Calculate responsive dimensions
+            double dialogWidth = constraints.maxWidth * 0.85;
+            double dialogMaxWidth = 450;
+            dialogWidth = dialogWidth.clamp(280.0, dialogMaxWidth);
+            
+            double iconSize = constraints.maxWidth * 0.12;
+            iconSize = iconSize.clamp(50.0, 80.0);
+            
+            double titleFontSize = constraints.maxWidth * 0.065;
+            titleFontSize = titleFontSize.clamp(20.0, 36.0);
+            
+            double bodyFontSize = constraints.maxWidth * 0.032;
+            bodyFontSize = bodyFontSize.clamp(12.0, 16.0);
+            
+            double scoreFontSize = constraints.maxWidth * 0.065;
+            scoreFontSize = scoreFontSize.clamp(20.0, 34.0);
+            
+            double buttonIconSize = constraints.maxWidth * 0.05;
+            buttonIconSize = buttonIconSize.clamp(18.0, 30.0);
+            
+            // Dynamic spacing
+            double spacing1 = constraints.maxHeight * 0.01;
+            double spacing2 = constraints.maxHeight * 0.015;
+            double spacing3 = constraints.maxHeight * 0.02;
+            
+            return SingleChildScrollView(
+              child: Container(
+                width: dialogWidth,
+                margin: EdgeInsets.symmetric(
+                  horizontal: constraints.maxWidth * 0.05,
+                  vertical: constraints.maxHeight * 0.05,
+                ),
+                padding: EdgeInsets.all(constraints.maxWidth * 0.04),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.orange[900]!, Colors.orange[700]!],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: Colors.amber,
+                    width: 4,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.orange.withValues(alpha: 0.6),
+                      blurRadius: 30,
+                      spreadRadius: 8,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: iconSize,
+                      color: Colors.amber,
+                    ),
+                    SizedBox(height: spacing1),
+                    
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        "PLANTS TOO YOUNG!",
+                        style: GoogleFonts.vt323(
+                          fontSize: titleFontSize,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    
+                    SizedBox(height: spacing2),
+                    
+                    Text(
+                      'Forest restored, but plants need more time to mature for harvesting.',
+                      style: GoogleFonts.vt323(
+                        fontSize: bodyFontSize,
+                        color: Colors.white70,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    
+                    SizedBox(height: spacing2),
+                    
+                    ValueListenableBuilder<int>(
+                      valueListenable: scoreNotifier,
+                      builder: (ctx, score, _) {
+                        int requiredScore = (EcoQuestGame.targetHighScore * 0.6).toInt();
+                        return Column(
+                          children: [
+                            Text(
+                              'Your Score',
+                              style: GoogleFonts.vt323(
+                                fontSize: bodyFontSize * 0.9,
+                                color: Colors.white70,
+                              ),
+                            ),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                '$score / $requiredScore',
+                                style: GoogleFonts.lobster(
+                                  fontSize: scoreFontSize,
+                                  color: Colors.amber,
+                                ),
+                              ),
+                            ),
+                            SizedBox(height: spacing1),
+                            Text(
+                              'Score ${requiredScore - score} more points to collect materials!',
+                              style: GoogleFonts.vt323(
+                                fontSize: bodyFontSize * 0.85,
+                                color: Colors.white60,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    
+                    SizedBox(height: spacing3),
+                    
+                    // Icon-based action buttons
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildIconActionButton(
+                          icon: Icons.refresh,
+                          label: 'Retry',
+                          color: Colors.green,
+                          iconSize: buttonIconSize,
+                          onPressed: () {
+                            game.restartGame();
+                          },
+                        ),
+                        _buildIconActionButton(
+                          icon: Icons.exit_to_app,
+                          label: 'Exit',
+                          color: Colors.red[700]!,
+                          iconSize: buttonIconSize,
+                          onPressed: () async {
+                            await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -1243,7 +1416,6 @@ class _DyeExtractionOverlayState extends State<DyeExtractionOverlay> {
               padding: const EdgeInsets.all(12.0), // smaller global padding
               child: Column(
                 children: [
-                  // ── Header (fixed height) ─────────────────────────────────────
                   SizedBox(
                     height: topHeight * 0.55,
                     child: Column(

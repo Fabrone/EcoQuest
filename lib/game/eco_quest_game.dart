@@ -8,10 +8,10 @@ import '../main.dart';
 import 'eco_components.dart';
 
 class EcoQuestGame extends FlameGame {
-  
+    
   // Configuration
-  static const int rows = 4;
-  static const int cols = 4;
+  static const int rows = 6;
+  static const int cols = 6;
   
   // Dynamic sizing logic
   double tileSize = 0; 
@@ -104,7 +104,7 @@ class EcoQuestGame extends FlameGame {
   }
 
   void _setupTimer() {
-    levelTimeNotifier.value = 140; // Changed to 140 seconds
+    levelTimeNotifier.value = 210; // 210 seconds (3:30)
     
     children.whereType<TimerComponent>().forEach((tc) => tc.removeFromParent());
     
@@ -138,7 +138,7 @@ class EcoQuestGame extends FlameGame {
       overlays.add('GameOver');
     }
   }
-  
+    
   void checkLevelCompletion() {
     // Check if all tiles are restored (green)
     bool allRestored = true;
@@ -152,17 +152,28 @@ class EcoQuestGame extends FlameGame {
       if (!allRestored) break;
     }
     
+    // Only proceed if ALL tiles are green
     if (allRestored) {
-      // Calculate plants collected based on score above 60% restoration
-      int sixtyPercentScore = (targetHighScore * 0.6).toInt();
+      // Calculate materials based on 60% threshold
+      int sixtyPercentScore = (targetHighScore * 0.6).toInt(); // 1200 points
+      
       if (scoreNotifier.value >= sixtyPercentScore) {
-        plantsCollected = ((scoreNotifier.value - sixtyPercentScore) / 10).toInt();
+        // Materials scale from 10 to 60 based on score above threshold
+        int scoreAboveThreshold = scoreNotifier.value - sixtyPercentScore;
+        double materialRange = targetHighScore - sixtyPercentScore.toDouble(); // 800 points range
+        
+        // Linear scaling: 60% = 10 units, 100% = 60 units
+        plantsCollected = 10 + ((scoreAboveThreshold / materialRange) * 50).toInt();
+        plantsCollected = plantsCollected.clamp(10, 60); // Safety bounds
+      } else {
+        // Tiles complete but score below 60% threshold - plants too immature
+        plantsCollected = 0;
       }
       
       _triggerPhaseTransition();
     }
   }
-  
+    
   void _triggerPhaseTransition() {
     pauseEngine();
     
@@ -173,8 +184,17 @@ class EcoQuestGame extends FlameGame {
     // Store plants collected
     plantsCollectedNotifier.value = plantsCollected;
     
-    if (!overlays.isActive('PhaseComplete')) {
-      overlays.add('PhaseComplete');
+    // Check if player collected materials (score >= 60% threshold)
+    if (plantsCollected > 0) {
+      // SUCCESS: All tiles green + materials collected
+      if (!overlays.isActive('PhaseComplete')) {
+        overlays.add('PhaseComplete');
+      }
+    } else {
+      // FAILURE: All tiles green but plants too immature
+      if (!overlays.isActive('InsufficientMaterials')) {
+        overlays.add('InsufficientMaterials');
+      }
     }
   }
   
@@ -210,16 +230,20 @@ class EcoQuestGame extends FlameGame {
     
     overlays.remove('GameOver');
     overlays.remove('PhaseComplete');
+    overlays.remove('InsufficientMaterials');
     overlays.remove('DyeExtraction');
     currentLevelNotifier.value = currentLevel;
   }
 
   void _buildTutorialGrid() {
+    // 6x6 tutorial grid with balanced distribution
     List<List<String>> fixedMap = [
-      ['pinnate_leaf', 'pinnate_leaf', 'blue_butterfly', 'pinnate_leaf'],
-      ['red_flower', 'yellow_flower', 'leaf_design', 'red_flower'],
-      ['leaf_design', 'pinnate_leaf', 'blue_butterfly', 'yellow_flower'],
-      ['yellow_flower', 'red_flower', 'pinnate_leaf', 'leaf_design'],
+      ['pinnate_leaf', 'pinnate_leaf', 'blue_butterfly', 'pinnate_leaf', 'red_flower', 'yellow_flower'],
+      ['red_flower', 'yellow_flower', 'leaf_design', 'red_flower', 'blue_butterfly', 'leaf_design'],
+      ['leaf_design', 'pinnate_leaf', 'blue_butterfly', 'yellow_flower', 'pinnate_leaf', 'red_flower'],
+      ['yellow_flower', 'red_flower', 'pinnate_leaf', 'leaf_design', 'yellow_flower', 'blue_butterfly'],
+      ['blue_butterfly', 'leaf_design', 'red_flower', 'blue_butterfly', 'leaf_design', 'pinnate_leaf'],
+      ['pinnate_leaf', 'yellow_flower', 'yellow_flower', 'pinnate_leaf', 'red_flower', 'leaf_design'],
     ];
 
     for (int r = 0; r < rows; r++) {
