@@ -1,10 +1,10 @@
 import 'dart:math';
+import 'package:ecoquest/main.dart';
 import 'package:flame/components.dart';
 import 'package:flame/effects.dart';
 import 'package:flame/game.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
-import '../main.dart';
 import 'eco_components.dart';
 
 class EcoQuestGame extends FlameGame {
@@ -50,7 +50,7 @@ class EcoQuestGame extends FlameGame {
   // Timer State
   late TimerComponent _timerComponent;
 
-  final List<String> level1ItemTypes = ['pinnate_leaf', 'leaf_design', 'blue_butterfly', 'red_flower', 'yellow_flower'];
+  final List<String> level1ItemTypes = ['rain', 'hummingbird', 'summer', 'rose', 'man'];
 
   @override
   Color backgroundColor() => const Color(0x00000000);
@@ -225,7 +225,13 @@ class EcoQuestGame extends FlameGame {
     
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
-    _buildTutorialGrid();
+    // Use tutorial grid for first level, shuffled for replay
+    if (currentLevel == 1) {
+      _buildTutorialGrid();
+    } else {
+      _buildShuffledGrid();
+    }
+    
     _setupTimer(); 
     
     overlays.remove('GameOver');
@@ -235,15 +241,60 @@ class EcoQuestGame extends FlameGame {
     currentLevelNotifier.value = currentLevel;
   }
 
+  void startNextLevel() {
+    // Increment level
+    currentLevel++;
+    currentLevelNotifier.value = currentLevel;
+    
+    // Save accumulated EcoCoins (dye value is already calculated)
+    // This will persist across levels
+    
+    // Reset game state but keep cumulative stats
+    isProcessing = false;
+    currentPhase = 1;
+    plantsCollected = 0;
+    plantsCollectedNotifier.value = 0;
+    hintsRemaining = 5;
+    
+    // Reset tile restoration state
+    restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
+    
+    // Remove existing items
+    final items = children.whereType<EcoItem>().toList();
+    for(var i in items) {
+      i.removeFromParent();
+    }
+    
+    // Reset grid
+    gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
+
+    // Build new shuffled grid
+    _buildShuffledGrid();
+    
+    // Reset timer
+    _setupTimer(); 
+    
+    // Remove overlays
+    overlays.remove('GameOver');
+    overlays.remove('PhaseComplete');
+    overlays.remove('InsufficientMaterials');
+    overlays.remove('DyeExtraction');
+    
+    // Reset score for new level (or keep cumulative if you prefer)
+    scoreNotifier.value = 0;
+    
+    debugPrint("🎮 Starting Level $currentLevel");
+  }
+
   void _buildTutorialGrid() {
     // 6x6 tutorial grid with balanced distribution
     List<List<String>> fixedMap = [
-      ['pinnate_leaf', 'pinnate_leaf', 'blue_butterfly', 'pinnate_leaf', 'red_flower', 'yellow_flower'],
-      ['red_flower', 'yellow_flower', 'leaf_design', 'red_flower', 'blue_butterfly', 'leaf_design'],
-      ['leaf_design', 'pinnate_leaf', 'blue_butterfly', 'yellow_flower', 'pinnate_leaf', 'red_flower'],
-      ['yellow_flower', 'red_flower', 'pinnate_leaf', 'leaf_design', 'yellow_flower', 'blue_butterfly'],
-      ['blue_butterfly', 'leaf_design', 'red_flower', 'blue_butterfly', 'leaf_design', 'pinnate_leaf'],
-      ['pinnate_leaf', 'yellow_flower', 'yellow_flower', 'pinnate_leaf', 'red_flower', 'leaf_design'],
+      ['rain', 'rain', 'summer', 'rain', 'rose', 'man'],
+      ['rose', 'man', 'hummingbird', 'rose', 'summer', 'hummingbird'],
+      ['hummingbird', 'rain', 'summer', 'man', 'rain', 'rose'],
+      ['man', 'rose', 'rain', 'hummingbird', 'man', 'summer'],
+      ['summer', 'hummingbird', 'rose', 'summer', 'hummingbird', 'rain'],
+      ['rain', 'man', 'man', 'rain', 'rose', 'hummingbird'],
     ];
 
     for (int r = 0; r < rows; r++) {
@@ -251,6 +302,77 @@ class EcoQuestGame extends FlameGame {
         _spawnItemAt(r, c, fixedMap[r][c], animate: false);
       }
     }
+  }
+
+  void _buildShuffledGrid() {
+    // Create a list of all item types with balanced distribution
+    List<String> allItemTypes = [];
+    
+    // Calculate how many of each type we need for a 6x6 grid (36 tiles)
+    int tilesPerType = (rows * cols) ~/ level1ItemTypes.length; // 36 / 5 = 7 tiles per type
+    int remainder = (rows * cols) % level1ItemTypes.length; // 36 % 5 = 1 extra tile
+    
+    // Add tiles for each type
+    for (int i = 0; i < level1ItemTypes.length; i++) {
+      int count = tilesPerType;
+      // Distribute remainder tiles
+      if (i < remainder) count++;
+      
+      for (int j = 0; j < count; j++) {
+        allItemTypes.add(level1ItemTypes[i]);
+      }
+    }
+    
+    // Shuffle the list
+    allItemTypes.shuffle();
+    
+    // Create a temporary grid to check for immediate matches
+    List<List<String>> tempGrid = List.generate(rows, (_) => List.generate(cols, (_) => ''));
+    
+    // Place items in grid, ensuring no immediate matches
+    int itemIndex = 0;
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        // Try to place an item that doesn't create immediate match
+        bool placed = false;
+        int attempts = 0;
+        
+        while (!placed && attempts < allItemTypes.length) {
+          String candidateType = allItemTypes[itemIndex % allItemTypes.length];
+          
+          // Check if this creates a horizontal match
+          bool horizontalMatch = false;
+          if (c >= 2 && tempGrid[r][c-1] == candidateType && tempGrid[r][c-2] == candidateType) {
+            horizontalMatch = true;
+          }
+          
+          // Check if this creates a vertical match
+          bool verticalMatch = false;
+          if (r >= 2 && tempGrid[r-1][c] == candidateType && tempGrid[r-2][c] == candidateType) {
+            verticalMatch = true;
+          }
+          
+          if (!horizontalMatch && !verticalMatch) {
+            tempGrid[r][c] = candidateType;
+            _spawnItemAt(r, c, candidateType, animate: false);
+            placed = true;
+          }
+          
+          itemIndex++;
+          attempts++;
+        }
+        
+        // Fallback: if we couldn't place without match, place anyway
+        if (!placed) {
+          String fallbackType = allItemTypes[itemIndex % allItemTypes.length];
+          tempGrid[r][c] = fallbackType;
+          _spawnItemAt(r, c, fallbackType, animate: false);
+          itemIndex++;
+        }
+      }
+    }
+    
+    debugPrint("🎲 Shuffled grid built for Level $currentLevel");
   }
 
   void _spawnItemAt(int r, int c, String type, {bool animate = true}) {
