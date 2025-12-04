@@ -144,7 +144,6 @@ class EcoQuestGame extends FlameGame {
     }
   }
     
-  // UPDATED: Check level completion based on tile restoration
   void checkLevelCompletion() {
     // Count restored tiles
     int restoredCount = 0;
@@ -182,7 +181,6 @@ class EcoQuestGame extends FlameGame {
     }
   }
 
-  // NEW: Calculate materials based on tiles, score, and time
   int _calculateMaterialsCollected(int restoredCount, double restorationPercentage) {
     // Base materials from tile restoration (minimum guaranteed)
     // At 60% (22 tiles): 10 units
@@ -221,10 +219,10 @@ class EcoQuestGame extends FlameGame {
     
     debugPrint("""
     📊 Material Calculation:
-       - Base (tiles): ${baseMaterials.toStringAsFixed(1)}
-       - Score multiplier: ${scoreMultiplier.toStringAsFixed(2)}x
-       - Time bonus: +${timeBonus.toStringAsFixed(1)}
-       - TOTAL: $finalMaterials units
+      - Base (tiles): ${baseMaterials.toStringAsFixed(1)}
+      - Score multiplier: ${scoreMultiplier.toStringAsFixed(2)}x
+      - Time bonus: +${timeBonus.toStringAsFixed(1)}
+      - TOTAL: $finalMaterials units
     """);
     
     return finalMaterials;
@@ -257,13 +255,9 @@ class EcoQuestGame extends FlameGame {
   void startPhase2() {
     currentPhase = 2;
     overlays.remove('PhaseComplete');
-    
-    if (!overlays.isActive('DyeExtraction')) {
-      overlays.add('DyeExtraction');
-    }
+    pauseEngine();
   }
-  
-  // UPDATED: Reset game state including new time tracking
+    
   void restartGame() {
     scoreNotifier.value = 0;
     hintsRemaining = 5;
@@ -737,7 +731,6 @@ class EcoQuestGame extends FlameGame {
     }
   }
 
-  // UPDATED: Restoration percentage now based on tiles, not score
   double getRestorationPercentage() {
     int restoredCount = 0;
     for (int r = 0; r < rows; r++) {

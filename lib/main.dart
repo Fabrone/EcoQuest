@@ -1,3 +1,4 @@
+import 'package:ecoquest/game/dye_extraction_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flame/game.dart';
@@ -326,9 +327,6 @@ class _GameScreenState extends State<GameScreen> {
             'InsufficientMaterials': (BuildContext context, EcoQuestGame game) {
               return _buildInsufficientMaterialsDialog(context, game);
             },
-            'DyeExtraction': (BuildContext context, EcoQuestGame game) {
-              return DyeExtractionOverlay(game: game);
-            },
           },
         ),
       ),
@@ -463,14 +461,18 @@ class _GameScreenState extends State<GameScreen> {
                     
                     SizedBox(height: spacing3),
                     
-                    // Icon-based proceed button
                     _buildIconActionButton(
                       icon: Icons.science,
                       label: 'Proceed',
                       color: Colors.amber,
                       iconSize: buttonIconSize,
                       onPressed: () {
-                        game.startPhase2();
+                        // Navigate to full-screen Phase 2
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => DyeExtractionScreen(game: game),
+                          ),
+                        );
                       },
                     ),
                   ],
@@ -956,156 +958,166 @@ class EnvironmentalProgressPanel extends StatefulWidget {
 
 // Environmental Progress Panel with Forest Image Updates
 class _EnvironmentalProgressPanelState extends State<EnvironmentalProgressPanel> {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black45,
-            blurRadius: 10,
-            offset: Offset(2, 0),
-          )
-        ],
-      ),
-      child: ValueListenableBuilder<int>(
-        valueListenable: scoreNotifier,
-        builder: (context, score, _) {
-          // Get forest image index based on score
-          int imageIndex = 0;
-          if (score > 0) {
-            double percentage = (score / EcoQuestGame.targetHighScore).clamp(0.0, 1.0);
-            imageIndex = (percentage * 9).round();
-          }
-          
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              // Detect if portrait/mobile layout
-              bool isPortrait = constraints.maxHeight > constraints.maxWidth;
-              bool isMobile = constraints.maxWidth < 600;
-              
-              // Scale down overlay on portrait/mobile
-              double overlayScale = (isPortrait || isMobile) ? 0.65 : 1.0;
-              
-              // Calculate responsive font sizes with portrait scaling
-              double titleFontSize = constraints.maxWidth * 0.06 * overlayScale;
-              double percentageFontSize = constraints.maxWidth * 0.08 * overlayScale;
-              double scoreFontSize = constraints.maxWidth * 0.045 * overlayScale;
-              
-              // Clamp font sizes for readability
-              titleFontSize = titleFontSize.clamp(12.0, 28.0);
-              percentageFontSize = percentageFontSize.clamp(16.0, 36.0);
-              scoreFontSize = scoreFontSize.clamp(11.0, 20.0);
-              
-              // Adjust padding for portrait/mobile
-              double horizontalPadding = constraints.maxWidth * (overlayScale * 0.06);
-              double verticalPadding = constraints.maxHeight * (overlayScale * 0.025);
-              
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  // Background animated forest images with crossfade - FILLS ENTIRE SPACE
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 800),
-                    switchInCurve: Curves.easeIn,
-                    switchOutCurve: Curves.easeOut,
-                    child: Image.asset(
-                      'assets/images/forest_$imageIndex.png',
-                      key: ValueKey<int>(imageIndex),
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: double.infinity,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          color: Colors.brown.shade800,
-                          child: Center(
-                            child: Icon(
-                              Icons.image_not_supported, 
-                              color: Colors.white54, 
-                              size: constraints.maxWidth * 0.15,
-                            ),
+@override
+Widget build(BuildContext context) {
+  return Container(
+    decoration: const BoxDecoration(
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black45,
+          blurRadius: 10,
+          offset: Offset(2, 0),
+        )
+      ],
+    ),
+    child: ValueListenableBuilder<int>(
+      valueListenable: scoreNotifier,
+      builder: (context, score, _) {
+        // UPDATED: Get forest image index from game instance using tile-based logic
+        int imageIndex = 0;
+        
+        // Access game instance to get accurate restoration percentage
+        final gameScreen = context.findAncestorStateOfType<_GameScreenState>();
+        if (gameScreen != null) {
+          imageIndex = gameScreen.game.getForestImageIndex();
+        }
+        
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            bool isPortrait = constraints.maxHeight > constraints.maxWidth;
+            bool isMobile = constraints.maxWidth < 600;
+            
+            double overlayScale = (isPortrait || isMobile) ? 0.65 : 1.0;
+            
+            double titleFontSize = constraints.maxWidth * 0.06 * overlayScale;
+            double percentageFontSize = constraints.maxWidth * 0.08 * overlayScale;
+            double scoreFontSize = constraints.maxWidth * 0.045 * overlayScale;
+            
+            titleFontSize = titleFontSize.clamp(12.0, 28.0);
+            percentageFontSize = percentageFontSize.clamp(16.0, 36.0);
+            scoreFontSize = scoreFontSize.clamp(11.0, 20.0);
+            
+            double horizontalPadding = constraints.maxWidth * (overlayScale * 0.06);
+            double verticalPadding = constraints.maxHeight * (overlayScale * 0.025);
+            
+            // UPDATED: Calculate restoration based on tiles
+            double restorationPercentage = 0.0;
+            int restoredTileCount = 0;
+            if (gameScreen != null) {
+              restorationPercentage = gameScreen.game.getRestorationPercentage();
+              // Count restored tiles for display
+              for (int r = 0; r < EcoQuestGame.rows; r++) {
+                for (int c = 0; c < EcoQuestGame.cols; c++) {
+                  if (gameScreen.game.restoredTiles[r][c]) {
+                    restoredTileCount++;
+                  }
+                }
+              }
+            }
+            
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 800),
+                  switchInCurve: Curves.easeIn,
+                  switchOutCurve: Curves.easeOut,
+                  child: Image.asset(
+                    'assets/images/forest_$imageIndex.png',
+                    key: ValueKey<int>(imageIndex),
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.brown.shade800,
+                        child: Center(
+                          child: Icon(
+                            Icons.image_not_supported, 
+                            color: Colors.white54, 
+                            size: constraints.maxWidth * 0.15,
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                  
-                  // Floating stats overlay - SCALED DOWN ON PORTRAIT/MOBILE
-                  Positioned(
-                    left: constraints.maxWidth * 0.05,
-                    right: constraints.maxWidth * 0.05,
-                    bottom: constraints.maxHeight * 0.08,
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        vertical: verticalPadding,
-                        horizontal: horizontalPadding,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(12 * overlayScale),
-                        border: Border.all(
-                          color: Colors.amber.withValues(alpha: 0.6),
-                          width: 2 * overlayScale,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.5),
-                            blurRadius: 15 * overlayScale,
-                            offset: Offset(0, 4 * overlayScale),
-                          )
-                        ],
+                      );
+                    },
+                  ),
+                ),
+                
+                Positioned(
+                  left: constraints.maxWidth * 0.05,
+                  right: constraints.maxWidth * 0.05,
+                  bottom: constraints.maxHeight * 0.08,
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      vertical: verticalPadding,
+                      horizontal: horizontalPadding,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(12 * overlayScale),
+                      border: Border.all(
+                        color: Colors.amber.withValues(alpha: 0.6),
+                        width: 2 * overlayScale,
                       ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              '${((score / EcoQuestGame.targetHighScore) * 100).clamp(0, 100).toInt()}% Restored',
-                              style: GoogleFonts.vt323(
-                                fontSize: percentageFontSize,
-                                color: Colors.amber,
-                                fontWeight: FontWeight.bold,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black.withValues(alpha: 0.8),
-                                    offset: Offset(2 * overlayScale, 2 * overlayScale),
-                                    blurRadius: 4 * overlayScale,
-                                  ),
-                                ],
-                              ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          blurRadius: 15 * overlayScale,
+                          offset: Offset(0, 4 * overlayScale),
+                        )
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            '${restorationPercentage.toInt()}% Restored',
+                            style: GoogleFonts.vt323(
+                              fontSize: percentageFontSize,
+                              color: Colors.amber,
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black.withValues(alpha: 0.8),
+                                  offset: Offset(2 * overlayScale, 2 * overlayScale),
+                                  blurRadius: 4 * overlayScale,
+                                ),
+                              ],
                             ),
                           ),
-                          SizedBox(height: constraints.maxHeight * 0.01 * overlayScale),
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              'Score: $score / ${EcoQuestGame.targetHighScore}',
-                              style: GoogleFonts.vt323(
-                                fontSize: scoreFontSize,
-                                color: Colors.white,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black.withValues(alpha: 0.8),
-                                    offset: Offset(1 * overlayScale, 1 * overlayScale),
-                                    blurRadius: 3 * overlayScale,
-                                  ),
-                                ],
-                              ),
+                        ),
+                        SizedBox(height: constraints.maxHeight * 0.01 * overlayScale),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'Tiles: $restoredTileCount / ${EcoQuestGame.totalTiles} | Score: $score',
+                            style: GoogleFonts.vt323(
+                              fontSize: scoreFontSize,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black.withValues(alpha: 0.8),
+                                  offset: Offset(1 * overlayScale, 1 * overlayScale),
+                                  blurRadius: 3 * overlayScale,
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ),
+  );
+}
 }
 
 // Custom Painter for Background Pattern
@@ -1139,8 +1151,8 @@ class GridPatternPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-// Dye Extraction Overlay (Phase 2)
-class DyeExtractionOverlay extends StatefulWidget {
+// Dye Extraction Full Screen (Phase 2)
+/*class DyeExtractionOverlay extends StatefulWidget {
   final EcoQuestGame game;
   
   const DyeExtractionOverlay({super.key, required this.game});
@@ -1312,7 +1324,7 @@ class _DyeExtractionOverlayState extends State<DyeExtractionOverlay> {
                     ),
                     SizedBox(height: spacing3),
                     
-                    // Icon-based action buttons - NOW WITH NEXT LEVEL
+                    // Icon-based action buttons
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
@@ -1358,7 +1370,7 @@ class _DyeExtractionOverlayState extends State<DyeExtractionOverlay> {
     );
   }
 
-  // Helper method for compact icon buttons in DyeExtractionOverlay
+  // Helper method for compact icon buttons
   Widget _buildCompactIconButton({
     required IconData icon,
     required String label,
@@ -1410,195 +1422,260 @@ class _DyeExtractionOverlayState extends State<DyeExtractionOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black.withValues(alpha: 0.95),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-          child: Column(
-            children: [
-              // ── Header Section (flexible) ──
-              Flexible(
-                flex: 2,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FittedBox(
-                      child: Text(
-                        'DYE EXTRACTION PROCESS',
-                        style: GoogleFonts.vt323(
-                          fontSize: 28,
-                          color: Colors.amber,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 2,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Responsive sizing based on screen dimensions
+            double screenWidth = constraints.maxWidth;
+            double screenHeight = constraints.maxHeight;
+            
+            double headerFontSize = (screenWidth * 0.055).clamp(20.0, 32.0);
+            double phaseFontSize = (screenWidth * 0.035).clamp(14.0, 18.0);
+            double stepIconSize = (screenWidth * 0.08).clamp(32.0, 48.0);
+            double contentIconSize = (screenWidth * 0.15).clamp(60.0, 100.0);
+            double titleFontSize = (screenWidth * 0.045).clamp(18.0, 28.0);
+            double descFontSize = (screenWidth * 0.032).clamp(13.0, 16.0);
+            double buttonHeight = (screenHeight * 0.08).clamp(48.0, 70.0);
+            double buttonFontSize = (screenWidth * 0.042).clamp(16.0, 22.0);
+            
+            return CustomScrollView(
+              slivers: [
+                // Header Section
+                SliverToBoxAdapter(
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: screenWidth * 0.04,
+                      vertical: screenHeight * 0.02,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Phase 2 of 2',
-                      style: GoogleFonts.vt323(fontSize: 16, color: Colors.white70),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              // ── Progress Indicator (flexible) ──
-              Flexible(
-                flex: 2,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(stepTitles.length, (index) {
-                      return Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: index <= currentStep ? Colors.green : Colors.grey.shade700,
-                              border: Border.all(
-                                color: index == currentStep ? Colors.amber : Colors.transparent,
-                                width: 3,
-                              ),
-                            ),
-                            child: Icon(
-                              index < currentStep ? Icons.check : stepIcons[index],
-                              color: Colors.white,
-                              size: 18,
-                            ),
-                          ),
-                          if (index < stepTitles.length - 1)
-                            Container(
-                              width: 30,
-                              height: 2,
-                              color: index < currentStep ? Colors.green : Colors.grey.shade700,
-                              margin: const EdgeInsets.symmetric(horizontal: 6),
-                            ),
-                        ],
-                      );
-                    }),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // ── Main Content (takes remaining space) ──
-              Expanded(
-                flex: 10,
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.green.shade900, Colors.green.shade700],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.amber, width: 3),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.amber.withValues(alpha: 0.3),
-                        blurRadius: 20,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: SingleChildScrollView(
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(stepIcons[currentStep], size: 64, color: Colors.amber),
-                        const SizedBox(height: 12),
                         FittedBox(
                           child: Text(
-                            stepTitles[currentStep],
+                            'DYE EXTRACTION PROCESS',
                             style: GoogleFonts.vt323(
-                              fontSize: 22,
-                              color: Colors.white,
+                              fontSize: headerFontSize,
+                              color: Colors.amber,
                               fontWeight: FontWeight.bold,
+                              letterSpacing: 2,
                             ),
                             textAlign: TextAlign.center,
                           ),
                         ),
-                        const SizedBox(height: 10),
+                        SizedBox(height: screenHeight * 0.005),
                         Text(
-                          stepDescriptions[currentStep],
-                          style: GoogleFonts.vt323(fontSize: 14, color: Colors.white70),
-                          textAlign: TextAlign.center,
+                          'Phase 2 of 2',
+                          style: GoogleFonts.vt323(
+                            fontSize: phaseFontSize,
+                            color: Colors.white70,
+                          ),
                         ),
-                        const SizedBox(height: 16),
-                        if (currentStep == 0)
-                          ValueListenableBuilder<int>(
-                            valueListenable: plantsCollectedNotifier,
-                            builder: (ctx, plants, _) => Text(
-                              'Materials Available: $plants units',
-                              style: GoogleFonts.vt323(fontSize: 18, color: Colors.amber),
-                            ),
-                          ),
-                        if (currentStep == 4)
-                          Column(
-                            children: [
-                              Text(
-                                'Dye Produced: $dyeProduced ml',
-                                style: GoogleFonts.vt323(
-                                  fontSize: 20,
-                                  color: Colors.amber,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Estimated Value: ${dyeValue.toStringAsFixed(1)} EcoCoins',
-                                style: GoogleFonts.vt323(
-                                  fontSize: 16,
-                                  color: Colors.green.shade300,
-                                ),
-                              ),
-                            ],
-                          ),
                       ],
                     ),
                   ),
                 ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // ── Action Button (fixed) ──
-              SizedBox(
-                height: 52,
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _nextStep,
-                  icon: Icon(
-                    currentStep < stepTitles.length - 1 ? Icons.arrow_forward : Icons.check_circle,
-                    size: 24,
-                  ),
-                  label: Text(
-                    currentStep < stepTitles.length - 1 ? 'NEXT STEP' : 'COMPLETE',
-                    style: GoogleFonts.vt323(fontSize: 20, letterSpacing: 1.5),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: currentStep < stepTitles.length - 1 ? Colors.amber : Colors.green,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    elevation: 8,
+                
+                // Progress Indicator
+                SliverToBoxAdapter(
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      vertical: screenHeight * 0.015,
+                    ),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.04),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(stepTitles.length, (index) {
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: stepIconSize,
+                                height: stepIconSize,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: index <= currentStep 
+                                      ? Colors.green 
+                                      : Colors.grey.shade700,
+                                  border: Border.all(
+                                    color: index == currentStep 
+                                        ? Colors.amber 
+                                        : Colors.transparent,
+                                    width: 3,
+                                  ),
+                                ),
+                                child: Icon(
+                                  index < currentStep ? Icons.check : stepIcons[index],
+                                  color: Colors.white,
+                                  size: stepIconSize * 0.5,
+                                ),
+                              ),
+                              if (index < stepTitles.length - 1)
+                                Container(
+                                  width: screenWidth * 0.08,
+                                  height: 2,
+                                  color: index < currentStep 
+                                      ? Colors.green 
+                                      : Colors.grey.shade700,
+                                  margin: EdgeInsets.symmetric(
+                                    horizontal: screenWidth * 0.015,
+                                  ),
+                                ),
+                            ],
+                          );
+                        }),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
+                
+                // Main Content
+                SliverFillRemaining(
+                  hasScrollBody: true,
+                  child: Padding(
+                    padding: EdgeInsets.all(screenWidth * 0.04),
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: EdgeInsets.all(screenWidth * 0.05),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Colors.green.shade900, Colors.green.shade700],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.amber, width: 3),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.amber.withValues(alpha: 0.3),
+                                  blurRadius: 20,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    stepIcons[currentStep],
+                                    size: contentIconSize,
+                                    color: Colors.amber,
+                                  ),
+                                  SizedBox(height: screenHeight * 0.02),
+                                  
+                                  FittedBox(
+                                    child: Text(
+                                      stepTitles[currentStep],
+                                      style: GoogleFonts.vt323(
+                                        fontSize: titleFontSize,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                  
+                                  SizedBox(height: screenHeight * 0.015),
+                                  
+                                  Text(
+                                    stepDescriptions[currentStep],
+                                    style: GoogleFonts.vt323(
+                                      fontSize: descFontSize,
+                                      color: Colors.white70,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  
+                                  SizedBox(height: screenHeight * 0.025),
+                                  
+                                  if (currentStep == 0)
+                                    ValueListenableBuilder<int>(
+                                      valueListenable: plantsCollectedNotifier,
+                                      builder: (ctx, plants, _) => Text(
+                                        'Materials Available: $plants units',
+                                        style: GoogleFonts.vt323(
+                                          fontSize: titleFontSize * 0.9,
+                                          color: Colors.amber,
+                                        ),
+                                      ),
+                                    ),
+                                  
+                                  if (currentStep == 4)
+                                    Column(
+                                      children: [
+                                        Text(
+                                          'Dye Produced: $dyeProduced ml',
+                                          style: GoogleFonts.vt323(
+                                            fontSize: titleFontSize,
+                                            color: Colors.amber,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        SizedBox(height: screenHeight * 0.01),
+                                        Text(
+                                          'Estimated Value: ${dyeValue.toStringAsFixed(1)} EcoCoins',
+                                          style: GoogleFonts.vt323(
+                                            fontSize: descFontSize * 1.1,
+                                            color: Colors.green.shade300,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        
+                        SizedBox(height: screenHeight * 0.02),
+                        
+                        // Action Button
+                        SizedBox(
+                          height: buttonHeight,
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _nextStep,
+                            icon: Icon(
+                              currentStep < stepTitles.length - 1 
+                                  ? Icons.arrow_forward 
+                                  : Icons.check_circle,
+                              size: buttonHeight * 0.4,
+                            ),
+                            label: Text(
+                              currentStep < stepTitles.length - 1 
+                                  ? 'NEXT STEP' 
+                                  : 'COMPLETE',
+                              style: GoogleFonts.vt323(
+                                fontSize: buttonFontSize,
+                                letterSpacing: 1.5,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: currentStep < stepTitles.length - 1 
+                                  ? Colors.amber 
+                                  : Colors.green,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              elevation: 8,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
-}
+}*/
