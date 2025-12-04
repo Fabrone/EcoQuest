@@ -483,13 +483,13 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
+  // UPDATED: InsufficientMaterials dialog message
   Widget _buildInsufficientMaterialsDialog(BuildContext context, EcoQuestGame game) {
     return Container(
       color: Colors.black.withValues(alpha: 0.92),
       child: Center(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Calculate responsive dimensions
             double dialogWidth = constraints.maxWidth * 0.85;
             double dialogMaxWidth = 450;
             dialogWidth = dialogWidth.clamp(280.0, dialogMaxWidth);
@@ -509,7 +509,6 @@ class _GameScreenState extends State<GameScreen> {
             double buttonIconSize = constraints.maxWidth * 0.05;
             buttonIconSize = buttonIconSize.clamp(18.0, 30.0);
             
-            // Dynamic spacing
             double spacing1 = constraints.maxHeight * 0.01;
             double spacing2 = constraints.maxHeight * 0.015;
             double spacing3 = constraints.maxHeight * 0.02;
@@ -554,7 +553,7 @@ class _GameScreenState extends State<GameScreen> {
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
-                        "PLANTS TOO YOUNG!",
+                        "NEED MORE TIME!",
                         style: GoogleFonts.vt323(
                           fontSize: titleFontSize,
                           color: Colors.white,
@@ -568,26 +567,25 @@ class _GameScreenState extends State<GameScreen> {
                     SizedBox(height: spacing2),
                     
                     Text(
-                      'Forest restored, but plants need more time to mature for harvesting.',
+                      'Forest restored, but materials are limited. Complete the remaining restoration faster for more abundant harvests!',
                       style: GoogleFonts.vt323(
                         fontSize: bodyFontSize,
                         color: Colors.white70,
                       ),
                       textAlign: TextAlign.center,
-                      maxLines: 3,
+                      maxLines: 4,
                       overflow: TextOverflow.ellipsis,
                     ),
                     
                     SizedBox(height: spacing2),
                     
                     ValueListenableBuilder<int>(
-                      valueListenable: scoreNotifier,
-                      builder: (ctx, score, _) {
-                        int requiredScore = (EcoQuestGame.targetHighScore * 0.6).toInt();
+                      valueListenable: plantsCollectedNotifier,
+                      builder: (ctx, plants, _) {
                         return Column(
                           children: [
                             Text(
-                              'Your Score',
+                              'Materials Collected',
                               style: GoogleFonts.vt323(
                                 fontSize: bodyFontSize * 0.9,
                                 color: Colors.white70,
@@ -596,7 +594,7 @@ class _GameScreenState extends State<GameScreen> {
                             FittedBox(
                               fit: BoxFit.scaleDown,
                               child: Text(
-                                '$score / $requiredScore',
+                                '$plants units',
                                 style: GoogleFonts.lobster(
                                   fontSize: scoreFontSize,
                                   color: Colors.amber,
@@ -605,7 +603,7 @@ class _GameScreenState extends State<GameScreen> {
                             ),
                             SizedBox(height: spacing1),
                             Text(
-                              'Score ${requiredScore - score} more points to collect materials!',
+                              'Tip: Higher scores and faster completion = more materials!',
                               style: GoogleFonts.vt323(
                                 fontSize: bodyFontSize * 0.85,
                                 color: Colors.white60,
@@ -619,7 +617,6 @@ class _GameScreenState extends State<GameScreen> {
                     
                     SizedBox(height: spacing3),
                     
-                    // Icon-based action buttons
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [

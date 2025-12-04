@@ -24,7 +24,12 @@ class EcoQuestGame extends FlameGame {
   List<List<EcoItem?>> gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
   EcoItem? selectedItem;
   bool isProcessing = false;
-  
+
+  // NEW: Track when 60% restoration was achieved
+  int? sixtyPercentAchievedTime;
+  static const int totalTiles = rows * cols; // 36 tiles
+  static final int sixtyPercentTiles = (totalTiles * 0.6).ceil();
+
   // Level Management
   int currentLevel = 1;
   
@@ -139,41 +144,92 @@ class EcoQuestGame extends FlameGame {
     }
   }
     
+  // UPDATED: Check level completion based on tile restoration
   void checkLevelCompletion() {
-    // Check if all tiles are restored (green)
-    bool allRestored = true;
+    // Count restored tiles
+    int restoredCount = 0;
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        if (!restoredTiles[r][c]) {
-          allRestored = false;
-          break;
+        if (restoredTiles[r][c]) {
+          restoredCount++;
         }
       }
-      if (!allRestored) break;
     }
     
-    // Only proceed if ALL tiles are green
+    double restorationPercentage = (restoredCount / totalTiles) * 100;
+    
+    // Track when 60% is achieved (for time bonus calculation)
+    if (restorationPercentage >= 60.0 && sixtyPercentAchievedTime == null) {
+      sixtyPercentAchievedTime = levelTimeNotifier.value;
+      debugPrint("🌱 60% restoration achieved at ${sixtyPercentAchievedTime}s remaining");
+    }
+    
+    // Check if ALL tiles are restored (100%)
+    bool allRestored = (restoredCount == totalTiles);
+    
     if (allRestored) {
-      // Calculate materials based on 60% threshold
-      int sixtyPercentScore = (targetHighScore * 0.6).toInt(); // 1200 points
+      // Calculate materials based on new logic
+      plantsCollected = _calculateMaterialsCollected(restoredCount, restorationPercentage);
       
-      if (scoreNotifier.value >= sixtyPercentScore) {
-        // Materials scale from 10 to 60 based on score above threshold
-        int scoreAboveThreshold = scoreNotifier.value - sixtyPercentScore;
-        double materialRange = targetHighScore - sixtyPercentScore.toDouble(); // 800 points range
-        
-        // Linear scaling: 60% = 10 units, 100% = 60 units
-        plantsCollected = 10 + ((scoreAboveThreshold / materialRange) * 50).toInt();
-        plantsCollected = plantsCollected.clamp(10, 60); // Safety bounds
+      if (plantsCollected > 0) {
+        plantsCollectedNotifier.value = plantsCollected;
+        _triggerPhaseTransition();
       } else {
-        // Tiles complete but score below 60% threshold - plants too immature
-        plantsCollected = 0;
+        // Edge case: should not happen with new logic, but keep as fallback
+        plantsCollectedNotifier.value = 0;
+        _triggerPhaseTransition();
       }
-      
-      _triggerPhaseTransition();
     }
   }
+
+  // NEW: Calculate materials based on tiles, score, and time
+  int _calculateMaterialsCollected(int restoredCount, double restorationPercentage) {
+    // Base materials from tile restoration (minimum guaranteed)
+    // At 60% (22 tiles): 10 units
+    // At 100% (36 tiles): 30 units base
+    double baseMaterials = 10 + ((restoredCount - sixtyPercentTiles) / (totalTiles - sixtyPercentTiles)) * 20;
+    baseMaterials = baseMaterials.clamp(10.0, 30.0);
     
+    // Score multiplier (adds quality bonus)
+    // Score range: 0-3000+ typical, normalize to 0.0-2.0 multiplier
+    double scoreMultiplier = 1.0 + (scoreNotifier.value / 2000).clamp(0.0, 1.0);
+    
+    // Time bonus (rewards speed after 60% threshold)
+    double timeBonus = 0.0;
+    if (sixtyPercentAchievedTime != null) {
+      // Calculate time taken for remaining 40%
+      int timeForFinalForty = sixtyPercentAchievedTime! - levelTimeNotifier.value;
+      int maxTimeForFinalForty = sixtyPercentAchievedTime!; // All remaining time
+      
+      // Faster completion = higher bonus (0 to +30 materials)
+      // If completed instantly: full +30 bonus
+      // If used all time: no bonus
+      if (maxTimeForFinalForty > 0) {
+        double speedRatio = 1.0 - (timeForFinalForty / maxTimeForFinalForty);
+        speedRatio = speedRatio.clamp(0.0, 1.0);
+        timeBonus = speedRatio * 30;
+      }
+      
+      debugPrint("⏱️ Time for final 40%: ${timeForFinalForty}s, Bonus: ${timeBonus.toStringAsFixed(1)} materials");
+    }
+    
+    // Calculate total materials
+    double totalMaterials = (baseMaterials * scoreMultiplier) + timeBonus;
+    
+    // Clamp to reasonable range (10-60 units)
+    int finalMaterials = totalMaterials.round().clamp(10, 60);
+    
+    debugPrint("""
+    📊 Material Calculation:
+       - Base (tiles): ${baseMaterials.toStringAsFixed(1)}
+       - Score multiplier: ${scoreMultiplier.toStringAsFixed(2)}x
+       - Time bonus: +${timeBonus.toStringAsFixed(1)}
+       - TOTAL: $finalMaterials units
+    """);
+    
+    return finalMaterials;
+  }
+
   void _triggerPhaseTransition() {
     pauseEngine();
     
@@ -207,6 +263,7 @@ class EcoQuestGame extends FlameGame {
     }
   }
   
+  // UPDATED: Reset game state including new time tracking
   void restartGame() {
     scoreNotifier.value = 0;
     hintsRemaining = 5;
@@ -214,6 +271,7 @@ class EcoQuestGame extends FlameGame {
     currentPhase = 1;
     plantsCollected = 0;
     plantsCollectedNotifier.value = 0;
+    sixtyPercentAchievedTime = null; // Reset time tracking
     
     // Reset tile restoration state
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
@@ -225,7 +283,6 @@ class EcoQuestGame extends FlameGame {
     
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
-    // Use tutorial grid for first level, shuffled for replay
     if (currentLevel == 1) {
       _buildTutorialGrid();
     } else {
@@ -242,45 +299,33 @@ class EcoQuestGame extends FlameGame {
   }
 
   void startNextLevel() {
-    // Increment level
     currentLevel++;
     currentLevelNotifier.value = currentLevel;
     
-    // Save accumulated EcoCoins (dye value is already calculated)
-    // This will persist across levels
-    
-    // Reset game state but keep cumulative stats
     isProcessing = false;
     currentPhase = 1;
     plantsCollected = 0;
     plantsCollectedNotifier.value = 0;
     hintsRemaining = 5;
+    sixtyPercentAchievedTime = null; // Reset time tracking
     
-    // Reset tile restoration state
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
     
-    // Remove existing items
     final items = children.whereType<EcoItem>().toList();
     for(var i in items) {
       i.removeFromParent();
     }
     
-    // Reset grid
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
-    // Build new shuffled grid
     _buildShuffledGrid();
-    
-    // Reset timer
     _setupTimer(); 
     
-    // Remove overlays
     overlays.remove('GameOver');
     overlays.remove('PhaseComplete');
     overlays.remove('InsufficientMaterials');
     overlays.remove('DyeExtraction');
     
-    // Reset score for new level (or keep cumulative if you prefer)
     scoreNotifier.value = 0;
     
     debugPrint("🎮 Starting Level $currentLevel");
@@ -691,12 +736,31 @@ class EcoQuestGame extends FlameGame {
       }
     }
   }
-  
-  // Get current forest image index based on score
+
+  // UPDATED: Restoration percentage now based on tiles, not score
+  double getRestorationPercentage() {
+    int restoredCount = 0;
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        if (restoredTiles[r][c]) {
+          restoredCount++;
+        }
+      }
+    }
+    return (restoredCount / totalTiles) * 100;
+  }
+
   int getForestImageIndex() {
-    if (scoreNotifier.value <= 0) return 0;
+    int restoredCount = 0;
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        if (restoredTiles[r][c]) {
+          restoredCount++;
+        }
+      }
+    }
     
-    double percentage = (scoreNotifier.value / targetHighScore).clamp(0.0, 1.0);
+    double percentage = (restoredCount / totalTiles).clamp(0.0, 1.0);
     int index = (percentage * 9).round();
     return index;
   }
