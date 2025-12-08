@@ -768,7 +768,7 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
     '• Complete levels faster for TIME BONUSES ⏱️',
     '',
     '🌱 PHASE 2: DYE EXTRACTION',
-    'After restoring the forest, you collect plant materials to extract natural dyes. The more tiles you restore and the faster you complete, the more materials you gather! 🎨',
+    'During forest restoration mission, you collect plant materials along the main mission which are now used on this phase to extract natural dyes. The more tiles you restore and the faster you complete, the more materials you gather! 🎨',
     '',
     '💡 TIPS & TRICKS',
     '• Use the HINT button (💡) when stuck - you have 5 hints per level!',
@@ -976,6 +976,14 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
                             padding: const EdgeInsets.only(top: 4),
                             child: _BlinkingCursor(),
                           ),
+                        
+                        // Start Game Button (shown after animation completes)
+                        if (_isTypingComplete)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 40),
+                            child: _buildStartGameButton(context),
+                          ),
+                        
                         // Extra padding at bottom for smooth scrolling
                         const SizedBox(height: 100),
                       ],
@@ -1061,6 +1069,65 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
     }
     
     return spans;
+  }
+
+  // Start Game Button Widget
+  Widget _buildStartGameButton(BuildContext context) {
+    return Center(
+      child: TweenAnimationBuilder(
+        tween: Tween<double>(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 600),
+        builder: (context, double value, child) {
+          return Transform.scale(
+            scale: value,
+            child: Opacity(
+              opacity: value,
+              child: child,
+            ),
+          );
+        },
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: ElevatedButton(
+            onPressed: () {
+              // Navigate to game screen, replacing all previous routes
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const GameScreen()),
+                (route) => false,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF22C55E),
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(50),
+              ),
+              elevation: 10,
+              shadowColor: const Color(0xFF22C55E).withValues(alpha: 0.5),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.play_arrow, size: 28),
+                const SizedBox(width: 12),
+                Text(
+                  'START GAME NOW',
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Icon(Icons.auto_awesome, size: 24),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
