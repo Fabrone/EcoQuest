@@ -792,7 +792,7 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
   }
 
   void _startTypingAnimation() {
-    _typingTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+    _typingTimer = Timer.periodic(const Duration(milliseconds: 75), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
