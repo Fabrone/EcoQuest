@@ -261,14 +261,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               ),
               textAlign: TextAlign.center,
             ),
-            Text(
-              'For Peter N. Njuguna & Marsha W. Kimani',
-              style: GoogleFonts.vt323(
-                fontSize: (constraints.maxWidth * 0.018).clamp(10.0, 12.0),
-                color: const Color(0xFFBBF7D0).withValues(alpha: 0.7),
-              ),
-              textAlign: TextAlign.center,
-            ),
           ],
         ),
       ],
@@ -512,104 +504,164 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
           
           SizedBox(height: spacing * 0.8),
           
-          // Secondary buttons - responsive layout
-          LayoutBuilder(
-            builder: (context, buttonConstraints) {
-              bool shouldStack = constraints.maxWidth < 500;
-              double buttonFontSize = (constraints.maxWidth * 0.024).clamp(13.0, 16.0);
-              
-              if (shouldStack) {
-                // Stack vertically on small screens
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildSecondaryButton(
-                      '📖 How to Play',
-                      const Color(0xFFD97706),
-                      cardWidth,
-                      buttonFontSize,
-                    ),
-                    SizedBox(height: spacing * 0.3),
-                    _buildSecondaryButton(
-                      '🏆 Scores',
-                      const Color(0xFF2563EB),
-                      cardWidth,
-                      buttonFontSize,
-                    ),
-                    SizedBox(height: spacing * 0.3),
-                    _buildSecondaryButton(
-                      '⚙️ Settings',
-                      const Color(0xFF7C3AED),
-                      cardWidth,
-                      buttonFontSize,
-                    ),
-                  ],
-                );
-              } else {
-                // Horizontal layout on larger screens
-                return Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: constraints.maxWidth * 0.02,
-                  runSpacing: spacing * 0.3,
-                  children: [
-                    _buildSecondaryButton(
-                      '📖 How to Play',
-                      const Color(0xFFD97706),
-                      null,
-                      buttonFontSize,
-                    ),
-                    _buildSecondaryButton(
-                      '🏆 Scores',
-                      const Color(0xFF2563EB),
-                      null,
-                      buttonFontSize,
-                    ),
-                    _buildSecondaryButton(
-                      '⚙️ Settings',
-                      const Color(0xFF7C3AED),
-                      null,
-                      buttonFontSize,
-                    ),
-                  ],
-                );
-              }
-            },
+          // UPDATED: Modern Grid Layout for Secondary Buttons
+          _buildModernButtonGrid(constraints, cardWidth),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModernButtonGrid(BoxConstraints constraints, double cardWidth) {
+    double buttonHeight = (constraints.maxHeight * 0.065).clamp(50.0, 70.0);
+    double iconSize = (constraints.maxWidth * 0.055).clamp(24.0, 32.0);
+    double fontSize = (constraints.maxWidth * 0.028).clamp(14.0, 18.0);
+    
+    return Container(
+      width: cardWidth,
+      padding: EdgeInsets.all(constraints.maxWidth * 0.025),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.1),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          // Row 1: How to Play
+          _buildModernButton(
+            context: context,
+            icon: Icons.menu_book,
+            label: 'How to Play',
+            gradient: const LinearGradient(
+              colors: [Color(0xFFD97706), Color(0xFFF59E0B)],
+            ),
+            onTap: () => _navigateToHowToPlay(context),
+            height: buttonHeight,
+            iconSize: iconSize,
+            fontSize: fontSize,
+          ),
+          
+          SizedBox(height: constraints.maxWidth * 0.025),
+          
+          // Row 2: Scores & Settings
+          Row(
+            children: [
+              Expanded(
+                child: _buildModernButton(
+                  context: context,
+                  icon: Icons.emoji_events,
+                  label: 'Scores',
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF2563EB), Color(0xFF3B82F6)],
+                  ),
+                  onTap: () => _navigateToScores(context),
+                  height: buttonHeight,
+                  iconSize: iconSize,
+                  fontSize: fontSize,
+                ),
+              ),
+              SizedBox(width: constraints.maxWidth * 0.025),
+              Expanded(
+                child: _buildModernButton(
+                  context: context,
+                  icon: Icons.settings,
+                  label: 'Settings',
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF7C3AED), Color(0xFF8B5CF6)],
+                  ),
+                  onTap: () => _navigateToSettings(context),
+                  height: buttonHeight,
+                  iconSize: iconSize,
+                  fontSize: fontSize,
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSecondaryButton(String text, Color color, double? width, double fontSize) {
-    return SizedBox(
-      width: width,
-      child: ElevatedButton(
-        onPressed: () {},
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color.withValues(alpha: 0.8),
-          padding: EdgeInsets.symmetric(
-            horizontal: fontSize * 1.2,
-            vertical: fontSize * 0.75,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            text,
-            style: GoogleFonts.vt323(
-              fontSize: fontSize,
-              fontWeight: FontWeight.w600,
+  Widget _buildModernButton({
+    required BuildContext context,
+    required IconData icon,
+    required String label,
+    required LinearGradient gradient,
+    required VoidCallback onTap,
+    required double height,
+    required double iconSize,
+    required double fontSize,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(15),
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          gradient: gradient,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [
+            BoxShadow(
+              color: gradient.colors.first.withValues(alpha: 0.4),
+              blurRadius: 10,
+              spreadRadius: 1,
+              offset: const Offset(0, 4),
             ),
-          ),
+          ],
         ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.white, size: iconSize),
+            SizedBox(width: iconSize * 0.3),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: GoogleFonts.vt323(
+                    fontSize: fontSize,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _navigateToHowToPlay(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const HowToPlayScreen(),
+      ),
+    );
+  }
+
+  void _navigateToScores(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const ScoresScreen(),
+      ),
+    );
+  }
+
+  void _navigateToSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const SettingsScreen(),
       ),
     );
   }
 }
 
+// Floating Leaf Component (unchanged)
 class FloatingLeaf extends StatefulWidget {
   final double delay;
   final double left;
@@ -665,6 +717,7 @@ class _FloatingLeafState extends State<FloatingLeaf> with SingleTickerProviderSt
   }
 }
 
+// Dot Pattern Painter (unchanged)
 class DotPatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -682,4 +735,715 @@ class DotPatternPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ============================================================================
+// HOW TO PLAY SCREEN - WITH ANIMATED TYPING TEXT
+// ============================================================================
+
+class HowToPlayScreen extends StatefulWidget {
+  const HowToPlayScreen({super.key});
+
+  @override
+  State<HowToPlayScreen> createState() => _HowToPlayScreenState();
+}
+
+class _HowToPlayScreenState extends State<HowToPlayScreen> {
+  final List<String> _sections = [
+    '🎯 GAME OBJECTIVE',
+    'Restore the degraded Kinale Forest by matching 3 or more identical eco-items. Your goal is to turn all brown (degraded) tiles green (restored) before time runs out! ⏰',
+    '',
+    '🎮 HOW TO PLAY',
+    '1️⃣ Swipe any eco-item (rain 💧, hummingbird 🐦, summer ☀️, rose 🌹, or man 👨) in any direction (up, down, left, right).',
+    '2️⃣ Match 3 or more items of the same type horizontally or vertically.',
+    '3️⃣ When items match, they disappear and the tile underneath turns green! 🌿',
+    '4️⃣ New items fall from the top to fill empty spaces.',
+    '5️⃣ Keep matching until ALL tiles are green! 🎉',
+    '',
+    '⚡ SCORING SYSTEM',
+    '• Each matched item = 10 EcoPoints 💎',
+    '• Higher scores unlock better rewards! 🏆',
+    '• Complete levels faster for TIME BONUSES ⏱️',
+    '',
+    '🌱 PHASE 2: DYE EXTRACTION',
+    'After restoring the forest, you collect plant materials to extract natural dyes. The more tiles you restore and the faster you complete, the more materials you gather! 🎨',
+    '',
+    '💡 TIPS & TRICKS',
+    '• Use the HINT button (💡) when stuck - you have 5 hints per level!',
+    '• Plan ahead: look for potential matches before swiping!',
+    '• If no moves are available, the board auto-shuffles! 🔄',
+    '• Collect materials quickly to maximize dye production! 🧪',
+    '',
+    '🎊 Ready to restore the forest? Let\'s go! 🌳✨',
+  ];
+
+  String _displayedText = '';
+  int _currentSectionIndex = 0;
+  int _currentCharIndex = 0;
+  Timer? _typingTimer;
+  bool _isTypingComplete = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTypingAnimation();
+  }
+
+  void _startTypingAnimation() {
+    _typingTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      if (_currentSectionIndex < _sections.length) {
+        String currentSection = _sections[_currentSectionIndex];
+        
+        if (_currentCharIndex < currentSection.length) {
+          setState(() {
+            _displayedText += currentSection[_currentCharIndex];
+            _currentCharIndex++;
+          });
+        } else {
+          // Move to next section
+          setState(() {
+            _displayedText += '\n\n';
+            _currentSectionIndex++;
+            _currentCharIndex = 0;
+          });
+        }
+      } else {
+        // Typing complete
+        setState(() {
+          _isTypingComplete = true;
+        });
+        timer.cancel();
+      }
+    });
+  }
+
+  void _skipAnimation() {
+    _typingTimer?.cancel();
+    setState(() {
+      _displayedText = _sections.join('\n\n');
+      _isTypingComplete = true;
+    });
+  }
+
+  @override
+  void dispose() {
+    _typingTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF064E3B),
+              Color(0xFF166534),
+              Color(0xFF78350F),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '📖 How to Play',
+                        style: GoogleFonts.vt323(
+                          fontSize: 28,
+                          color: Colors.amber,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+              ),
+              
+              // Content
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xFF22C55E),
+                        width: 2,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _displayedText,
+                          style: GoogleFonts.vt323(
+                            fontSize: 18,
+                            color: Colors.white,
+                            height: 1.5,
+                          ),
+                        ),
+                        if (!_isTypingComplete)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 20),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                TextButton.icon(
+                                  onPressed: _skipAnimation,
+                                  icon: const Icon(Icons.fast_forward, color: Colors.amber),
+                                  label: Text(
+                                    'Skip Animation',
+                                    style: GoogleFonts.vt323(
+                                      fontSize: 16,
+                                      color: Colors.amber,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// SCORES SCREEN - PLACEHOLDER
+// ============================================================================
+
+class ScoresScreen extends StatelessWidget {
+  const ScoresScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF064E3B),
+              Color(0xFF166534),
+              Color(0xFF78350F),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '🏆 Leaderboard',
+                        style: GoogleFonts.vt323(
+                          fontSize: 28,
+                          color: Colors.amber,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+              ),
+              
+              // Content
+              Expanded(
+                child: Center(
+                  child: Container(
+                    margin: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(40),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xFF2563EB),
+                        width: 2,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.emoji_events,
+                          size: 80,
+                          color: Colors.amber,
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Leaderboard Coming Soon!',
+                          style: GoogleFonts.vt323(
+                            fontSize: 28,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'User accounts and scoring system\nwill be implemented soon.\n\nCompete with friends and climb\nto the top of the leaderboard! 🚀',
+                          style: GoogleFonts.vt323(
+                            fontSize: 16,
+                            color: Colors.white70,
+                            height: 1.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// SETTINGS SCREEN
+// ============================================================================
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _soundEnabled = true;
+  bool _musicEnabled = true;
+  bool _vibrationsEnabled = true;
+  bool _notificationsEnabled = true;
+  double _gameDifficulty = 1.0; // 0=Easy, 1=Normal, 2=Hard
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF064E3B),
+              Color(0xFF166534),
+              Color(0xFF78350F),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '⚙️ Settings',
+                        style: GoogleFonts.vt323(
+                          fontSize: 28,
+                          color: Colors.amber,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+              ),
+              
+              // Settings Content
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      _buildSettingsSection(
+                        title: '🔊 Audio Settings',
+                        children: [
+                          _buildSwitchTile(
+                            title: 'Sound Effects',
+                            subtitle: 'Enable/disable game sounds',
+                            value: _soundEnabled,
+                            onChanged: (val) => setState(() => _soundEnabled = val),
+                          ),
+                          _buildSwitchTile(
+                            title: 'Background Music',
+                            subtitle: 'Enable/disable music',
+                            value: _musicEnabled,
+                            onChanged: (val) => setState(() => _musicEnabled = val),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 20),
+                      
+                      _buildSettingsSection(
+                        title: '📱 Gameplay Settings',
+                        children: [
+                          _buildSwitchTile(
+                            title: 'Vibrations',
+                            subtitle: 'Haptic feedback on matches',
+                            value: _vibrationsEnabled,
+                            onChanged: (val) => setState(() => _vibrationsEnabled = val),
+                          ),
+                          _buildDifficultySlider(),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 20),
+                      
+                      _buildSettingsSection(
+                        title: '🔔 Notifications',
+                        children: [
+                          _buildSwitchTile(
+                            title: 'Push Notifications',
+                            subtitle: 'Receive game updates',
+                            value: _notificationsEnabled,
+                            onChanged: (val) => setState(() => _notificationsEnabled = val),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 20),
+                      
+                      _buildSettingsSection(
+                        title: 'ℹ️ About',
+                        children: [
+                          _buildInfoTile(
+                            title: 'Version',
+                            value: '1.0.0',
+                          ),
+                          _buildInfoTile(
+                            title: 'Developer',
+                            value: 'Yonder Spaces Ltd',
+                          ),
+                          _buildActionTile(
+                            title: 'Privacy Policy',
+                            icon: Icons.privacy_tip,
+                            onTap: () {
+                              // Implement privacy policy view
+                            },
+                          ),
+                          _buildActionTile(
+                            title: 'Terms of Service',
+                            icon: Icons.description,
+                            onTap: () {
+                              // Implement terms view
+                            },
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 30),
+                      
+                      // Reset Progress Button
+                      ElevatedButton.icon(
+                        onPressed: () => _showResetDialog(),
+                        icon: const Icon(Icons.refresh),
+                        label: Text(
+                          'Reset Game Progress',
+                          style: GoogleFonts.vt323(fontSize: 18),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 30,
+                            vertical: 15,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsSection({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFF22C55E),
+          width: 2,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              title,
+              style: GoogleFonts.vt323(
+                fontSize: 22,
+                color: Colors.amber,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const Divider(color: Colors.white24, height: 1),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSwitchTile({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return ListTile(
+      title: Text(
+        title,
+        style: GoogleFonts.vt323(
+          fontSize: 18,
+          color: Colors.white,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: GoogleFonts.vt323(
+          fontSize: 14,
+          color: Colors.white60,
+        ),
+      ),
+      trailing: Switch(
+        value: value,
+        onChanged: onChanged,
+        activeThumbColor: const Color(0xFF22C55E),
+      ),
+    );
+  }
+
+  Widget _buildDifficultySlider() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Game Difficulty',
+            style: GoogleFonts.vt323(
+              fontSize: 18,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Slider(
+                  value: _gameDifficulty,
+                  min: 0,
+                  max: 2,
+                  divisions: 2,
+                  activeColor: const Color(0xFF22C55E),
+                  onChanged: (val) => setState(() => _gameDifficulty = val),
+                ),
+              ),
+              Text(
+                _gameDifficulty == 0
+                    ? 'Easy'
+                    : _gameDifficulty == 1
+                        ? 'Normal'
+                        : 'Hard',
+                style: GoogleFonts.vt323(
+                  fontSize: 16,
+                  color: Colors.amber,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoTile({
+    required String title,
+    required String value,
+  }) {
+    return ListTile(
+      title: Text(
+        title,
+        style: GoogleFonts.vt323(
+          fontSize: 18,
+          color: Colors.white,
+        ),
+      ),
+      trailing: Text(
+        value,
+        style: GoogleFonts.vt323(
+          fontSize: 16,
+          color: Colors.amber,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionTile({
+    required String title,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      title: Text(
+        title,
+        style: GoogleFonts.vt323(
+          fontSize: 18,
+          color: Colors.white,
+        ),
+      ),
+      trailing: Icon(icon, color: Colors.amber),
+      onTap: onTap,
+    );
+  }
+
+  void _showResetDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2D1E17),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Colors.red, width: 3),
+        ),
+        title: Text(
+          '⚠️ Reset Progress?',
+          style: GoogleFonts.vt323(color: Colors.white, fontSize: 24),
+        ),
+        content: Text(
+          'This will delete all your game progress, scores, and unlocked items. This action cannot be undone!',
+          style: GoogleFonts.vt323(color: Colors.white70, fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'CANCEL',
+              style: GoogleFonts.vt323(fontSize: 16, color: Colors.grey),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              // Implement reset functionality
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Progress reset functionality will be implemented soon',
+                    style: GoogleFonts.vt323(fontSize: 16),
+                  ),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: Text('RESET', style: GoogleFonts.vt323(fontSize: 16)),
+          ),
+        ],
+      ),
+    );
+  }
 }
