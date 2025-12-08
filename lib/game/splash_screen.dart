@@ -749,6 +749,8 @@ class HowToPlayScreen extends StatefulWidget {
 }
 
 class _HowToPlayScreenState extends State<HowToPlayScreen> {
+  final ScrollController _scrollController = ScrollController();
+  
   final List<String> _sections = [
     '🎯 GAME OBJECTIVE',
     'Restore the degraded Kinale Forest by matching 3 or more identical eco-items. Your goal is to turn all brown (degraded) tiles green (restored) before time runs out! ⏰',
@@ -790,7 +792,7 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
   }
 
   void _startTypingAnimation() {
-    _typingTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+    _typingTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
@@ -804,8 +806,19 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
             _displayedText += currentSection[_currentCharIndex];
             _currentCharIndex++;
           });
+          
+          // Smooth auto-scroll as content grows
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                _scrollController.position.maxScrollExtent,
+                duration: const Duration(milliseconds: 100),
+                curve: Curves.easeOut,
+              );
+            }
+          });
         } else {
-          // Move to next section
+          // Move to next section with consistent spacing
           setState(() {
             _displayedText += '\n\n';
             _currentSectionIndex++;
@@ -828,11 +841,23 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
       _displayedText = _sections.join('\n\n');
       _isTypingComplete = true;
     });
+    
+    // Scroll to top after skipping
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
     _typingTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -876,8 +901,8 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
                     Expanded(
                       child: Text(
                         '📖 How to Play',
-                        style: GoogleFonts.vt323(
-                          fontSize: 28,
+                        style: GoogleFonts.poppins(
+                          fontSize: 24,
                           color: Colors.amber,
                           fontWeight: FontWeight.bold,
                         ),
@@ -889,12 +914,40 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
                 ),
               ),
               
-              // Content
+              // Skip button (shown during animation)
+              if (!_isTypingComplete)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: TextButton.icon(
+                    onPressed: _skipAnimation,
+                    icon: const Icon(Icons.fast_forward, color: Colors.amber, size: 20),
+                    label: Text(
+                      'Skip Animation',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        color: Colors.amber,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      backgroundColor: Colors.black.withValues(alpha: 0.3),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        side: BorderSide(color: Colors.amber.withValues(alpha: 0.3)),
+                      ),
+                    ),
+                  ),
+                ),
+              
+              // Content with smooth scrolling
               Expanded(
                 child: SingleChildScrollView(
+                  controller: _scrollController,
+                  physics: const BouncingScrollPhysics(),
                   padding: const EdgeInsets.all(20),
                   child: Container(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.6),
                       borderRadius: BorderRadius.circular(20),
@@ -906,34 +959,25 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _displayedText,
-                          style: GoogleFonts.vt323(
-                            fontSize: 18,
-                            color: Colors.white,
-                            height: 1.5,
+                        RichText(
+                          text: TextSpan(
+                            style: GoogleFonts.notoSans(
+                              fontSize: 17,
+                              color: Colors.white,
+                              height: 1.8,
+                              letterSpacing: 0.3,
+                            ),
+                            children: _buildStyledText(_displayedText),
                           ),
                         ),
+                        // Blinking cursor during animation
                         if (!_isTypingComplete)
                           Padding(
-                            padding: const EdgeInsets.only(top: 20),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                TextButton.icon(
-                                  onPressed: _skipAnimation,
-                                  icon: const Icon(Icons.fast_forward, color: Colors.amber),
-                                  label: Text(
-                                    'Skip Animation',
-                                    style: GoogleFonts.vt323(
-                                      fontSize: 16,
-                                      color: Colors.amber,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                            padding: const EdgeInsets.only(top: 4),
+                            child: _BlinkingCursor(),
                           ),
+                        // Extra padding at bottom for smooth scrolling
+                        const SizedBox(height: 100),
                       ],
                     ),
                   ),
@@ -941,6 +985,120 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  // Build styled text with proper formatting
+  List<TextSpan> _buildStyledText(String text) {
+    List<TextSpan> spans = [];
+    List<String> lines = text.split('\n');
+    
+    for (int i = 0; i < lines.length; i++) {
+      String line = lines[i];
+      
+      // Headers (lines with emojis at start)
+      if (line.startsWith('🎯') || 
+          line.startsWith('🎮') || 
+          line.startsWith('⚡') || 
+          line.startsWith('🌱') || 
+          line.startsWith('💡') ||
+          line.startsWith('🎊')) {
+        spans.add(TextSpan(
+          text: line,
+          style: GoogleFonts.poppins(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFFFCD34D),
+            height: 2.0,
+          ),
+        ));
+      }
+      // Numbered items
+      else if (line.contains('1️⃣') || 
+               line.contains('2️⃣') || 
+               line.contains('3️⃣') || 
+               line.contains('4️⃣') || 
+               line.contains('5️⃣')) {
+        spans.add(TextSpan(
+          text: line,
+          style: GoogleFonts.notoSans(
+            fontSize: 16,
+            color: const Color(0xFF86EFAC),
+            height: 1.8,
+            fontWeight: FontWeight.w500,
+          ),
+        ));
+      }
+      // Bullet points
+      else if (line.startsWith('•')) {
+        spans.add(TextSpan(
+          text: line,
+          style: GoogleFonts.notoSans(
+            fontSize: 16,
+            color: const Color(0xFFBBF7D0),
+            height: 1.8,
+          ),
+        ));
+      }
+      // Regular text
+      else if (line.trim().isNotEmpty) {
+        spans.add(TextSpan(
+          text: line,
+          style: GoogleFonts.notoSans(
+            fontSize: 16,
+            color: Colors.white,
+            height: 1.8,
+          ),
+        ));
+      }
+      
+      // Add newline between sections (except for last line)
+      if (i < lines.length - 1) {
+        spans.add(const TextSpan(text: '\n'));
+      }
+    }
+    
+    return spans;
+  }
+}
+
+// Smooth blinking cursor widget
+class _BlinkingCursor extends StatefulWidget {
+  @override
+  State<_BlinkingCursor> createState() => _BlinkingCursorState();
+}
+
+class _BlinkingCursorState extends State<_BlinkingCursor> 
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 530),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: Container(
+        width: 8,
+        height: 18,
+        decoration: BoxDecoration(
+          color: const Color(0xFF86EFAC),
+          borderRadius: BorderRadius.circular(2),
         ),
       ),
     );
