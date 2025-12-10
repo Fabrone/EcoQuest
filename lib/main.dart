@@ -1,8 +1,8 @@
-import 'package:ecoquest/game/dye_extraction_screen.dart';
+import 'dart:math';
 import 'package:ecoquest/game/splash_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flame/game.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -73,17 +73,11 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Replaced WillPopScope with PopScope
     return PopScope(
-      canPop: false, // Prevents the screen from closing automatically
+      canPop: false,
       onPopInvokedWithResult: (bool didPop, dynamic result) async {
-        if (didPop) {
-          return;
-        }
-        // Show the exit dialog
+        if (didPop) return;
         final shouldExit = await _showExitDialog(context);
-
-        // If the user confirms (returns true), we manually pop the route
         if (shouldExit ?? false) {
           if (context.mounted) {
             Navigator.of(context).pop();
@@ -132,35 +126,16 @@ class _GameScreenState extends State<GameScreen> {
   Widget _buildGameSectionWrapper(BoxConstraints constraints) {
     return Stack(
       children: [
+        // Enhanced parallax background
         Positioned.fill(
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  const Color(0xFF1B5E20).withValues(alpha:0.3),
-                  const Color(0xFF2D1E17).withValues(alpha:0.5),
-                  const Color(0xFF4A2511).withValues(alpha:0.3),
-                ],
-              ),
-              image: const DecorationImage(
-                image: AssetImage('assets/images/tile_bg.png'), 
-                fit: BoxFit.cover,
-                opacity: 0.15,
-              ),
-            ),
-            child: CustomPaint(
-              painter: GridPatternPainter(),
-            ),
-          ),
+          child: _buildParallaxBackground(),
         ),
 
         Column(
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              child: _buildUnifiedHeader(),
+              child: _buildEnhancedHeader(),
             ),
 
             Expanded(
@@ -180,18 +155,72 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildUnifiedHeader() {
+  Widget _buildParallaxBackground() {
+    return Stack(
+      children: [
+        // Base gradient layer
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                const Color(0xFF1B5E20).withValues(alpha: 0.4),
+                const Color(0xFF2D1E17).withValues(alpha: 0.6),
+                const Color(0xFF4A2511).withValues(alpha: 0.4),
+              ],
+            ),
+          ),
+        ),
+        
+        // Texture overlay
+        Opacity(
+          opacity: 0.1,
+          child: Image.asset(
+            'assets/images/tile_bg.png',
+            repeat: ImageRepeat.repeat,
+            fit: BoxFit.none,
+          ),
+        ),
+        
+        // Ambient particles layer
+        CustomPaint(
+          painter: AmbientParticlesPainter(),
+        ),
+        
+        // Grid pattern
+        CustomPaint(
+          painter: EnhancedGridPatternPainter(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEnhancedHeader() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 18),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha:0.6),
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF5D4E37).withValues(alpha: 0.9),
+            const Color(0xFF3E2723).withValues(alpha: 0.95),
+          ],
+        ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white12, width: 1.5),
+        border: Border.all(
+          color: const Color(0xFFD4AF37),
+          width: 3,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha:0.3),
+            color: const Color(0xFFD4AF37).withValues(alpha: 0.3),
+            blurRadius: 12,
+            spreadRadius: 2,
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
             blurRadius: 8,
-            offset: const Offset(0, 2),
+            offset: const Offset(0, 4),
           )
         ],
       ),
@@ -205,27 +234,27 @@ class _GameScreenState extends State<GameScreen> {
             children: [
               ValueListenableBuilder<int>(
                 valueListenable: currentLevelNotifier,
-                builder: (ctx, level, _) => _buildCompactStat('LVL', '$level', Colors.amber),
+                builder: (ctx, level, _) => _buildStoneCompartment('LVL', '$level', Colors.amber),
               ),
               
-              _buildDivider(),
+              _buildCarvedDivider(),
 
-              _buildCompactStat('PTS', '$score', Colors.green),
+              _buildStoneCompartment('PTS', '$score', const Color(0xFF4CAF50)),
 
-              _buildDivider(),
+              _buildCarvedDivider(),
 
               ValueListenableBuilder<int>(
                 valueListenable: levelTimeNotifier,
-                builder: (ctx, time, _) => _buildCompactStat(
+                builder: (ctx, time, _) => _buildStoneCompartment(
                   'TIME', 
                   '${time}s', 
-                  time <= 10 ? Colors.red : Colors.lightBlue
+                  time <= 10 ? Colors.red : const Color(0xFF64B5F6)
                 ),
               ),
 
-              _buildDivider(),
+              _buildCarvedDivider(),
 
-              _buildIconButton(
+              _buildStoneButton(
                 icon: Icons.lightbulb, 
                 color: Colors.amber, 
                 onTap: () {
@@ -235,13 +264,13 @@ class _GameScreenState extends State<GameScreen> {
                 }
               ),
 
-              _buildIconButton(
+              _buildStoneButton(
                 icon: Icons.refresh, 
                 color: Colors.orange, 
                 onTap: () => _showRestartDialog(context, game)
               ),
 
-              _buildIconButton(
+              _buildStoneButton(
                 icon: Icons.exit_to_app, 
                 color: Colors.red, 
                 onTap: () => _showExitDialog(context)
@@ -253,83 +282,268 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildCompactStat(String label, String value, Color color) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.vt323(
-            color: Colors.white60,
-            fontSize: 14,
-            height: 1,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          value,
-          style: GoogleFonts.vt323(
-            color: color,
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            height: 1.1,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildIconButton({required IconData icon, required Color color, required VoidCallback onTap}) {
-    return IconButton(
-      icon: Icon(icon, color: color),
-      iconSize: 26,
-      visualDensity: VisualDensity.compact,
-      onPressed: onTap,
-    );
-  }
-
-  Widget _buildDivider() {
+  Widget _buildStoneCompartment(String label, String value, Color color) {
     return Container(
-      height: 24,
-      width: 1,
-      color: Colors.white24,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF5D4E37).withValues(alpha: 0.8),
+            const Color(0xFF3E2723).withValues(alpha: 0.9),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: color.withValues(alpha: 0.5),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 4,
+            offset: const Offset(2, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.vt323(
+              color: Colors.white60,
+              fontSize: 12,
+              height: 1,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            value,
+            style: GoogleFonts.vt323(
+              color: color,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              height: 1.1,
+              shadows: [
+                Shadow(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  offset: const Offset(1, 1),
+                  blurRadius: 2,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStoneButton({required IconData icon, required Color color, required VoidCallback onTap}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                color.withValues(alpha: 0.9),
+                color.withValues(alpha: 0.7),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: color.withValues(alpha: 0.6),
+              width: 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 4,
+                offset: const Offset(2, 2),
+              ),
+            ],
+          ),
+          child: Icon(icon, color: Colors.white, size: 22),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCarvedDivider() {
+    return Container(
+      height: 32,
+      width: 2,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            const Color(0xFFD4AF37).withValues(alpha: 0.5),
+            Colors.transparent,
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildStyledGameBoard() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha:0.25), 
-        borderRadius: BorderRadius.circular(20),
+        // Stone tablet frame
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF5D4E37),
+            Color(0xFF8B7355),
+            Color(0xFF5D4E37),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: Colors.amber.shade700,
-          width: 4.0,
+          color: const Color(0xFFD4AF37),
+          width: 6.0,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.amber.withValues(alpha:0.15),
-            blurRadius: 20,
-            spreadRadius: 2,
-            offset: const Offset(0, 0),
+            color: const Color(0xFFD4AF37).withValues(alpha: 0.2),
+            blurRadius: 30,
+            spreadRadius: 4,
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.6),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: GameWidget(
-          game: game,
-          overlayBuilderMap: {
-            'GameOver': (BuildContext context, EcoQuestGame game) {
-              return _buildGameOverDialog(context, game);
-            },
-            'PhaseComplete': (BuildContext context, EcoQuestGame game) {
-              return _buildPhaseCompleteDialog(context, game);
-            },
-            'InsufficientMaterials': (BuildContext context, EcoQuestGame game) {
-              return _buildInsufficientMaterialsDialog(context, game);
-            },
-          },
+      child: Stack(
+        children: [
+          // Inner frame decoration
+          Positioned.fill(
+            child: Container(
+              margin: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFF3E2723).withValues(alpha: 0.5),
+                  width: 2,
+                ),
+              ),
+            ),
+          ),
+          
+          // Corner ornaments
+          ..._buildCornerOrnaments(),
+          
+          // Game content
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2D1E17).withValues(alpha: 0.3),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                      spreadRadius: -2,
+                    ),
+                  ],
+                ),
+                child: GameWidget(
+                  game: game,
+                  overlayBuilderMap: {
+                    'GameOver': (BuildContext context, EcoQuestGame game) {
+                      return _buildGameOverDialog(context, game);
+                    },
+                    'PhaseComplete': (BuildContext context, EcoQuestGame game) {
+                      return _buildPhaseCompleteDialog(context, game);
+                    },
+                    'InsufficientMaterials': (BuildContext context, EcoQuestGame game) {
+                      return _buildInsufficientMaterialsDialog(context, game);
+                    },
+                  },
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildCornerOrnaments() {
+    return [
+      // Top-left
+      Positioned(
+        top: 4,
+        left: 4,
+        child: _buildOrnament(),
+      ),
+      // Top-right
+      Positioned(
+        top: 4,
+        right: 4,
+        child: Transform.rotate(
+          angle: pi / 2,
+          child: _buildOrnament(),
         ),
+      ),
+      // Bottom-left
+      Positioned(
+        bottom: 4,
+        left: 4,
+        child: Transform.rotate(
+          angle: -pi / 2,
+          child: _buildOrnament(),
+        ),
+      ),
+      // Bottom-right
+      Positioned(
+        bottom: 4,
+        right: 4,
+        child: Transform.rotate(
+          angle: pi,
+          child: _buildOrnament(),
+        ),
+      ),
+    ];
+  }
+
+  Widget _buildOrnament() {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          colors: [
+            const Color(0xFFD4AF37),
+            const Color(0xFFCD7F32),
+          ],
+        ),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFD4AF37).withValues(alpha: 0.4),
+            blurRadius: 8,
+          ),
+        ],
+      ),
+      child: const Icon(
+        Icons.spa,
+        color: Color(0xFF2E7D32),
+        size: 18,
       ),
     );
   }
@@ -340,7 +554,6 @@ class _GameScreenState extends State<GameScreen> {
       child: Center(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Calculate responsive dimensions
             double dialogWidth = constraints.maxWidth * 0.85;
             double dialogMaxWidth = 450;
             dialogWidth = dialogWidth.clamp(280.0, dialogMaxWidth);
@@ -360,7 +573,6 @@ class _GameScreenState extends State<GameScreen> {
             double buttonIconSize = constraints.maxWidth * 0.05;
             buttonIconSize = buttonIconSize.clamp(18.0, 30.0);
             
-            // Dynamic spacing based on available height
             double spacing1 = constraints.maxHeight * 0.01;
             double spacing2 = constraints.maxHeight * 0.015;
             double spacing3 = constraints.maxHeight * 0.02;
@@ -380,10 +592,7 @@ class _GameScreenState extends State<GameScreen> {
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Colors.amber,
-                    width: 4,
-                  ),
+                  border: Border.all(color: Colors.amber, width: 4),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.amber.withValues(alpha: 0.6),
@@ -395,11 +604,7 @@ class _GameScreenState extends State<GameScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.park,
-                      size: iconSize,
-                      color: Colors.amber,
-                    ),
+                    Icon(Icons.park, size: iconSize, color: Colors.amber),
                     SizedBox(height: spacing1),
                     
                     FittedBox(
@@ -468,12 +673,7 @@ class _GameScreenState extends State<GameScreen> {
                       color: Colors.amber,
                       iconSize: buttonIconSize,
                       onPressed: () {
-                        // Navigate to full-screen Phase 2
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => DyeExtractionScreen(game: game),
-                          ),
-                        );
+                        game.startNextLevel();
                       },
                     ),
                   ],
@@ -486,7 +686,6 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // UPDATED: InsufficientMaterials dialog message
   Widget _buildInsufficientMaterialsDialog(BuildContext context, EcoQuestGame game) {
     return Container(
       color: Colors.black.withValues(alpha: 0.92),
@@ -531,10 +730,7 @@ class _GameScreenState extends State<GameScreen> {
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Colors.amber,
-                    width: 4,
-                  ),
+                  border: Border.all(color: Colors.amber, width: 4),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.orange.withValues(alpha: 0.6),
@@ -546,11 +742,7 @@ class _GameScreenState extends State<GameScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      size: iconSize,
-                      color: Colors.amber,
-                    ),
+                    Icon(Icons.warning_amber_rounded, size: iconSize, color: Colors.amber),
                     SizedBox(height: spacing1),
                     
                     FittedBox(
@@ -570,7 +762,7 @@ class _GameScreenState extends State<GameScreen> {
                     SizedBox(height: spacing2),
                     
                     Text(
-                      'Forest restored, but materials are limited. Complete the remaining restoration faster for more abundant harvests!',
+                      'Forest restored, but materials are limited. Complete faster for more materials!',
                       style: GoogleFonts.vt323(
                         fontSize: bodyFontSize,
                         color: Colors.white70,
@@ -603,15 +795,6 @@ class _GameScreenState extends State<GameScreen> {
                                   color: Colors.amber,
                                 ),
                               ),
-                            ),
-                            SizedBox(height: spacing1),
-                            Text(
-                              'Tip: Higher scores and faster completion = more materials!',
-                              style: GoogleFonts.vt323(
-                                fontSize: bodyFontSize * 0.85,
-                                color: Colors.white60,
-                              ),
-                              textAlign: TextAlign.center,
                             ),
                           ],
                         );
@@ -662,7 +845,6 @@ class _GameScreenState extends State<GameScreen> {
           child: Center(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                // Calculate responsive dimensions
                 double dialogWidth = constraints.maxWidth * 0.85;
                 double dialogMaxWidth = 450;
                 dialogWidth = dialogWidth.clamp(280.0, dialogMaxWidth);
@@ -696,10 +878,7 @@ class _GameScreenState extends State<GameScreen> {
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: Colors.red,
-                      width: 4,
-                    ),
+                    border: Border.all(color: Colors.red, width: 4),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.red.withValues(alpha: 0.6),
@@ -711,11 +890,7 @@ class _GameScreenState extends State<GameScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.warning_amber,
-                        size: iconSize,
-                        color: Colors.red[300],
-                      ),
+                      Icon(Icons.warning_amber, size: iconSize, color: Colors.red[300]),
                       SizedBox(height: constraints.maxHeight * 0.015),
                       
                       FittedBox(
@@ -775,7 +950,6 @@ class _GameScreenState extends State<GameScreen> {
                       
                       SizedBox(height: constraints.maxHeight * 0.02),
                       
-                      // Icon-based action buttons
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
@@ -810,7 +984,6 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  // Helper method for icon-based action buttons
   Widget _buildIconActionButton({
     required IconData icon,
     required String label,
@@ -839,11 +1012,7 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                 ],
               ),
-              child: Icon(
-                icon,
-                size: iconSize,
-                color: Colors.white,
-              ),
+              child: Icon(icon, size: iconSize, color: Colors.white),
             ),
           ),
         ),
@@ -949,7 +1118,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 }
 
-// Environmental Progress Panel with Forest Image Updates
+// Enhanced Environmental Progress Panel with ornate frame
 class EnvironmentalProgressPanel extends StatefulWidget {
   const EnvironmentalProgressPanel({super.key});
 
@@ -957,176 +1126,281 @@ class EnvironmentalProgressPanel extends StatefulWidget {
   State<EnvironmentalProgressPanel> createState() => _EnvironmentalProgressPanelState();
 }
 
-// Environmental Progress Panel with Forest Image Updates
 class _EnvironmentalProgressPanelState extends State<EnvironmentalProgressPanel> {
-@override
-Widget build(BuildContext context) {
-  return Container(
-    decoration: const BoxDecoration(
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black45,
-          blurRadius: 10,
-          offset: Offset(2, 0),
-        )
-      ],
-    ),
-    child: ValueListenableBuilder<int>(
-      valueListenable: scoreNotifier,
-      builder: (context, score, _) {
-        // UPDATED: Get forest image index from game instance using tile-based logic
-        int imageIndex = 0;
-        
-        // Access game instance to get accurate restoration percentage
-        final gameScreen = context.findAncestorStateOfType<_GameScreenState>();
-        if (gameScreen != null) {
-          imageIndex = gameScreen.game.getForestImageIndex();
-        }
-        
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            bool isPortrait = constraints.maxHeight > constraints.maxWidth;
-            bool isMobile = constraints.maxWidth < 600;
-            
-            double overlayScale = (isPortrait || isMobile) ? 0.65 : 1.0;
-            
-            double titleFontSize = constraints.maxWidth * 0.06 * overlayScale;
-            double percentageFontSize = constraints.maxWidth * 0.08 * overlayScale;
-            double scoreFontSize = constraints.maxWidth * 0.045 * overlayScale;
-            
-            titleFontSize = titleFontSize.clamp(12.0, 28.0);
-            percentageFontSize = percentageFontSize.clamp(16.0, 36.0);
-            scoreFontSize = scoreFontSize.clamp(11.0, 20.0);
-            
-            double horizontalPadding = constraints.maxWidth * (overlayScale * 0.06);
-            double verticalPadding = constraints.maxHeight * (overlayScale * 0.025);
-            
-            // UPDATED: Calculate restoration based on tiles
-            double restorationPercentage = 0.0;
-            int restoredTileCount = 0;
-            if (gameScreen != null) {
-              restorationPercentage = gameScreen.game.getRestorationPercentage();
-              // Count restored tiles for display
-              for (int r = 0; r < EcoQuestGame.rows; r++) {
-                for (int c = 0; c < EcoQuestGame.cols; c++) {
-                  if (gameScreen.game.restoredTiles[r][c]) {
-                    restoredTileCount++;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        // Ornate frame border
+        border: Border.all(
+          color: const Color(0xFFD4AF37),
+          width: 8,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFD4AF37).withValues(alpha: 0.3),
+            blurRadius: 20,
+            spreadRadius: 2,
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.6),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: ValueListenableBuilder<int>(
+        valueListenable: scoreNotifier,
+        builder: (context, score, _) {
+          int imageIndex = 0;
+          
+          final gameScreen = context.findAncestorStateOfType<_GameScreenState>();
+          if (gameScreen != null) {
+            imageIndex = gameScreen.game.getForestImageIndex();
+          }
+          
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              bool isPortrait = constraints.maxHeight > constraints.maxWidth;
+              bool isMobile = constraints.maxWidth < 600;
+              
+              double overlayScale = (isPortrait || isMobile) ? 0.7 : 1.0;
+              
+              double titleFontSize = constraints.maxWidth * 0.06 * overlayScale;
+              double percentageFontSize = constraints.maxWidth * 0.08 * overlayScale;
+              double scoreFontSize = constraints.maxWidth * 0.045 * overlayScale;
+              
+              titleFontSize = titleFontSize.clamp(12.0, 28.0);
+              percentageFontSize = percentageFontSize.clamp(16.0, 36.0);
+              scoreFontSize = scoreFontSize.clamp(11.0, 20.0);
+              
+              double restorationPercentage = 0.0;
+              int restoredTileCount = 0;
+              if (gameScreen != null) {
+                restorationPercentage = gameScreen.game.getRestorationPercentage();
+                for (int r = 0; r < EcoQuestGame.rows; r++) {
+                  for (int c = 0; c < EcoQuestGame.cols; c++) {
+                    if (gameScreen.game.restoredTiles[r][c]) {
+                      restoredTileCount++;
+                    }
                   }
                 }
               }
-            }
-            
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 800),
-                  switchInCurve: Curves.easeIn,
-                  switchOutCurve: Curves.easeOut,
-                  child: Image.asset(
-                    'assets/images/forest_$imageIndex.png',
-                    key: ValueKey<int>(imageIndex),
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Colors.brown.shade800,
-                        child: Center(
-                          child: Icon(
-                            Icons.image_not_supported, 
-                            color: Colors.white54, 
-                            size: constraints.maxWidth * 0.15,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                
-                Positioned(
-                  left: constraints.maxWidth * 0.05,
-                  right: constraints.maxWidth * 0.05,
-                  bottom: constraints.maxHeight * 0.08,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                      vertical: verticalPadding,
-                      horizontal: horizontalPadding,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.7),
-                      borderRadius: BorderRadius.circular(12 * overlayScale),
-                      border: Border.all(
-                        color: Colors.amber.withValues(alpha: 0.6),
-                        width: 2 * overlayScale,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          blurRadius: 15 * overlayScale,
-                          offset: Offset(0, 4 * overlayScale),
-                        )
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            '${restorationPercentage.toInt()}% Restored',
-                            style: GoogleFonts.vt323(
-                              fontSize: percentageFontSize,
-                              color: Colors.amber,
-                              fontWeight: FontWeight.bold,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black.withValues(alpha: 0.8),
-                                  offset: Offset(2 * overlayScale, 2 * overlayScale),
-                                  blurRadius: 4 * overlayScale,
-                                ),
-                              ],
+              
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Forest image with fade transition
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 800),
+                    switchInCurve: Curves.easeIn,
+                    switchOutCurve: Curves.easeOut,
+                    child: Image.asset(
+                      'assets/images/forest_$imageIndex.png',
+                      key: ValueKey<int>(imageIndex),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: const Color(0xFF6D4C41),
+                          child: Center(
+                            child: Icon(
+                              Icons.image_not_supported, 
+                              color: Colors.white54, 
+                              size: constraints.maxWidth * 0.15,
                             ),
                           ),
-                        ),
-                        SizedBox(height: constraints.maxHeight * 0.01 * overlayScale),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            'Tiles: $restoredTileCount / ${EcoQuestGame.totalTiles} | Score: $score',
-                            style: GoogleFonts.vt323(
-                              fontSize: scoreFontSize,
-                              color: Colors.white,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black.withValues(alpha: 0.8),
-                                  offset: Offset(1 * overlayScale, 1 * overlayScale),
-                                  blurRadius: 3 * overlayScale,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                        );
+                      },
                     ),
                   ),
+                  
+                  // Weather overlay effects based on restoration
+                  if (restorationPercentage < 30)
+                    CustomPaint(
+                      painter: RainEffectPainter(),
+                    ),
+                  
+                  // Progress indicator as growing vine
+                  Positioned(
+                    left: constraints.maxWidth * 0.05,
+                    right: constraints.maxWidth * 0.05,
+                    bottom: constraints.maxHeight * 0.08,
+                    child: _buildVineProgressBar(
+                      restorationPercentage,
+                      constraints.maxWidth,
+                      overlayScale,
+                    ),
+                  ),
+                  
+                  // Stats overlay with stone tablet design
+                  Positioned(
+                    left: constraints.maxWidth * 0.05,
+                    right: constraints.maxWidth * 0.05,
+                    bottom: constraints.maxHeight * 0.15,
+                    child: _buildStoneStatsOverlay(
+                      restorationPercentage,
+                      restoredTileCount,
+                      score,
+                      percentageFontSize,
+                      scoreFontSize,
+                      overlayScale,
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildVineProgressBar(double percentage, double width, double scale) {
+    return Container(
+      height: 12 * scale,
+      decoration: BoxDecoration(
+        color: const Color(0xFF3E2723).withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(8 * scale),
+        border: Border.all(
+          color: const Color(0xFFD4AF37).withValues(alpha: 0.5),
+          width: 2,
+        ),
+      ),
+      child: Stack(
+        children: [
+          // Progress fill with vine texture
+          FractionallySizedBox(
+            widthFactor: percentage / 100,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF2E7D32),
+                    Color(0xFF4CAF50),
+                  ],
                 ),
-              ],
-            );
-          },
-        );
-      },
-    ),
-  );
-}
+                borderRadius: BorderRadius.circular(6 * scale),
+              ),
+            ),
+          ),
+          
+          // Milestone markers
+          ..._buildMilestoneMarkers(width, scale),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildMilestoneMarkers(double width, double scale) {
+    final milestones = [0.0, 0.25, 0.5, 0.75, 1.0];
+    return milestones.map((milestone) {
+      return Positioned(
+        left: (width - 40 * scale) * milestone,
+        top: -4 * scale,
+        child: Container(
+          width: 8 * scale,
+          height: 20 * scale,
+          decoration: BoxDecoration(
+            color: const Color(0xFFD4AF37),
+            borderRadius: BorderRadius.circular(4 * scale),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 4,
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  Widget _buildStoneStatsOverlay(
+    double percentage,
+    int tiles,
+    int score,
+    double percentFontSize,
+    double scoreFontSize,
+    double scale,
+  ) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        vertical: 12 * scale,
+        horizontal: 16 * scale,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF5D4E37).withValues(alpha: 0.85),
+            const Color(0xFF3E2723).withValues(alpha: 0.9),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12 * scale),
+        border: Border.all(
+          color: const Color(0xFFD4AF37).withValues(alpha: 0.6),
+          width: 3,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.6),
+            blurRadius: 15,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              '${percentage.toInt()}% Restored',
+              style: GoogleFonts.vt323(
+                fontSize: percentFontSize,
+                color: const Color(0xFFD4AF37),
+                fontWeight: FontWeight.bold,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withValues(alpha: 0.8),
+                    offset: Offset(2 * scale, 2 * scale),
+                    blurRadius: 4 * scale,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(height: 6 * scale),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              'Tiles: $tiles / ${EcoQuestGame.totalTiles} | Score: $score',
+              style: GoogleFonts.vt323(
+                fontSize: scoreFontSize,
+                color: Colors.white,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withValues(alpha: 0.8),
+                    offset: Offset(1 * scale, 1 * scale),
+                    blurRadius: 3 * scale,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// Custom Painter for Background Pattern
-class GridPatternPainter extends CustomPainter {
+// Custom Painters
+class EnhancedGridPatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withValues(alpha:0.03)
+      ..color = const Color(0xFFD4AF37).withValues(alpha: 0.05)
       ..strokeWidth = 1.0;
 
     const spacing = 40.0;
@@ -1150,4 +1424,54 @@ class GridPatternPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class AmbientParticlesPainter extends CustomPainter {
+  final Random random = Random();
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFFFFD700).withValues(alpha: 0.3)
+      ..style = PaintingStyle.fill;
+    
+    // Draw fireflies/dust motes
+    for (int i = 0; i < 20; i++) {
+      final x = random.nextDouble() * size.width;
+      final y = random.nextDouble() * size.height;
+      final radius = 1 + random.nextDouble() * 2;
+      
+      canvas.drawCircle(Offset(x, y), radius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class RainEffectPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF64B5F6).withValues(alpha: 0.3)
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    
+    final random = Random(42); // Fixed seed for consistent pattern
+    
+    for (int i = 0; i < 50; i++) {
+      final x = random.nextDouble() * size.width;
+      final y = random.nextDouble() * size.height;
+      final length = 15 + random.nextDouble() * 10;
+      
+      canvas.drawLine(
+        Offset(x, y),
+        Offset(x + 2, y + length),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

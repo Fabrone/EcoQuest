@@ -27,14 +27,14 @@ class EcoQuestGame extends FlameGame {
 
   // NEW: Track when 60% restoration was achieved
   int? sixtyPercentAchievedTime;
-  static const int totalTiles = rows * cols; // 36 tiles
+  static const int totalTiles = rows * cols;
   static final int sixtyPercentTiles = (totalTiles * 0.6).ceil();
 
   // Level Management
   int currentLevel = 1;
   
-  // Phase Management - NEW
-  int currentPhase = 1; // 1 = Restoration, 2 = Dye Extraction
+  // Phase Management
+  int currentPhase = 1;
   int plantsCollected = 0;
   
   // Forest Restoration Images
@@ -43,7 +43,6 @@ class EcoQuestGame extends FlameGame {
     'forest_5.png', 'forest_6.png', 'forest_7.png', 'forest_8.png', 'forest_9.png'
   ];
   
-  // Temporary high score for image progression
   static const int targetHighScore = 2000;
   
   // Track tile restoration state
@@ -66,13 +65,11 @@ class EcoQuestGame extends FlameGame {
 
     _updateLayout(size);
 
-    // Audio
     await FlameAudio.audioCache.load('bubble-pop.mp3');
 
     debugPrint("🗃️ Building Level $currentLevel - Phase $currentPhase...");
     _buildTutorialGrid();
     
-    // Timer setup
     _setupTimer();
   }
 
@@ -109,7 +106,7 @@ class EcoQuestGame extends FlameGame {
   }
 
   void _setupTimer() {
-    levelTimeNotifier.value = 210; // 210 seconds (3:30)
+    levelTimeNotifier.value = 210;
     
     children.whereType<TimerComponent>().forEach((tc) => tc.removeFromParent());
     
@@ -145,7 +142,6 @@ class EcoQuestGame extends FlameGame {
   }
     
   void checkLevelCompletion() {
-    // Count restored tiles
     int restoredCount = 0;
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
@@ -157,24 +153,20 @@ class EcoQuestGame extends FlameGame {
     
     double restorationPercentage = (restoredCount / totalTiles) * 100;
     
-    // Track when 60% is achieved (for time bonus calculation)
     if (restorationPercentage >= 60.0 && sixtyPercentAchievedTime == null) {
       sixtyPercentAchievedTime = levelTimeNotifier.value;
       debugPrint("🌱 60% restoration achieved at ${sixtyPercentAchievedTime}s remaining");
     }
     
-    // Check if ALL tiles are restored (100%)
     bool allRestored = (restoredCount == totalTiles);
     
     if (allRestored) {
-      // Calculate materials based on new logic
       plantsCollected = _calculateMaterialsCollected(restoredCount, restorationPercentage);
       
       if (plantsCollected > 0) {
         plantsCollectedNotifier.value = plantsCollected;
         _triggerPhaseTransition();
       } else {
-        // Edge case: should not happen with new logic, but keep as fallback
         plantsCollectedNotifier.value = 0;
         _triggerPhaseTransition();
       }
@@ -182,26 +174,16 @@ class EcoQuestGame extends FlameGame {
   }
 
   int _calculateMaterialsCollected(int restoredCount, double restorationPercentage) {
-    // Base materials from tile restoration (minimum guaranteed)
-    // At 60% (22 tiles): 10 units
-    // At 100% (36 tiles): 30 units base
     double baseMaterials = 10 + ((restoredCount - sixtyPercentTiles) / (totalTiles - sixtyPercentTiles)) * 20;
     baseMaterials = baseMaterials.clamp(10.0, 30.0);
     
-    // Score multiplier (adds quality bonus)
-    // Score range: 0-3000+ typical, normalize to 0.0-2.0 multiplier
     double scoreMultiplier = 1.0 + (scoreNotifier.value / 2000).clamp(0.0, 1.0);
     
-    // Time bonus (rewards speed after 60% threshold)
     double timeBonus = 0.0;
     if (sixtyPercentAchievedTime != null) {
-      // Calculate time taken for remaining 40%
       int timeForFinalForty = sixtyPercentAchievedTime! - levelTimeNotifier.value;
-      int maxTimeForFinalForty = sixtyPercentAchievedTime!; // All remaining time
+      int maxTimeForFinalForty = sixtyPercentAchievedTime!;
       
-      // Faster completion = higher bonus (0 to +30 materials)
-      // If completed instantly: full +30 bonus
-      // If used all time: no bonus
       if (maxTimeForFinalForty > 0) {
         double speedRatio = 1.0 - (timeForFinalForty / maxTimeForFinalForty);
         speedRatio = speedRatio.clamp(0.0, 1.0);
@@ -211,10 +193,7 @@ class EcoQuestGame extends FlameGame {
       debugPrint("⏱️ Time for final 40%: ${timeForFinalForty}s, Bonus: ${timeBonus.toStringAsFixed(1)} materials");
     }
     
-    // Calculate total materials
     double totalMaterials = (baseMaterials * scoreMultiplier) + timeBonus;
-    
-    // Clamp to reasonable range (10-60 units)
     int finalMaterials = totalMaterials.round().clamp(10, 60);
     
     debugPrint("""
@@ -235,17 +214,13 @@ class EcoQuestGame extends FlameGame {
       _timerComponent.timer.stop();
     }
     
-    // Store plants collected
     plantsCollectedNotifier.value = plantsCollected;
     
-    // Check if player collected materials (score >= 60% threshold)
     if (plantsCollected > 0) {
-      // SUCCESS: All tiles green + materials collected
       if (!overlays.isActive('PhaseComplete')) {
         overlays.add('PhaseComplete');
       }
     } else {
-      // FAILURE: All tiles green but plants too immature
       if (!overlays.isActive('InsufficientMaterials')) {
         overlays.add('InsufficientMaterials');
       }
@@ -265,15 +240,18 @@ class EcoQuestGame extends FlameGame {
     currentPhase = 1;
     plantsCollected = 0;
     plantsCollectedNotifier.value = 0;
-    sixtyPercentAchievedTime = null; // Reset time tracking
+    sixtyPercentAchievedTime = null;
     
-    // Reset tile restoration state
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
     
     final items = children.whereType<EcoItem>().toList();
     for(var i in items) {
       i.removeFromParent();
     }
+    
+    // Remove any active effects
+    children.whereType<MatchExplosionEffect>().forEach((e) => e.removeFromParent());
+    children.whereType<TileRestorationEffect>().forEach((e) => e.removeFromParent());
     
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
@@ -301,7 +279,7 @@ class EcoQuestGame extends FlameGame {
     plantsCollected = 0;
     plantsCollectedNotifier.value = 0;
     hintsRemaining = 5;
-    sixtyPercentAchievedTime = null; // Reset time tracking
+    sixtyPercentAchievedTime = null;
     
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
     
@@ -309,6 +287,9 @@ class EcoQuestGame extends FlameGame {
     for(var i in items) {
       i.removeFromParent();
     }
+    
+    children.whereType<MatchExplosionEffect>().forEach((e) => e.removeFromParent());
+    children.whereType<TileRestorationEffect>().forEach((e) => e.removeFromParent());
     
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
 
@@ -326,7 +307,6 @@ class EcoQuestGame extends FlameGame {
   }
 
   void _buildTutorialGrid() {
-    // 6x6 tutorial grid with balanced distribution
     List<List<String>> fixedMap = [
       ['rain', 'rain', 'summer', 'rain', 'rose', 'man'],
       ['rose', 'man', 'hummingbird', 'rose', 'summer', 'hummingbird'],
@@ -344,17 +324,13 @@ class EcoQuestGame extends FlameGame {
   }
 
   void _buildShuffledGrid() {
-    // Create a list of all item types with balanced distribution
     List<String> allItemTypes = [];
     
-    // Calculate how many of each type we need for a 6x6 grid (36 tiles)
-    int tilesPerType = (rows * cols) ~/ level1ItemTypes.length; // 36 / 5 = 7 tiles per type
-    int remainder = (rows * cols) % level1ItemTypes.length; // 36 % 5 = 1 extra tile
+    int tilesPerType = (rows * cols) ~/ level1ItemTypes.length;
+    int remainder = (rows * cols) % level1ItemTypes.length;
     
-    // Add tiles for each type
     for (int i = 0; i < level1ItemTypes.length; i++) {
       int count = tilesPerType;
-      // Distribute remainder tiles
       if (i < remainder) count++;
       
       for (int j = 0; j < count; j++) {
@@ -362,30 +338,24 @@ class EcoQuestGame extends FlameGame {
       }
     }
     
-    // Shuffle the list
     allItemTypes.shuffle();
     
-    // Create a temporary grid to check for immediate matches
     List<List<String>> tempGrid = List.generate(rows, (_) => List.generate(cols, (_) => ''));
     
-    // Place items in grid, ensuring no immediate matches
     int itemIndex = 0;
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        // Try to place an item that doesn't create immediate match
         bool placed = false;
         int attempts = 0;
         
         while (!placed && attempts < allItemTypes.length) {
           String candidateType = allItemTypes[itemIndex % allItemTypes.length];
           
-          // Check if this creates a horizontal match
           bool horizontalMatch = false;
           if (c >= 2 && tempGrid[r][c-1] == candidateType && tempGrid[r][c-2] == candidateType) {
             horizontalMatch = true;
           }
           
-          // Check if this creates a vertical match
           bool verticalMatch = false;
           if (r >= 2 && tempGrid[r-1][c] == candidateType && tempGrid[r-2][c] == candidateType) {
             verticalMatch = true;
@@ -401,7 +371,6 @@ class EcoQuestGame extends FlameGame {
           attempts++;
         }
         
-        // Fallback: if we couldn't place without match, place anyway
         if (!placed) {
           String fallbackType = allItemTypes[itemIndex % allItemTypes.length];
           tempGrid[r][c] = fallbackType;
@@ -543,15 +512,35 @@ class EcoQuestGame extends FlameGame {
     for (var item in matches) {
       int r = item.gridPosition.x as int;
       int c = item.gridPosition.y as int;
-      item.add(ScaleEffect.to(Vector2.zero(), EffectController(duration: 0.2)));
       
-      // Mark tile as restored (turn green)
+      // Add explosion effect BEFORE removing item
+      final explosionEffect = MatchExplosionEffect(
+        position: item.position.clone() + Vector2(tileSize / 2, tileSize / 2),
+        itemType: item.type,
+      );
+      add(explosionEffect);
+      
+      // Scale down with rotation
+      item.add(
+        SequenceEffect([
+          ScaleEffect.to(
+            Vector2.zero(), 
+            EffectController(duration: 0.3),
+          ),
+        ]),
+      );
+      
+      // Mark tile as restored
       restoredTiles[r][c] = true;
+      
+      // Add restoration animation
+      final restorationEffect = TileRestorationEffect(row: r, col: c);
+      add(restorationEffect);
       
       gridItems[r][c] = null;
     }
     
-    await Future.delayed(const Duration(milliseconds: 250));
+    await Future.delayed(const Duration(milliseconds: 350));
     
     for (var item in matches) {
       item.removeFromParent();
