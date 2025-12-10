@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:ecoquest/game/splash_screen.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/services.dart';
@@ -254,12 +255,12 @@ class _GameScreenState extends State<GameScreen> {
 
               _buildCarvedDivider(),
 
-              _buildStoneButton(
-                icon: Icons.lightbulb, 
-                color: Colors.amber, 
+              // CHANGED: Hint button now with counter badge
+              _buildHintButtonWithBadge(
                 onTap: () {
                   if (game.hintsRemaining > 0 && !game.isProcessing) {
                     game.useHint();
+                    setState(() {}); // Refresh to update badge
                   }
                 }
               ),
@@ -279,6 +280,54 @@ class _GameScreenState extends State<GameScreen> {
           );
         },
       ),
+    );
+  }
+
+  Widget _buildHintButtonWithBadge({required VoidCallback onTap}) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        _buildStoneButton(
+          icon: Icons.lightbulb, 
+          color: game.hintsRemaining > 0 ? Colors.amber : Colors.grey,
+          onTap: onTap,
+        ),
+        // Badge counter
+        if (game.hintsRemaining > 0)
+          Positioned(
+            top: -4,
+            right: -4,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.green,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              constraints: const BoxConstraints(
+                minWidth: 18,
+                minHeight: 18,
+              ),
+              child: Center(
+                child: Text(
+                  '${game.hintsRemaining}',
+                  style: GoogleFonts.exo2(
+                    fontSize: 11,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1103,51 +1152,6 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  /*Widget _buildIconActionButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required double iconSize,
-    required VoidCallback onPressed,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onPressed,
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              padding: EdgeInsets.all(iconSize * 0.4),
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Icon(icon, size: iconSize, color: Colors.white),
-            ),
-          ),
-        ),
-        SizedBox(height: iconSize * 0.2),
-        Text(
-          label,
-          style: GoogleFonts.vt323(
-            fontSize: iconSize * 0.5,
-            color: Colors.white,
-            letterSpacing: 1,
-          ),
-        ),
-      ],
-    );
-  }*/
-
   void _showRestartDialog(BuildContext context, EcoQuestGame game) {
     showDialog(
       context: context,
@@ -1160,18 +1164,30 @@ class _GameScreenState extends State<GameScreen> {
         ),
         title: Text(
           'Restart Level?',
-          style: GoogleFonts.vt323(color: Colors.white, fontSize: 28),
+          style: GoogleFonts.exo2( // Changed from vt323
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         content: Text(
           'Your current progress will be lost.',
-          style: GoogleFonts.vt323(color: Colors.white70, fontSize: 18),
+          style: GoogleFonts.exo2( // Changed from vt323
+            color: Colors.white70,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: Text(
               'CANCEL',
-              style: GoogleFonts.vt323(fontSize: 18, color: Colors.grey),
+              style: GoogleFonts.exo2( // Changed from vt323
+                fontSize: 16,
+                color: Colors.grey,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           ElevatedButton(
@@ -1185,7 +1201,13 @@ class _GameScreenState extends State<GameScreen> {
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
-            child: Text('RESTART', style: GoogleFonts.vt323(fontSize: 18)),
+            child: Text(
+              'RESTART',
+              style: GoogleFonts.exo2( // Changed from vt323
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -1204,24 +1226,57 @@ class _GameScreenState extends State<GameScreen> {
         ),
         title: Text(
           'Exit Game?',
-          style: GoogleFonts.vt323(color: Colors.white, fontSize: 28),
+          style: GoogleFonts.exo2(
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         content: Text(
           'Are you sure you want to exit?',
-          style: GoogleFonts.vt323(color: Colors.white70, fontSize: 18),
+          style: GoogleFonts.exo2(
+            color: Colors.white70,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(
               'CANCEL',
-              style: GoogleFonts.vt323(fontSize: 18, color: Colors.grey),
+              style: GoogleFonts.exo2(
+                fontSize: 16,
+                color: Colors.grey,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(ctx, true);
-              await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+              
+              // CHANGED: Platform-specific exit logic
+              if (kIsWeb) {
+                // For web: Go back to previous page or close tab
+                if (Navigator.canPop(context)) {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                } else {
+                  // Show message that user can close tab manually
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'You can close this browser tab to exit',
+                        style: GoogleFonts.exo2(),
+                      ),
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                }
+              } else {
+                // For mobile: Use system navigator
+                await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
@@ -1229,7 +1284,13 @@ class _GameScreenState extends State<GameScreen> {
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
-            child: Text('EXIT', style: GoogleFonts.vt323(fontSize: 18)),
+            child: Text(
+              'EXIT',
+              style: GoogleFonts.exo2(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -1250,7 +1311,6 @@ class _EnvironmentalProgressPanelState extends State<EnvironmentalProgressPanel>
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        // Ornate frame border
         border: Border.all(
           color: const Color(0xFFD4AF37),
           width: 8,
@@ -1285,13 +1345,11 @@ class _EnvironmentalProgressPanelState extends State<EnvironmentalProgressPanel>
               
               double overlayScale = (isPortrait || isMobile) ? 0.7 : 1.0;
               
-              double titleFontSize = constraints.maxWidth * 0.06 * overlayScale;
-              double percentageFontSize = constraints.maxWidth * 0.08 * overlayScale;
-              double scoreFontSize = constraints.maxWidth * 0.045 * overlayScale;
+              double percentageFontSize = constraints.maxWidth * 0.07 * overlayScale;
+              double scoreFontSize = constraints.maxWidth * 0.04 * overlayScale;
               
-              titleFontSize = titleFontSize.clamp(12.0, 28.0);
-              percentageFontSize = percentageFontSize.clamp(16.0, 36.0);
-              scoreFontSize = scoreFontSize.clamp(11.0, 20.0);
+              percentageFontSize = percentageFontSize.clamp(14.0, 28.0);
+              scoreFontSize = scoreFontSize.clamp(10.0, 16.0);
               
               double restorationPercentage = 0.0;
               int restoredTileCount = 0;
@@ -1309,7 +1367,7 @@ class _EnvironmentalProgressPanelState extends State<EnvironmentalProgressPanel>
               return Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Forest image with fade transition
+                  // CHANGED: High-quality image rendering
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 800),
                     switchInCurve: Curves.easeIn,
@@ -1320,6 +1378,10 @@ class _EnvironmentalProgressPanelState extends State<EnvironmentalProgressPanel>
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: double.infinity,
+                      // ADDED: High quality rendering
+                      filterQuality: FilterQuality.high,
+                      isAntiAlias: true,
+                      gaplessPlayback: true, // Smooth transitions
                       errorBuilder: (context, error, stackTrace) {
                         return Container(
                           color: const Color(0xFF6D4C41),
@@ -1335,7 +1397,7 @@ class _EnvironmentalProgressPanelState extends State<EnvironmentalProgressPanel>
                     ),
                   ),
                   
-                  // Weather overlay effects based on restoration
+                  // Weather overlay effects
                   if (restorationPercentage < 30)
                     CustomPaint(
                       painter: RainEffectPainter(),
@@ -1353,11 +1415,11 @@ class _EnvironmentalProgressPanelState extends State<EnvironmentalProgressPanel>
                     ),
                   ),
                   
-                  // Stats overlay with stone tablet design
+                  // Stats overlay - UPDATED position to be less obstructive
                   Positioned(
-                    left: constraints.maxWidth * 0.05,
-                    right: constraints.maxWidth * 0.05,
-                    bottom: constraints.maxHeight * 0.15,
+                    left: 0,
+                    right: 0,
+                    bottom: constraints.maxHeight * 0.16, // Moved up slightly
                     child: _buildStoneStatsOverlay(
                       restorationPercentage,
                       restoredTileCount,
@@ -1444,71 +1506,73 @@ class _EnvironmentalProgressPanelState extends State<EnvironmentalProgressPanel>
     double scoreFontSize,
     double scale,
   ) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        vertical: 12 * scale,
-        horizontal: 16 * scale,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF5D4E37).withValues(alpha: 0.85),
-            const Color(0xFF3E2723).withValues(alpha: 0.9),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(12 * scale),
-        border: Border.all(
-          color: const Color(0xFFD4AF37).withValues(alpha: 0.6),
-          width: 3,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.6),
-            blurRadius: 15,
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              '${percentage.toInt()}% Restored',
-              style: GoogleFonts.vt323(
-                fontSize: percentFontSize,
-                color: const Color(0xFFD4AF37),
-                fontWeight: FontWeight.bold,
-                shadows: [
-                  Shadow(
-                    color: Colors.black.withValues(alpha: 0.8),
-                    offset: Offset(2 * scale, 2 * scale),
-                    blurRadius: 4 * scale,
-                  ),
-                ],
-              ),
-            ),
+    return Center(
+      child: IntrinsicWidth( // NEW: Wraps to content width
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            vertical: 8 * scale,
+            horizontal: 12 * scale,
           ),
-          SizedBox(height: 6 * scale),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              'Tiles: $tiles / ${EcoQuestGame.totalTiles} | Score: $score',
-              style: GoogleFonts.vt323(
-                fontSize: scoreFontSize,
-                color: Colors.white,
-                shadows: [
-                  Shadow(
-                    color: Colors.black.withValues(alpha: 0.8),
-                    offset: Offset(1 * scale, 1 * scale),
-                    blurRadius: 3 * scale,
-                  ),
-                ],
-              ),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFF5D4E37).withValues(alpha: 0.75), // Reduced from 0.85
+                const Color(0xFF3E2723).withValues(alpha: 0.8), // Reduced from 0.9
+              ],
             ),
+            borderRadius: BorderRadius.circular(12 * scale),
+            border: Border.all(
+              color: const Color(0xFFD4AF37).withValues(alpha: 0.5), // Reduced from 0.6
+              width: 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.5), // Reduced from 0.6
+                blurRadius: 12,
+                offset: const Offset(0, 3),
+              )
+            ],
           ),
-        ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                '${percentage.toInt()}% Restored',
+                style: GoogleFonts.exo2( // Changed from vt323
+                  fontSize: percentFontSize,
+                  color: const Color(0xFFD4AF37),
+                  fontWeight: FontWeight.w900, // More modern
+                  letterSpacing: 0.5,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withValues(alpha: 0.8),
+                      offset: Offset(1.5 * scale, 1.5 * scale),
+                      blurRadius: 3 * scale,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 4 * scale),
+              Text(
+                '$tiles / ${EcoQuestGame.totalTiles} | $score pts',
+                style: GoogleFonts.exo2( // Changed from vt323
+                  fontSize: scoreFontSize * 0.9,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withValues(alpha: 0.8),
+                      offset: Offset(1 * scale, 1 * scale),
+                      blurRadius: 2 * scale,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

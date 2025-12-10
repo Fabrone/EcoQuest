@@ -513,14 +513,13 @@ class EcoQuestGame extends FlameGame {
       int r = item.gridPosition.x as int;
       int c = item.gridPosition.y as int;
       
-      // Add explosion effect BEFORE removing item
+      // Explosion effect at sprite center
       final explosionEffect = MatchExplosionEffect(
         position: item.position.clone() + Vector2(tileSize / 2, tileSize / 2),
         itemType: item.type,
       );
       add(explosionEffect);
       
-      // Scale down with rotation
       item.add(
         SequenceEffect([
           ScaleEffect.to(
@@ -530,10 +529,10 @@ class EcoQuestGame extends FlameGame {
         ]),
       );
       
-      // Mark tile as restored
+      // Mark tile as restored (tile stays, changes color)
       restoredTiles[r][c] = true;
       
-      // Add restoration animation
+      // Add restoration animation to tile
       final restorationEffect = TileRestorationEffect(row: r, col: c);
       add(restorationEffect);
       
@@ -542,6 +541,7 @@ class EcoQuestGame extends FlameGame {
     
     await Future.delayed(const Duration(milliseconds: 350));
     
+    // Remove only the sprite components
     for (var item in matches) {
       item.removeFromParent();
     }
