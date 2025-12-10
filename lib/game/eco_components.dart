@@ -40,7 +40,6 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
 
   @override
   void render(Canvas canvas) {
-    super.render(canvas);
     int r = gridPosition.x as int;
     int c = gridPosition.y as int;
     
@@ -53,15 +52,15 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
     // 2. Draw tile surface with texture
     _drawTileSurface(canvas, rect, isRestored);
     
-    // 3. Draw sprite with shadow
-    _drawSpriteWithShadow(canvas);
+    // 3. Draw main sprite FIRST (without shadow to avoid darkening)
+    super.render(canvas);
     
-    // 4. Draw selection effects
+    // 4. Draw selection effects (only if selected)
     if (isSelected) {
       _drawSelectionGlow(canvas, rect);
     }
     
-    // 5. Draw glossy shine
+    // 5. Draw glossy shine (lighter version)
     _drawGlossEffect(canvas, rect, isRestored);
   }
   
@@ -152,64 +151,42 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
   
   void _drawCrackedTexture(Canvas canvas, Rect rect) {
     final crackPaint = Paint()
-      ..color = const Color(0xFF3E2723).withValues(alpha: 0.3)
-      ..strokeWidth = 1.5
+      ..color = const Color(0xFF3E2723).withValues(alpha: 0.2) // Reduced from 0.3
+      ..strokeWidth = 1.0 // Reduced from 1.5
       ..style = PaintingStyle.stroke;
     
-    // Draw random crack patterns
+    // Draw only 2 cracks instead of 3 for performance
     final random = Random((gridPosition.x as int) * 100 + (gridPosition.y as int));  
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
       final path = Path();
       final startX = rect.left + rect.width * random.nextDouble();
       final startY = rect.top + rect.height * random.nextDouble();
       path.moveTo(startX, startY);
       
-      for (int j = 0; j < 2; j++) {
-        final endX = rect.left + rect.width * random.nextDouble();
-        final endY = rect.top + rect.height * random.nextDouble();
-        path.lineTo(endX, endY);
-      }
+      final endX = rect.left + rect.width * random.nextDouble();
+      final endY = rect.top + rect.height * random.nextDouble();
+      path.lineTo(endX, endY);
       
       canvas.drawPath(path, crackPaint);
     }
   }
-  
+
   void _drawVegetationTexture(Canvas canvas, Rect rect) {
     final mossPaint = Paint()
-      ..color = const Color(0xFF1B5E20).withValues(alpha: 0.2)
+      ..color = const Color(0xFF1B5E20).withValues(alpha: 0.15) // Reduced from 0.2
       ..style = PaintingStyle.fill;
     
-    // Draw small moss spots
+    // Draw only 3 moss spots instead of 5 for performance
     final random = Random((gridPosition.x as int) * 50 + (gridPosition.y as int));  
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 3; i++) {
       final x = rect.left + rect.width * random.nextDouble();
       final y = rect.top + rect.height * random.nextDouble();
-      final radius = 2 + random.nextDouble() * 3;
+      final radius = 2 + random.nextDouble() * 2; // Reduced from 3
       
       canvas.drawCircle(Offset(x, y), radius, mossPaint);
     }
   }
-  
-  void _drawSpriteWithShadow(Canvas canvas) {
-    // Draw shadow beneath sprite
-    if (sprite != null) {
-      final shadowPaint = Paint()
-        ..colorFilter = ColorFilter.mode(
-          Colors.black.withValues(alpha: 0.3),
-          BlendMode.srcATop,
-        )
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-      
-      canvas.save();
-      canvas.translate(2, 2);
-      sprite!.render(canvas, size: size, overridePaint: shadowPaint);
-      canvas.restore();
-    }
     
-    // Draw main sprite
-    super.render(canvas);
-  }
-  
   void _drawSelectionGlow(Canvas canvas, Rect rect) {
     // Pulsing golden aura
     final glowIntensity = (sin(_glowAnimation) * 0.3 + 0.7);
@@ -279,13 +256,12 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
     final glossPaint = Paint()
       ..shader = LinearGradient(
         begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
+        end: Alignment.center,
         colors: [
-          Colors.white.withValues(alpha: 0.25),
+          Colors.white.withValues(alpha: 0.15), // Reduced from 0.25
           Colors.transparent,
-          Colors.black.withValues(alpha: 0.08),
         ],
-        stops: const [0.0, 0.5, 1.0],
+        stops: const [0.0, 1.0],
       ).createShader(rect);
     
     canvas.drawRRect(rRect, glossPaint);
