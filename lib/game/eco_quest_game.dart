@@ -10,7 +10,12 @@ import 'eco_components.dart';
 class EcoQuestGame extends FlameGame {
   static const int rows = 6;
   static const int cols = 6;
-  
+
+  // NEW: Add these callback functions
+  VoidCallback? onGameOverCallback;
+  VoidCallback? onPhaseCompleteCallback;
+  VoidCallback? onInsufficientMaterialsCallback;
+
   double tileSize = 0; 
   double boardWidth = 0;
   double boardHeight = 0;
@@ -131,7 +136,8 @@ class EcoQuestGame extends FlameGame {
     pauseEngine(); 
     if (!_timerComponent.timer.finished) _timerComponent.timer.stop();
     gameSuccessNotifier.value = success;
-    if (!overlays.isActive('GameOver')) overlays.add('GameOver');
+    
+    onGameOverCallback?.call();
   }
     
   void checkLevelCompletion() {
@@ -167,10 +173,13 @@ class EcoQuestGame extends FlameGame {
   void _triggerPhaseTransition() {
     pauseEngine();
     if (!_timerComponent.timer.finished) _timerComponent.timer.stop();
+    
     if (plantsCollected > 0) {
-      if (!overlays.isActive('PhaseComplete')) overlays.add('PhaseComplete');
+      // CHANGED: Call callback instead of adding overlay
+      onPhaseCompleteCallback?.call();
     } else {
-      if (!overlays.isActive('InsufficientMaterials')) overlays.add('InsufficientMaterials');
+      // CHANGED: Call callback instead of adding overlay
+      onInsufficientMaterialsCallback?.call();
     }
   }
   
@@ -179,7 +188,7 @@ class EcoQuestGame extends FlameGame {
     overlays.remove('PhaseComplete');
     pauseEngine();
   }
-    
+      
   void restartGame() {
     scoreNotifier.value = 0;
     hintsRemaining = 5;
@@ -206,9 +215,7 @@ class EcoQuestGame extends FlameGame {
       _buildShuffledGrid();
     }
     _setupTimer(); 
-    overlays.remove('GameOver');
-    overlays.remove('PhaseComplete');
-    overlays.remove('InsufficientMaterials');
+    
     currentLevelNotifier.value = currentLevel;
   }
 
@@ -234,10 +241,8 @@ class EcoQuestGame extends FlameGame {
     children.whereType<TileRestorationEffect>().forEach((e) => e.removeFromParent());
     gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
     _buildShuffledGrid();
-    _setupTimer(); 
-    overlays.remove('GameOver');
-    overlays.remove('PhaseComplete');
-    overlays.remove('InsufficientMaterials');
+    _setupTimer();
+    
     scoreNotifier.value = 0;
   }
 

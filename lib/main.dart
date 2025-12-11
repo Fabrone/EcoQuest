@@ -66,10 +66,33 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> {
   late final EcoQuestGame game;
 
+  bool _showGameOver = false;
+  bool _showPhaseComplete = false;
+  bool _showInsufficientMaterials = false;
+
   @override
   void initState() {
     super.initState();
     game = EcoQuestGame();
+    
+    // NEW: Listen to game state changes
+    game.onGameOverCallback = () {
+      setState(() {
+        _showGameOver = true;
+      });
+    };
+    
+    game.onPhaseCompleteCallback = () {
+      setState(() {
+        _showPhaseComplete = true;
+      });
+    };
+    
+    game.onInsufficientMaterialsCallback = () {
+      setState(() {
+        _showInsufficientMaterials = true;
+      });
+    };
   }
 
   @override
@@ -86,39 +109,54 @@ class _GameScreenState extends State<GameScreen> {
         }
       },
       child: Scaffold(
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            bool isLandscape = constraints.maxWidth > constraints.maxHeight;
-            bool isTabletOrDesktop = constraints.maxWidth >= 600;
+        body: Stack(  // NEW: Wrap entire body with Stack
+          children: [
+            // Original game layout
+            LayoutBuilder(
+              builder: (context, constraints) {
+                bool isLandscape = constraints.maxWidth > constraints.maxHeight;
+                bool isTabletOrDesktop = constraints.maxWidth >= 600;
 
-            if (isLandscape || isTabletOrDesktop) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    width: constraints.maxWidth * 0.3,
-                    child: const EnvironmentalProgressPanel(),
-                  ),
-                  Expanded(
-                    child: _buildGameSectionWrapper(constraints),
-                  ),
-                ],
-              );
-            } else {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    height: constraints.maxHeight * 0.3,
-                    child: const EnvironmentalProgressPanel(),
-                  ),
-                  Expanded(
-                    child: _buildGameSectionWrapper(constraints),
-                  ),
-                ],
-              );
-            }
-          },
+                if (isLandscape || isTabletOrDesktop) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: constraints.maxWidth * 0.3,
+                        child: const EnvironmentalProgressPanel(),
+                      ),
+                      Expanded(
+                        child: _buildGameSectionWrapper(constraints),
+                      ),
+                    ],
+                  );
+                } else {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        height: constraints.maxHeight * 0.3,
+                        child: const EnvironmentalProgressPanel(),
+                      ),
+                      Expanded(
+                        child: _buildGameSectionWrapper(constraints),
+                      ),
+                    ],
+                  );
+                }
+              },
+            ),
+            
+            // NEW: Full-screen overlays
+            if (_showGameOver)
+              _buildFullScreenGameOverDialog(),
+            
+            if (_showPhaseComplete)
+              _buildFullScreenPhaseCompleteDialog(),
+            
+            if (_showInsufficientMaterials)
+              _buildFullScreenInsufficientMaterialsDialog(),
+          ],
         ),
       ),
     );
@@ -446,7 +484,6 @@ class _GameScreenState extends State<GameScreen> {
   Widget _buildStyledGameBoard() {
     return Container(
       decoration: BoxDecoration(
-        // Stone tablet frame
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -476,7 +513,6 @@ class _GameScreenState extends State<GameScreen> {
       ),
       child: Stack(
         children: [
-          // Inner frame decoration
           Positioned.fill(
             child: Container(
               margin: const EdgeInsets.all(12),
@@ -490,10 +526,8 @@ class _GameScreenState extends State<GameScreen> {
             ),
           ),
           
-          // Corner ornaments
           ..._buildCornerOrnaments(),
           
-          // Game content
           Padding(
             padding: const EdgeInsets.all(16),
             child: ClipRRect(
@@ -512,17 +546,7 @@ class _GameScreenState extends State<GameScreen> {
                 ),
                 child: GameWidget(
                   game: game,
-                  overlayBuilderMap: {
-                    'GameOver': (BuildContext context, EcoQuestGame game) {
-                      return _buildGameOverDialog(context, game);
-                    },
-                    'PhaseComplete': (BuildContext context, EcoQuestGame game) {
-                      return _buildPhaseCompleteDialog(context, game);
-                    },
-                    'InsufficientMaterials': (BuildContext context, EcoQuestGame game) {
-                      return _buildInsufficientMaterialsDialog(context, game);
-                    },
-                  },
+                  // REMOVED: overlayBuilderMap - no longer needed
                 ),
               ),
             ),
@@ -597,377 +621,27 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildPhaseCompleteDialog(BuildContext context, EcoQuestGame game) {
-    return Container(
-      color: Colors.black.withValues(alpha: 0.92),
-      child: Center(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            double dialogWidth = constraints.maxWidth * 0.85;
-            dialogWidth = dialogWidth.clamp(280.0, 420.0);
-            
-            double iconSize = constraints.maxWidth * 0.10;
-            iconSize = iconSize.clamp(40.0, 65.0);
-            
-            double titleFontSize = constraints.maxWidth * 0.065;
-            titleFontSize = titleFontSize.clamp(20.0, 32.0);
-            
-            double bodyFontSize = constraints.maxWidth * 0.035;
-            bodyFontSize = bodyFontSize.clamp(12.0, 15.0);
-            
-            double valueFontSize = constraints.maxWidth * 0.06;
-            valueFontSize = valueFontSize.clamp(18.0, 28.0);
-            
-            double buttonIconSize = constraints.maxWidth * 0.045;
-            buttonIconSize = buttonIconSize.clamp(20.0, 28.0);
-            
-            double spacing = constraints.maxHeight * 0.012;
-            spacing = spacing.clamp(8.0, 15.0);
-            
-            return SingleChildScrollView(
-              child: Container(
-                width: dialogWidth,
-                constraints: BoxConstraints(
-                  maxHeight: constraints.maxHeight * 0.85,
-                ),
-                margin: EdgeInsets.symmetric(
-                  horizontal: constraints.maxWidth * 0.06,
-                  vertical: constraints.maxHeight * 0.08,
-                ),
-                padding: EdgeInsets.all(constraints.maxWidth * 0.045),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFF1B5E20),
-                      const Color(0xFF2E7D32),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.amber, width: 3),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.green.withValues(alpha: 0.5),
-                      blurRadius: 25,
-                      spreadRadius: 5,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.park, size: iconSize, color: Colors.amber),
-                    SizedBox(height: spacing),
-                    
-                    Text(
-                      "FOREST RESTORED!",
-                      style: GoogleFonts.exo2(
-                        fontSize: titleFontSize,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.5,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    
-                    SizedBox(height: spacing * 1.2),
-                    
-                    ValueListenableBuilder<int>(
-                      valueListenable: plantsCollectedNotifier,
-                      builder: (ctx, plants, _) {
-                        return Container(
-                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.amber.withValues(alpha: 0.4),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                'Plant Materials Collected',
-                                style: GoogleFonts.exo2(
-                                  fontSize: bodyFontSize,
-                                  color: Colors.white70,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                '$plants units',
-                                style: GoogleFonts.exo2(
-                                  fontSize: valueFontSize,
-                                  color: Colors.amber,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                    
-                    SizedBox(height: spacing),
-                    
-                    Text(
-                      'All tiles restored! Ready for dye extraction.',
-                      style: GoogleFonts.exo2(
-                        fontSize: bodyFontSize,
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontWeight: FontWeight.w500,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    
-                    SizedBox(height: spacing * 1.5),
-                    
-                    SizedBox(
-                      width: double.infinity,
-                      child: _buildCompactButton(
-                        icon: Icons.arrow_forward_rounded,
-                        label: 'Proceed',
-                        color: Colors.amber.shade700,
-                        iconSize: buttonIconSize,
-                        onPressed: () {
-                          game.startNextLevel();
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInsufficientMaterialsDialog(BuildContext context, EcoQuestGame game) {
-    return Container(
-      color: Colors.black.withValues(alpha: 0.92),
-      child: Center(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            double dialogWidth = constraints.maxWidth * 0.85;
-            dialogWidth = dialogWidth.clamp(280.0, 420.0);
-            
-            double iconSize = constraints.maxWidth * 0.10;
-            iconSize = iconSize.clamp(45.0, 65.0);
-            
-            double titleFontSize = constraints.maxWidth * 0.065;
-            titleFontSize = titleFontSize.clamp(20.0, 32.0);
-            
-            double bodyFontSize = constraints.maxWidth * 0.035;
-            bodyFontSize = bodyFontSize.clamp(12.0, 15.0);
-            
-            double scoreFontSize = constraints.maxWidth * 0.06;
-            scoreFontSize = scoreFontSize.clamp(18.0, 28.0);
-            
-            double buttonIconSize = constraints.maxWidth * 0.045;
-            buttonIconSize = buttonIconSize.clamp(20.0, 28.0);
-            
-            double spacing = constraints.maxHeight * 0.012;
-            spacing = spacing.clamp(8.0, 15.0);
-            
-            return SingleChildScrollView(
-              child: Container(
-                width: dialogWidth,
-                constraints: BoxConstraints(
-                  maxHeight: constraints.maxHeight * 0.85,
-                ),
-                margin: EdgeInsets.symmetric(
-                  horizontal: constraints.maxWidth * 0.06,
-                  vertical: constraints.maxHeight * 0.08,
-                ),
-                padding: EdgeInsets.all(constraints.maxWidth * 0.045),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFFE65100),
-                      const Color(0xFFFF6F00),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.amber, width: 3),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.orange.withValues(alpha: 0.5),
-                      blurRadius: 25,
-                      spreadRadius: 5,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.warning_amber_rounded, size: iconSize, color: Colors.white),
-                    SizedBox(height: spacing),
-                    
-                    Text(
-                      "NEED MORE TIME!",
-                      style: GoogleFonts.exo2(
-                        fontSize: titleFontSize,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.5,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    
-                    SizedBox(height: spacing * 0.8),
-                    
-                    Text(
-                      'Limited materials collected. Complete faster next time!',
-                      style: GoogleFonts.exo2(
-                        fontSize: bodyFontSize,
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontWeight: FontWeight.w500,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    
-                    SizedBox(height: spacing * 1.2),
-                    
-                    ValueListenableBuilder<int>(
-                      valueListenable: plantsCollectedNotifier,
-                      builder: (ctx, plants, _) {
-                        return Container(
-                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.amber.withValues(alpha: 0.4),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                'Materials Collected',
-                                style: GoogleFonts.exo2(
-                                  fontSize: bodyFontSize * 0.9,
-                                  color: Colors.white70,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                '$plants units',
-                                style: GoogleFonts.exo2(
-                                  fontSize: scoreFontSize,
-                                  color: Colors.amber,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                    
-                    SizedBox(height: spacing * 1.5),
-                    
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _buildCompactButton(
-                              icon: Icons.refresh_rounded,
-                              label: 'Retry',
-                              color: const Color(0xFF2E7D32),
-                              iconSize: buttonIconSize,
-                              onPressed: () {
-                                game.restartGame();
-                              },
-                            ),
-                          ),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: _buildCompactButton(
-                              icon: Icons.exit_to_app_rounded,
-                              label: 'Exit',
-                              color: const Color(0xFF6D4C41),
-                              iconSize: buttonIconSize,
-                              onPressed: () async {
-                                await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGameOverDialog(BuildContext context, EcoQuestGame game) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: gameSuccessNotifier,
-      builder: (context, isSuccess, _) {
-        return Container(
-          color: Colors.black.withValues(alpha: 0.92),
+  Widget _buildFullScreenGameOverDialog() {
+    return Positioned.fill(
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.92),
+        child: SafeArea(
           child: Center(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                // Better responsive sizing
-                double dialogWidth = constraints.maxWidth * 0.88;
-                dialogWidth = dialogWidth.clamp(280.0, 420.0); // Reduced max width
+                double dialogWidth = constraints.maxWidth * 0.85;
+                dialogWidth = dialogWidth.clamp(280.0, 420.0);
                 
-                double iconSize = constraints.maxWidth * 0.10;
-                iconSize = iconSize.clamp(45.0, 65.0);
-                
-                double titleFontSize = constraints.maxWidth * 0.07;
-                titleFontSize = titleFontSize.clamp(24.0, 36.0);
-                
-                double bodyFontSize = constraints.maxWidth * 0.038;
-                bodyFontSize = bodyFontSize.clamp(13.0, 16.0);
-                
-                double scoreFontSize = constraints.maxWidth * 0.065;
-                scoreFontSize = scoreFontSize.clamp(20.0, 32.0);
-                
-                double buttonIconSize = constraints.maxWidth * 0.045;
-                buttonIconSize = buttonIconSize.clamp(20.0, 28.0);
-                
-                // Adaptive spacing based on screen height
-                double spacing = constraints.maxHeight * 0.012;
-                spacing = spacing.clamp(8.0, 15.0);
+                double scale = (constraints.maxWidth / 400.0).clamp(0.7, 1.2);
                 
                 return SingleChildScrollView(
                   child: Container(
                     width: dialogWidth,
-                    constraints: BoxConstraints(
-                      maxHeight: constraints.maxHeight * 0.85, // Prevent overflow
-                    ),
-                    margin: EdgeInsets.symmetric(
-                      horizontal: constraints.maxWidth * 0.06,
-                      vertical: constraints.maxHeight * 0.08,
-                    ),
-                    padding: EdgeInsets.all(constraints.maxWidth * 0.045),
+                    margin: const EdgeInsets.all(20),
+                    padding: EdgeInsets.all(20 * scale),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFF8B0000), // Dark red
-                          const Color(0xFFB22222), // Firebrick red
-                        ],
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF8B0000), Color(0xFFB22222)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -984,13 +658,13 @@ class _GameScreenState extends State<GameScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.access_time_filled, size: iconSize, color: Colors.amber),
-                        SizedBox(height: spacing),
+                        Icon(Icons.access_time_filled, size: 50 * scale, color: Colors.amber),
+                        SizedBox(height: 12 * scale),
                         
                         Text(
                           "TIME'S UP!",
-                          style: GoogleFonts.exo2( // Modern font
-                            fontSize: titleFontSize,
+                          style: GoogleFonts.exo2(
+                            fontSize: 28 * scale,
                             color: Colors.white,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 1.5,
@@ -998,31 +672,25 @@ class _GameScreenState extends State<GameScreen> {
                           textAlign: TextAlign.center,
                         ),
                         
-                        SizedBox(height: spacing * 0.8),
+                        SizedBox(height: 8 * scale),
                         
                         Text(
                           'Forest restoration incomplete.',
                           style: GoogleFonts.exo2(
-                            fontSize: bodyFontSize,
+                            fontSize: 16 * scale,
                             color: Colors.white.withValues(alpha: 0.9),
                             fontWeight: FontWeight.w500,
                           ),
                           textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         
-                        SizedBox(height: spacing * 1.2),
+                        SizedBox(height: 16 * scale),
                         
-                        // Score display
                         ValueListenableBuilder<int>(
                           valueListenable: scoreNotifier,
                           builder: (ctx, score, _) {
                             return Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 10,
-                              ),
+                              padding: EdgeInsets.all(12 * scale),
                               decoration: BoxDecoration(
                                 color: Colors.black.withValues(alpha: 0.3),
                                 borderRadius: BorderRadius.circular(12),
@@ -1036,16 +704,16 @@ class _GameScreenState extends State<GameScreen> {
                                   Text(
                                     'EcoPoints Earned',
                                     style: GoogleFonts.exo2(
-                                      fontSize: bodyFontSize * 0.85,
+                                      fontSize: 14 * scale,
                                       color: Colors.white70,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  SizedBox(height: 4),
+                                  SizedBox(height: 4 * scale),
                                   Text(
                                     '$score',
                                     style: GoogleFonts.exo2(
-                                      fontSize: scoreFontSize,
+                                      fontSize: 32 * scale,
                                       color: Colors.amber,
                                       fontWeight: FontWeight.w900,
                                     ),
@@ -1056,38 +724,164 @@ class _GameScreenState extends State<GameScreen> {
                           },
                         ),
                         
-                        SizedBox(height: spacing * 1.5),
+                        SizedBox(height: 20 * scale),
                         
-                        // Fixed button layout for small screens
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: [
-                              Expanded(
-                                child: _buildCompactButton(
-                                  icon: Icons.refresh_rounded,
-                                  label: 'Retry',
-                                  color: const Color(0xFF2E7D32),
-                                  iconSize: buttonIconSize,
-                                  onPressed: () {
-                                    game.restartGame();
-                                  },
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildDialogButton(
+                                icon: Icons.refresh_rounded,
+                                label: 'Retry',
+                                color: const Color(0xFF2E7D32),
+                                scale: scale,
+                                onPressed: () {
+                                  setState(() => _showGameOver = false);
+                                  game.restartGame();
+                                },
+                              ),
+                            ),
+                            SizedBox(width: 12 * scale),
+                            Expanded(
+                              child: _buildDialogButton(
+                                icon: Icons.exit_to_app_rounded,
+                                label: 'Exit',
+                                color: const Color(0xFF6D4C41),
+                                scale: scale,
+                                onPressed: () async {
+                                  await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFullScreenPhaseCompleteDialog() {
+    return Positioned.fill(
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.92),
+        child: SafeArea(
+          child: Center(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                double dialogWidth = constraints.maxWidth * 0.85;
+                dialogWidth = dialogWidth.clamp(280.0, 420.0);
+                
+                double scale = (constraints.maxWidth / 400.0).clamp(0.7, 1.2);
+                
+                return SingleChildScrollView(
+                  child: Container(
+                    width: dialogWidth,
+                    margin: const EdgeInsets.all(20),
+                    padding: EdgeInsets.all(20 * scale),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF1B5E20), Color(0xFF2E7D32)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.amber, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.green.withValues(alpha: 0.5),
+                          blurRadius: 25,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.park, size: 50 * scale, color: Colors.amber),
+                        SizedBox(height: 12 * scale),
+                        
+                        Text(
+                          "FOREST RESTORED!",
+                          style: GoogleFonts.exo2(
+                            fontSize: 28 * scale,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        
+                        SizedBox(height: 16 * scale),
+                        
+                        ValueListenableBuilder<int>(
+                          valueListenable: plantsCollectedNotifier,
+                          builder: (ctx, plants, _) {
+                            return Container(
+                              padding: EdgeInsets.all(12 * scale),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.amber.withValues(alpha: 0.4),
+                                  width: 1.5,
                                 ),
                               ),
-                              SizedBox(width: 12),
-                              Expanded(
-                                child: _buildCompactButton(
-                                  icon: Icons.exit_to_app_rounded,
-                                  label: 'Exit',
-                                  color: const Color(0xFF6D4C41),
-                                  iconSize: buttonIconSize,
-                                  onPressed: () async {
-                                    await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
-                                  },
-                                ),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    'Plant Materials Collected',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: 14 * scale,
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4 * scale),
+                                  Text(
+                                    '$plants units',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: 32 * scale,
+                                      color: Colors.amber,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            );
+                          },
+                        ),
+                        
+                        SizedBox(height: 12 * scale),
+                        
+                        Text(
+                          'All tiles restored! Ready for dye extraction.',
+                          style: GoogleFonts.exo2(
+                            fontSize: 14 * scale,
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        
+                        SizedBox(height: 20 * scale),
+                        
+                        SizedBox(
+                          width: double.infinity,
+                          child: _buildDialogButton(
+                            icon: Icons.arrow_forward_rounded,
+                            label: 'Proceed',
+                            color: Colors.amber.shade700,
+                            scale: scale,
+                            onPressed: () {
+                              setState(() => _showPhaseComplete = false);
+                              game.startNextLevel();
+                            },
                           ),
                         ),
                       ],
@@ -1097,57 +891,186 @@ class _GameScreenState extends State<GameScreen> {
               },
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
-  Widget _buildCompactButton({
+  Widget _buildFullScreenInsufficientMaterialsDialog() {
+    return Positioned.fill(
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.92),
+        child: SafeArea(
+          child: Center(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                double dialogWidth = constraints.maxWidth * 0.85;
+                dialogWidth = dialogWidth.clamp(280.0, 420.0);
+                
+                double scale = (constraints.maxWidth / 400.0).clamp(0.7, 1.2);
+                
+                return SingleChildScrollView(
+                  child: Container(
+                    width: dialogWidth,
+                    margin: const EdgeInsets.all(20),
+                    padding: EdgeInsets.all(20 * scale),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFE65100), Color(0xFFFF6F00)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.amber, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.orange.withValues(alpha: 0.5),
+                          blurRadius: 25,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.warning_amber_rounded, size: 50 * scale, color: Colors.white),
+                        SizedBox(height: 12 * scale),
+                        
+                        Text(
+                          "NEED MORE TIME!",
+                          style: GoogleFonts.exo2(
+                            fontSize: 28 * scale,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        
+                        SizedBox(height: 8 * scale),
+                        
+                        Text(
+                          'Limited materials collected. Complete faster next time!',
+                          style: GoogleFonts.exo2(
+                            fontSize: 14 * scale,
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        
+                        SizedBox(height: 16 * scale),
+                        
+                        ValueListenableBuilder<int>(
+                          valueListenable: plantsCollectedNotifier,
+                          builder: (ctx, plants, _) {
+                            return Container(
+                              padding: EdgeInsets.all(12 * scale),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.amber.withValues(alpha: 0.4),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    'Materials Collected',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: 14 * scale,
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4 * scale),
+                                  Text(
+                                    '$plants units',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: 32 * scale,
+                                      color: Colors.amber,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                        
+                        SizedBox(height: 20 * scale),
+                        
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildDialogButton(
+                                icon: Icons.refresh_rounded,
+                                label: 'Retry',
+                                color: const Color(0xFF2E7D32),
+                                scale: scale,
+                                onPressed: () {
+                                  setState(() => _showInsufficientMaterials = false);
+                                  game.restartGame();
+                                },
+                              ),
+                            ),
+                            SizedBox(width: 12 * scale),
+                            Expanded(
+                              child: _buildDialogButton(
+                                icon: Icons.exit_to_app_rounded,
+                                label: 'Exit',
+                                color: const Color(0xFF6D4C41),
+                                scale: scale,
+                                onPressed: () async {
+                                  await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDialogButton({
     required IconData icon,
     required String label,
     required Color color,
-    required double iconSize,
+    required double scale,
     required VoidCallback onPressed,
   }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            vertical: iconSize * 0.5,
-            horizontal: 8,
-          ),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 6,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: iconSize, color: Colors.white),
-              SizedBox(height: 4),
-              Text(
-                label,
-                style: GoogleFonts.exo2(
-                  fontSize: iconSize * 0.45,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        padding: EdgeInsets.symmetric(vertical: 12 * scale),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
         ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 24 * scale, color: Colors.white),
+          SizedBox(height: 4 * scale),
+          Text(
+            label,
+            style: GoogleFonts.exo2(
+              fontSize: 14 * scale,
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1164,7 +1087,7 @@ class _GameScreenState extends State<GameScreen> {
         ),
         title: Text(
           'Restart Level?',
-          style: GoogleFonts.exo2( // Changed from vt323
+          style: GoogleFonts.exo2(
             color: Colors.white,
             fontSize: 24,
             fontWeight: FontWeight.w700,
@@ -1172,7 +1095,7 @@ class _GameScreenState extends State<GameScreen> {
         ),
         content: Text(
           'Your current progress will be lost.',
-          style: GoogleFonts.exo2( // Changed from vt323
+          style: GoogleFonts.exo2( 
             color: Colors.white70,
             fontSize: 16,
             fontWeight: FontWeight.w500,
@@ -1183,7 +1106,7 @@ class _GameScreenState extends State<GameScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: Text(
               'CANCEL',
-              style: GoogleFonts.exo2( // Changed from vt323
+              style: GoogleFonts.exo2( 
                 fontSize: 16,
                 color: Colors.grey,
                 fontWeight: FontWeight.w600,
@@ -1203,7 +1126,7 @@ class _GameScreenState extends State<GameScreen> {
             ),
             child: Text(
               'RESTART',
-              style: GoogleFonts.exo2( // Changed from vt323
+              style: GoogleFonts.exo2( 
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
