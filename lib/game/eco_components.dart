@@ -4,67 +4,35 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import 'eco_quest_game.dart';
 
-class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQuestGame> {
-  final String type;
-  Point gridPosition = const Point(0, 0);
-  bool isSelected = false;
+class TileBackground extends PositionComponent with HasGameReference<EcoQuestGame> {
+  final int row;
+  final int col;
   final double sizeVal;
+  bool isRestored = false;
   
-  // Animation state
-  double _glowAnimation = 0.0;
-
-  EcoItem({required this.type, required this.sizeVal});
-
-  @override
-  Future<void> onLoad() async {
-    try {
-      sprite = await game.loadSprite('$type.png');
-      debugPrint("✅ Loaded sprite: $type");
-    } catch (e) {
-      debugPrint("❌ Failed to load image for $type: $e");
-    }
+  TileBackground({required this.row, required this.col, required this.sizeVal});
+  
+  // Method to update restoration state
+  void updateRestorationState(bool restored) {
+    isRestored = restored;
   }
-
-  @override
-  void update(double dt) {
-    super.update(dt);  // ADD THIS LINE
-    
-    // Animate glow effect for selected items
-    if (isSelected) {
-      _glowAnimation += dt * 3; // Pulse speed
-      if (_glowAnimation > 2 * pi) {
-        _glowAnimation -= 2 * pi;
-      }
-    }
-  }
-
+  
   @override
   void render(Canvas canvas) {
-    int r = gridPosition.x as int;
-    int c = gridPosition.y as int;
-    
-    final rect = size.toRect();
-    final isRestored = game.restoredTiles[r][c];
-    
-    // 1. Draw 3D Beveled Tile Background
-    _drawBeveledTile(canvas, rect, isRestored);
-    
-    // 2. Draw tile surface with texture
-    _drawTileSurface(canvas, rect, isRestored);
-    
-    // 3. Draw main sprite FIRST (without shadow to avoid darkening)
     super.render(canvas);
+    final rect = size.toRect();
     
-    // 4. Draw selection effects (only if selected)
-    if (isSelected) {
-      _drawSelectionGlow(canvas, rect);
-    }
+    // Draw 3D Beveled Tile Background
+    _drawBeveledTile(canvas, rect);
     
-    // 5. Draw glossy shine (lighter version)
-    _drawGlossEffect(canvas, rect, isRestored);
+    // Draw tile surface with texture
+    _drawTileSurface(canvas, rect);
+    
+    // Draw glossy shine
+    _drawGlossEffect(canvas, rect);
   }
   
-  void _drawBeveledTile(Canvas canvas, Rect rect, bool isRestored) {
+  void _drawBeveledTile(Canvas canvas, Rect rect) {
     final rRect = RRect.fromRectAndRadius(rect, const Radius.circular(8));
     
     // Shadow beneath tile for 3D depth
@@ -117,7 +85,7 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
     canvas.drawRRect(innerRRect, innerBevelPaint);
   }
   
-  void _drawTileSurface(Canvas canvas, Rect rect, bool isRestored) {
+  void _drawTileSurface(Canvas canvas, Rect rect) {
     final innerRect = rect.deflate(4);
     final rRect = RRect.fromRectAndRadius(innerRect, const Radius.circular(6));
     
@@ -141,22 +109,19 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
     
     // Add texture pattern
     if (!isRestored) {
-      // Cracked earth texture for degraded tiles
       _drawCrackedTexture(canvas, innerRect);
     } else {
-      // Moss/vegetation texture for restored tiles
       _drawVegetationTexture(canvas, innerRect);
     }
   }
   
   void _drawCrackedTexture(Canvas canvas, Rect rect) {
     final crackPaint = Paint()
-      ..color = const Color(0xFF3E2723).withValues(alpha: 0.2) // Reduced from 0.3
-      ..strokeWidth = 1.0 // Reduced from 1.5
+      ..color = const Color(0xFF3E2723).withValues(alpha: 0.2)
+      ..strokeWidth = 1.0
       ..style = PaintingStyle.stroke;
     
-    // Draw only 2 cracks instead of 3 for performance
-    final random = Random((gridPosition.x as int) * 100 + (gridPosition.y as int));  
+    final random = Random(row * 100 + col);  
     for (int i = 0; i < 2; i++) {
       final path = Path();
       final startX = rect.left + rect.width * random.nextDouble();
@@ -173,22 +138,86 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
 
   void _drawVegetationTexture(Canvas canvas, Rect rect) {
     final mossPaint = Paint()
-      ..color = const Color(0xFF1B5E20).withValues(alpha: 0.15) // Reduced from 0.2
+      ..color = const Color(0xFF1B5E20).withValues(alpha: 0.15)
       ..style = PaintingStyle.fill;
     
-    // Draw only 3 moss spots instead of 5 for performance
-    final random = Random((gridPosition.x as int) * 50 + (gridPosition.y as int));  
+    final random = Random(row * 50 + col);  
     for (int i = 0; i < 3; i++) {
       final x = rect.left + rect.width * random.nextDouble();
       final y = rect.top + rect.height * random.nextDouble();
-      final radius = 2 + random.nextDouble() * 2; // Reduced from 3
+      final radius = 2 + random.nextDouble() * 2;
       
       canvas.drawCircle(Offset(x, y), radius, mossPaint);
     }
   }
+  
+  void _drawGlossEffect(Canvas canvas, Rect rect) {
+    final rRect = RRect.fromRectAndRadius(
+      rect.deflate(4),
+      const Radius.circular(6),
+    );
     
+    final glossPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.center,
+        colors: [
+          Colors.white.withValues(alpha: 0.15),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 1.0],
+      ).createShader(rect);
+    
+    canvas.drawRRect(rRect, glossPaint);
+  }
+}
+
+// EcoItem component remains the same
+class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQuestGame> {
+  final String type;
+  Point gridPosition = const Point(0, 0);
+  bool isSelected = false;
+  final double sizeVal;
+  
+  double _glowAnimation = 0.0;
+
+  EcoItem({required this.type, required this.sizeVal});
+
+  @override
+  Future<void> onLoad() async {
+    try {
+      sprite = await game.loadSprite('$type.png');
+    } catch (e) {
+      debugPrint("❌ Failed to load image for $type: $e");
+    }
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    
+    if (isSelected) {
+      _glowAnimation += dt * 3;
+      if (_glowAnimation > 2 * pi) {
+        _glowAnimation -= 2 * pi;
+      }
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final rect = size.toRect();
+    
+    // 1. Draw main sprite
+    super.render(canvas);
+    
+    // 2. Draw selection effects (only if selected)
+    if (isSelected) {
+      _drawSelectionGlow(canvas, rect);
+    }
+  }
+  
   void _drawSelectionGlow(Canvas canvas, Rect rect) {
-    // Pulsing golden aura
     final glowIntensity = (sin(_glowAnimation) * 0.3 + 0.7);
     
     // Outer glow
@@ -247,26 +276,6 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
     }
   }
   
-  void _drawGlossEffect(Canvas canvas, Rect rect, bool isRestored) {
-    final rRect = RRect.fromRectAndRadius(
-      rect.deflate(4),
-      const Radius.circular(6),
-    );
-    
-    final glossPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.center,
-        colors: [
-          Colors.white.withValues(alpha: 0.15), // Reduced from 0.25
-          Colors.transparent,
-        ],
-        stops: const [0.0, 1.0],
-      ).createShader(rect);
-    
-    canvas.drawRRect(rRect, glossPaint);
-  }
-  
   Vector2 dragDelta = Vector2.zero();
 
   @override
@@ -303,7 +312,6 @@ class MatchExplosionEffect extends Component with HasGameReference<EcoQuestGame>
   Future<void> onLoad() async {
     super.onLoad();
     
-    // Create particles based on item type
     final random = Random();
     for (int i = 0; i < 15; i++) {
       final angle = random.nextDouble() * 2 * pi;
@@ -322,17 +330,17 @@ class MatchExplosionEffect extends Component with HasGameReference<EcoQuestGame>
   Color _getParticleColor() {
     switch (itemType) {
       case 'rain':
-        return const Color(0xFF64B5F6); // Blue
+        return const Color(0xFF64B5F6);
       case 'hummingbird':
-        return const Color(0xFFFF6F00); // Orange
+        return const Color(0xFFFF6F00);
       case 'summer':
-        return const Color(0xFFFDD835); // Yellow
+        return const Color(0xFFFDD835);
       case 'rose':
-        return const Color(0xFFEC407A); // Pink
+        return const Color(0xFFEC407A);
       case 'man':
-        return const Color(0xFF8D6E63); // Brown
+        return const Color(0xFF8D6E63);
       default:
-        return const Color(0xFF4CAF50); // Green
+        return const Color(0xFF4CAF50);
     }
   }
   
@@ -377,8 +385,8 @@ class Particle {
   
   void update(double dt) {
     position += velocity * dt;
-    velocity *= 0.95; // Friction
-    velocity += Vector2(0, 100) * dt; // Gravity
+    velocity *= 0.95;
+    velocity += Vector2(0, 100) * dt;
   }
   
   void render(Canvas canvas, double alpha) {
@@ -413,14 +421,15 @@ class TileRestorationEffect extends Component with HasGameReference<EcoQuestGame
   void render(Canvas canvas) {
     super.render(canvas);
     
-    if (game.gridItems[row][col] == null) return;
+    // Get tile background position
+    final tileBg = game.tileBackgrounds[row][col];
+    if (tileBg == null) return;
     
-    final item = game.gridItems[row][col]!;
     final rect = Rect.fromLTWH(
-      item.position.x,
-      item.position.y,
-      item.size.x,
-      item.size.y,
+      tileBg.position.x,
+      tileBg.position.y,
+      tileBg.size.x,
+      tileBg.size.y,
     );
     
     // Draw growing vines from corners
@@ -439,7 +448,6 @@ class TileRestorationEffect extends Component with HasGameReference<EcoQuestGame
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
     
-    // Vine from top-left corner
     final vineLength = rect.width * 0.4 * progress;
     final path = Path();
     path.moveTo(rect.left, rect.top);
@@ -461,7 +469,6 @@ class TileRestorationEffect extends Component with HasGameReference<EcoQuestGame
       ..color = Colors.pink.withValues(alpha: 0.7 * flowerProgress)
       ..style = PaintingStyle.fill;
     
-    // Small flower in center
     final flowerSize = 4 * flowerProgress;
     canvas.drawCircle(rect.center, flowerSize, flowerPaint);
   }
