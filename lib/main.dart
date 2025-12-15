@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:ecoquest/game/dye_extraction_screen.dart';
 import 'package:ecoquest/game/splash_screen.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -938,6 +939,38 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
+  Widget _buildMaterialChip(String emoji, int count, double scale) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: 6 * scale,
+        vertical: 3 * scale,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Colors.amber.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(emoji, style: TextStyle(fontSize: 12 * scale)),
+          SizedBox(width: 3 * scale),
+          Text(
+            '$count',
+            style: GoogleFonts.exo2(
+              fontSize: 11 * scale,
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFullScreenGameOverDialog() {
     return Positioned.fill(
       child: Material(
@@ -992,7 +1025,7 @@ class _GameScreenState extends State<GameScreen> {
                         SizedBox(height: 8 * scale),
                         
                         Text(
-                          'Forest restoration incomplete.',
+                          'Materials collected but forest restoration incomplete.',
                           style: GoogleFonts.exo2(
                             fontSize: 16 * scale,
                             color: Colors.white.withValues(alpha: 0.9),
@@ -1003,42 +1036,52 @@ class _GameScreenState extends State<GameScreen> {
                         
                         SizedBox(height: 16 * scale),
                         
-                        ValueListenableBuilder<int>(
-                          valueListenable: scoreNotifier,
-                          builder: (ctx, score, _) {
-                            return Container(
-                              padding: EdgeInsets.all(12 * scale),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.amber.withValues(alpha: 0.4),
-                                  width: 1.5,
+                        // Display total materials collected from Materials Panel
+                        Container(
+                          padding: EdgeInsets.all(12 * scale),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.amber.withValues(alpha: 0.4),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                'Materials Collected',
+                                style: GoogleFonts.exo2(
+                                  fontSize: 14 * scale,
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              child: Column(
+                              SizedBox(height: 4 * scale),
+                              Text(
+                                '${game.getTotalMaterialsCollected()} units',
+                                style: GoogleFonts.exo2(
+                                  fontSize: 32 * scale,
+                                  color: Colors.amber,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              SizedBox(height: 8 * scale),
+                              // Breakdown by type
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: 8 * scale,
+                                runSpacing: 4 * scale,
                                 children: [
-                                  Text(
-                                    'EcoPoints Earned',
-                                    style: GoogleFonts.exo2(
-                                      fontSize: 14 * scale,
-                                      color: Colors.white70,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  SizedBox(height: 4 * scale),
-                                  Text(
-                                    '$score',
-                                    style: GoogleFonts.exo2(
-                                      fontSize: 32 * scale,
-                                      color: Colors.amber,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
+                                  _buildMaterialChip('🍃', game.materialsCollected['leaf'] ?? 0, scale),
+                                  _buildMaterialChip('🪵', game.materialsCollected['bark'] ?? 0, scale),
+                                  _buildMaterialChip('🌱', game.materialsCollected['root'] ?? 0, scale),
+                                  _buildMaterialChip('🌸', game.materialsCollected['flower'] ?? 0, scale),
+                                  _buildMaterialChip('🍇', game.materialsCollected['fruit'] ?? 0, scale),
                                 ],
                               ),
-                            );
-                          },
+                            ],
+                          ),
                         ),
                         
                         SizedBox(height: 20 * scale),
@@ -1096,6 +1139,9 @@ class _GameScreenState extends State<GameScreen> {
                 
                 double scale = (constraints.maxWidth / 400.0).clamp(0.7, 1.2);
                 
+                // Get total materials collected
+                final totalMaterials = game.getTotalMaterialsCollected();
+                
                 return SingleChildScrollView(
                   child: Container(
                     width: dialogWidth,
@@ -1136,42 +1182,52 @@ class _GameScreenState extends State<GameScreen> {
                         
                         SizedBox(height: 16 * scale),
                         
-                        ValueListenableBuilder<int>(
-                          valueListenable: plantsCollectedNotifier,
-                          builder: (ctx, plants, _) {
-                            return Container(
-                              padding: EdgeInsets.all(12 * scale),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.amber.withValues(alpha: 0.4),
-                                  width: 1.5,
+                        // Display total materials collected
+                        Container(
+                          padding: EdgeInsets.all(12 * scale),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.amber.withValues(alpha: 0.4),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                'Total Materials Collected',
+                                style: GoogleFonts.exo2(
+                                  fontSize: 14 * scale,
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              child: Column(
+                              SizedBox(height: 4 * scale),
+                              Text(
+                                '$totalMaterials units',
+                                style: GoogleFonts.exo2(
+                                  fontSize: 32 * scale,
+                                  color: Colors.amber,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              SizedBox(height: 12 * scale),
+                              // Material breakdown
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: 8 * scale,
+                                runSpacing: 6 * scale,
                                 children: [
-                                  Text(
-                                    'Plant Materials Collected',
-                                    style: GoogleFonts.exo2(
-                                      fontSize: 14 * scale,
-                                      color: Colors.white70,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  SizedBox(height: 4 * scale),
-                                  Text(
-                                    '$plants units',
-                                    style: GoogleFonts.exo2(
-                                      fontSize: 32 * scale,
-                                      color: Colors.amber,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
+                                  _buildMaterialDetail('🍃 Leaves', game.materialsCollected['leaf'] ?? 0, scale),
+                                  _buildMaterialDetail('🪵 Bark', game.materialsCollected['bark'] ?? 0, scale),
+                                  _buildMaterialDetail('🌱 Roots', game.materialsCollected['root'] ?? 0, scale),
+                                  _buildMaterialDetail('🌸 Flowers', game.materialsCollected['flower'] ?? 0, scale),
+                                  _buildMaterialDetail('🍇 Fruits', game.materialsCollected['fruit'] ?? 0, scale),
                                 ],
                               ),
-                            );
-                          },
+                            ],
+                          ),
                         ),
                         
                         SizedBox(height: 12 * scale),
@@ -1192,12 +1248,17 @@ class _GameScreenState extends State<GameScreen> {
                           width: double.infinity,
                           child: _buildDialogButton(
                             icon: Icons.arrow_forward_rounded,
-                            label: 'Proceed',
+                            label: 'Proceed to Phase 2',
                             color: Colors.amber.shade700,
                             scale: scale,
                             onPressed: () {
                               setState(() => _showPhaseComplete = false);
-                              game.startNextLevel();
+                              // Navigate to Dye Extraction Screen
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => DyeExtractionScreen(game: game),
+                                ),
+                              );
                             },
                           ),
                         ),
@@ -1208,6 +1269,31 @@ class _GameScreenState extends State<GameScreen> {
               },
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMaterialDetail(String label, int count, double scale) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: 8 * scale,
+        vertical: 4 * scale,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Colors.amber.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Text(
+        '$label: $count',
+        style: GoogleFonts.exo2(
+          fontSize: 11 * scale,
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -1225,6 +1311,9 @@ class _GameScreenState extends State<GameScreen> {
                 dialogWidth = dialogWidth.clamp(280.0, 420.0);
                 
                 double scale = (constraints.maxWidth / 400.0).clamp(0.7, 1.2);
+                
+                // Get total materials collected
+                final totalMaterials = game.getTotalMaterialsCollected();
                 
                 return SingleChildScrollView(
                   child: Container(
@@ -1254,7 +1343,7 @@ class _GameScreenState extends State<GameScreen> {
                         SizedBox(height: 12 * scale),
                         
                         Text(
-                          "NEED MORE TIME!",
+                          "FOREST RESTORED!",
                           style: GoogleFonts.exo2(
                             fontSize: 28 * scale,
                             color: Colors.white,
@@ -1267,7 +1356,7 @@ class _GameScreenState extends State<GameScreen> {
                         SizedBox(height: 8 * scale),
                         
                         Text(
-                          'Limited materials collected. Complete faster next time!',
+                          'Limited materials collected. Complete faster for more resources!',
                           style: GoogleFonts.exo2(
                             fontSize: 14 * scale,
                             color: Colors.white.withValues(alpha: 0.9),
@@ -1278,42 +1367,50 @@ class _GameScreenState extends State<GameScreen> {
                         
                         SizedBox(height: 16 * scale),
                         
-                        ValueListenableBuilder<int>(
-                          valueListenable: plantsCollectedNotifier,
-                          builder: (ctx, plants, _) {
-                            return Container(
-                              padding: EdgeInsets.all(12 * scale),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.amber.withValues(alpha: 0.4),
-                                  width: 1.5,
+                        Container(
+                          padding: EdgeInsets.all(12 * scale),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.amber.withValues(alpha: 0.4),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                'Materials Collected',
+                                style: GoogleFonts.exo2(
+                                  fontSize: 14 * scale,
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              child: Column(
+                              SizedBox(height: 4 * scale),
+                              Text(
+                                '$totalMaterials units',
+                                style: GoogleFonts.exo2(
+                                  fontSize: 32 * scale,
+                                  color: Colors.amber,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              SizedBox(height: 8 * scale),
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: 8 * scale,
+                                runSpacing: 4 * scale,
                                 children: [
-                                  Text(
-                                    'Materials Collected',
-                                    style: GoogleFonts.exo2(
-                                      fontSize: 14 * scale,
-                                      color: Colors.white70,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  SizedBox(height: 4 * scale),
-                                  Text(
-                                    '$plants units',
-                                    style: GoogleFonts.exo2(
-                                      fontSize: 32 * scale,
-                                      color: Colors.amber,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
+                                  _buildMaterialChip('🍃', game.materialsCollected['leaf'] ?? 0, scale),
+                                  _buildMaterialChip('🪵', game.materialsCollected['bark'] ?? 0, scale),
+                                  _buildMaterialChip('🌱', game.materialsCollected['root'] ?? 0, scale),
+                                  _buildMaterialChip('🌸', game.materialsCollected['flower'] ?? 0, scale),
+                                  _buildMaterialChip('🍇', game.materialsCollected['fruit'] ?? 0, scale),
                                 ],
                               ),
-                            );
-                          },
+                            ],
+                          ),
                         ),
                         
                         SizedBox(height: 20 * scale),
@@ -1335,12 +1432,18 @@ class _GameScreenState extends State<GameScreen> {
                             SizedBox(width: 12 * scale),
                             Expanded(
                               child: _buildDialogButton(
-                                icon: Icons.exit_to_app_rounded,
-                                label: 'Exit',
-                                color: const Color(0xFF6D4C41),
+                                icon: Icons.arrow_forward_rounded,
+                                label: 'Continue',
+                                color: Colors.amber.shade700,
                                 scale: scale,
-                                onPressed: () async {
-                                  await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+                                onPressed: () {
+                                  setState(() => _showInsufficientMaterials = false);
+                                  // Navigate to Dye Extraction Screen with limited materials
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (context) => DyeExtractionScreen(game: game),
+                                    ),
+                                  );
                                 },
                               ),
                             ),
