@@ -196,7 +196,7 @@ class EcoQuestGame extends FlameGame {
     overlays.remove('PhaseComplete');
     pauseEngine();
   }
-        
+          
   void restartGame() {
     scoreNotifier.value = 0;
     hintsRemaining = 5;
@@ -207,7 +207,7 @@ class EcoQuestGame extends FlameGame {
     sixtyPercentAchievedTime = null;
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
     
-    // NEW: Reset materials collection
+    // Reset materials collection
     materialsCollected = {
       'leaf': 0,
       'bark': 0,
@@ -215,6 +215,9 @@ class EcoQuestGame extends FlameGame {
       'flower': 0,
       'fruit': 0,
     };
+    
+    // Notify UI
+    materialsUpdateNotifier.value++;
     
     children.whereType<EcoItem>().toList().forEach((i) => i.removeFromParent());
     for (int r = 0; r < rows; r++) {
@@ -247,7 +250,7 @@ class EcoQuestGame extends FlameGame {
     sixtyPercentAchievedTime = null;
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
     
-    // NEW: Reset materials collection
+    // Reset materials collection
     materialsCollected = {
       'leaf': 0,
       'bark': 0,
@@ -255,6 +258,9 @@ class EcoQuestGame extends FlameGame {
       'flower': 0,
       'fruit': 0,
     };
+    
+    // Notify UI
+    materialsUpdateNotifier.value++;
     
     children.whereType<EcoItem>().toList().forEach((i) => i.removeFromParent());
     for (int r = 0; r < rows; r++) {
@@ -433,22 +439,40 @@ class EcoQuestGame extends FlameGame {
     // Calculate points
     scoreNotifier.value += matches.length * 10;
     
-    // NEW: Track materials collected by type
+    // NEW: Group matches by type to properly count materials
+    Map<String, int> matchesByType = {};
     for (var item in matches) {
-      String materialType = item.type;
+      matchesByType[item.type] = (matchesByType[item.type] ?? 0) + 1;
+    }
+        
+    // Award materials based on match size PER TYPE
+    for (var entry in matchesByType.entries) {
+      String materialType = entry.key;
+      int count = entry.value;
       
-      // Standard match (3 items) - basic collection
-      if (matches.length == 3) {
+      if (count == 3) {
+        // Standard 3-match → +1 material
         materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 1;
-      }
-      // Larger matches get bonus materials
-      else if (matches.length == 4) {
-        materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 2;
-      }
-      else if (matches.length >= 5) {
+      } else if (count == 4) {
+        // L/T-shape match (4 items) → +3 materials
         materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 3;
+      } else if (count == 5) {
+        // 5-in-row → +5 materials
+        materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 5;
+      } else if (count >= 6) {
+        // Cross match (6+) → +10 to this material type
+        materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 10;
+        
+        // BONUS: +2 to ALL other material types
+        for (var type in level1ItemTypes) {
+          if (type != materialType) {
+            materialsCollected[type] = (materialsCollected[type] ?? 0) + 2;
+          }
+        }
       }
     }
+    
+    materialsUpdateNotifier.value++;
     
     for (var item in matches) {
       int r = item.gridPosition.x as int, c = item.gridPosition.y as int;

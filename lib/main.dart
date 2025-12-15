@@ -17,6 +17,7 @@ final ValueNotifier<int> levelTimeNotifier = ValueNotifier<int>(70);
 final ValueNotifier<int> currentLevelNotifier = ValueNotifier<int>(1);
 final ValueNotifier<bool> gameSuccessNotifier = ValueNotifier<bool>(false);
 final ValueNotifier<int> plantsCollectedNotifier = ValueNotifier<int>(0);
+final ValueNotifier<int> materialsUpdateNotifier = ValueNotifier<int>(0);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -182,20 +183,23 @@ class _GameScreenState extends State<GameScreen> {
             // Game Area - uses all remaining space
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(8.0), // Reduced from 16
+                padding: const EdgeInsets.all(8.0),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Materials Panel (18% of game area) - Increased from 15%
+                    // Materials Panel (18% of game area)
                     Expanded(
                       flex: 18,
-                      child: _buildMaterialsPanel(constraints),
+                      child: ValueListenableBuilder<int>(
+                        valueListenable: materialsUpdateNotifier,
+                        builder: (context, _, __) => _buildMaterialsPanel(constraints),
+                      ),
                     ),
                     
                     // Minimal padding between panels
-                    const SizedBox(width: 4), // Reduced from 8
+                    const SizedBox(width: 4),
                     
-                    // Game Board (82%) - Increased from 85%
+                    // Game Board (82%)
                     Expanded(
                       flex: 82,
                       child: Center(
@@ -215,130 +219,186 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  //  Method to build the Materials Panel
-  Widget _buildMaterialsPanel() {
+  Widget _buildMaterialsPanel(BoxConstraints parentConstraints) {
     // Material type configurations with emojis
     final materials = [
-      {'type': 'leaf', 'emoji': '🍃', 'label': 'Leaf', 'color': const Color(0xFF4CAF50)},
+      {'type': 'leaf', 'emoji': '🍃', 'label': 'Leaves', 'color': const Color(0xFF4CAF50)},
       {'type': 'bark', 'emoji': '🪵', 'label': 'Bark', 'color': const Color(0xFF8D6E63)},
-      {'type': 'root', 'emoji': '🌱', 'label': 'Root', 'color': const Color(0xFFFDD835)},
-      {'type': 'flower', 'emoji': '🌸', 'label': 'Flower', 'color': const Color(0xFFEC407A)},
-      {'type': 'fruit', 'emoji': '🍇', 'label': 'Fruit', 'color': const Color(0xFF9C27B0)},
+      {'type': 'root', 'emoji': '🌱', 'label': 'Roots', 'color': const Color(0xFFFDD835)},
+      {'type': 'flower', 'emoji': '🌸', 'label': 'Flowers', 'color': const Color(0xFFEC407A)},
+      {'type': 'fruit', 'emoji': '🍇', 'label': 'Fruits', 'color': const Color(0xFF9C27B0)},
     ];
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF5D4E37).withValues(alpha: 0.9),
-            const Color(0xFF3E2723).withValues(alpha: 0.95),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFD4AF37),
-          width: 3,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFD4AF37).withValues(alpha: 0.3),
-            blurRadius: 12,
-            spreadRadius: 2,
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.3),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(13),
-                topRight: Radius.circular(13),
-              ),
-            ),
-            child: Center(
-              child: Text(
-                'MATERIALS',
-                style: GoogleFonts.exo2(
-                  fontSize: 16,
-                  color: const Color(0xFFD4AF37),
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ),
-          ),
-          
-          // Materials list
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: materials.map((material) {
-                  return _buildMaterialItem(
-                    emoji: material['emoji'] as String,
-                    label: material['label'] as String,
-                    type: material['type'] as String,
-                    color: material['color'] as Color,
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
-          
-          // Total materials counter
-          Container(
-            margin: const EdgeInsets.all(8),
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  const Color(0xFF2E7D32).withValues(alpha: 0.8),
-                  const Color(0xFF1B5E20).withValues(alpha: 0.9),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFFD4AF37).withValues(alpha: 0.5),
-                width: 2,
-              ),
-            ),
-            child: Column(
-              children: [
-                Text(
-                  'TOTAL',
-                  style: GoogleFonts.exo2(
-                    fontSize: 12,
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${game.getTotalMaterialsCollected()}',
-                  style: GoogleFonts.exo2(
-                    fontSize: 24,
-                    color: const Color(0xFFD4AF37),
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate responsive sizes based on available height
+        final availableHeight = constraints.maxHeight;
+        final headerHeight = availableHeight * 0.08; // 8% for header
+        final totalHeight = availableHeight * 0.12; // Reduced from 15% to 12%
+        final padding = availableHeight * 0.02; // 2% for padding
+        final itemsHeight = availableHeight - headerHeight - totalHeight - (padding * 3);
+        final itemHeight = itemsHeight / materials.length;
+        
+        // Responsive font sizes based on available width
+        final titleFontSize = (constraints.maxWidth * 0.11).clamp(10.0, 16.0);
+        final labelFontSize = (constraints.maxWidth * 0.08).clamp(8.0, 11.0);
+        final countFontSize = (constraints.maxWidth * 0.13).clamp(14.0, 20.0);
+        final totalLabelFontSize = (constraints.maxWidth * 0.08).clamp(8.0, 12.0);
+        final totalCountFontSize = (constraints.maxWidth * 0.14).clamp(16.0, 24.0);
+        final emojiSize = (constraints.maxWidth * 0.16).clamp(14.0, 24.0);
+        
+        return Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                const Color(0xFF5D4E37).withValues(alpha: 0.9),
+                const Color(0xFF3E2723).withValues(alpha: 0.95),
               ],
             ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: const Color(0xFFD4AF37),
+              width: 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFD4AF37).withValues(alpha: 0.3),
+                blurRadius: 8,
+                spreadRadius: 1,
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.5),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
-        ],
-      ),
+          child: Column(
+            children: [
+              // Header
+              Container(
+                height: headerHeight,
+                padding: EdgeInsets.symmetric(
+                  vertical: headerHeight * 0.15,
+                  horizontal: constraints.maxWidth * 0.05,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(10),
+                    topRight: Radius.circular(10),
+                  ),
+                ),
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'COLLECTED',
+                      style: GoogleFonts.exo2(
+                        fontSize: titleFontSize,
+                        color: const Color(0xFFD4AF37),
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              
+              SizedBox(height: padding),
+              
+              // Materials list - takes remaining space
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: constraints.maxWidth * 0.04,
+                  ),
+                  child: ListView.separated(
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: materials.length,
+                    separatorBuilder: (context, index) => SizedBox(height: padding * 0.5),
+                    itemBuilder: (context, index) {
+                      final material = materials[index];
+                      return _buildMaterialItem(
+                        emoji: material['emoji'] as String,
+                        label: material['label'] as String,
+                        type: material['type'] as String,
+                        color: material['color'] as Color,
+                        itemHeight: itemHeight * 0.95,
+                        labelFontSize: labelFontSize,
+                        countFontSize: countFontSize,
+                        emojiSize: emojiSize,
+                        availableWidth: constraints.maxWidth,
+                      );
+                    },
+                  ),
+                ),
+              ),
+              
+              SizedBox(height: padding),
+              
+              // Total materials counter - FIXED overflow
+              Container(
+                height: totalHeight,
+                margin: EdgeInsets.symmetric(
+                  horizontal: constraints.maxWidth * 0.04,
+                  vertical: padding * 0.5,
+                ),
+                padding: EdgeInsets.symmetric(
+                  horizontal: constraints.maxWidth * 0.06,
+                ),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      const Color(0xFF2E7D32).withValues(alpha: 0.8),
+                      const Color(0xFF1B5E20).withValues(alpha: 0.9),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFFD4AF37).withValues(alpha: 0.5),
+                    width: 1.5,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'TOTAL',
+                          style: GoogleFonts.exo2(
+                            fontSize: totalLabelFontSize,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          '${game.getTotalMaterialsCollected()}',
+                          style: GoogleFonts.exo2(
+                            fontSize: totalCountFontSize,
+                            color: const Color(0xFFD4AF37),
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -347,68 +407,107 @@ class _GameScreenState extends State<GameScreen> {
     required String label,
     required String type,
     required Color color,
+    required double itemHeight,
+    required double labelFontSize,
+    required double countFontSize,
+    required double emojiSize,
+    required double availableWidth,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF5D4E37).withValues(alpha: 0.6),
-            const Color(0xFF3E2723).withValues(alpha: 0.7),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: color.withValues(alpha: 0.5),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 4,
-            offset: const Offset(2, 2),
+    // Listen to game state to rebuild when materials change
+    return StatefulBuilder(
+      builder: (context, setState) {
+        // Register a callback to update this widget when materials change
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {});
+          }
+        });
+        
+        return Container(
+          height: itemHeight,
+          padding: EdgeInsets.symmetric(
+            vertical: itemHeight * 0.08,
+            horizontal: availableWidth * 0.05,
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // Emoji icon
-          Text(
-            emoji,
-            style: const TextStyle(fontSize: 24),
-          ),
-          const SizedBox(width: 8),
-          
-          // Label and count
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: GoogleFonts.exo2(
-                    fontSize: 11,
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  '${game.materialsCollected[type] ?? 0}',
-                  style: GoogleFonts.exo2(
-                    fontSize: 18,
-                    color: color,
-                    fontWeight: FontWeight.w900,
-                    height: 1.0,
-                  ),
-                ),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                const Color(0xFF5D4E37).withValues(alpha: 0.6),
+                const Color(0xFF3E2723).withValues(alpha: 0.7),
               ],
             ),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: color.withValues(alpha: 0.5),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 3,
+                offset: const Offset(1, 1),
+              ),
+            ],
           ),
-        ],
-      ),
+          child: Row(
+            children: [
+              // Emoji icon with responsive sizing
+              SizedBox(
+                width: emojiSize,
+                height: emojiSize,
+                child: Center(
+                  child: Text(
+                    emoji,
+                    style: TextStyle(fontSize: emojiSize * 0.9),
+                  ),
+                ),
+              ),
+              SizedBox(width: availableWidth * 0.03),
+              
+              // Label and count - takes remaining space
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Flexible(
+                      flex: 6,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          label,
+                          style: GoogleFonts.exo2(
+                            fontSize: labelFontSize,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Flexible(
+                      flex: 4,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          '${game.materialsCollected[type] ?? 0}',
+                          style: GoogleFonts.exo2(
+                            fontSize: countFontSize,
+                            color: color,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
