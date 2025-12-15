@@ -45,7 +45,7 @@ class EcoQuestGame extends FlameGame {
   List<List<bool>> restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
   int hintsRemaining = 5;
   late TimerComponent _timerComponent;
-  final List<String> level1ItemTypes = ['rain', 'hummingbird', 'summer', 'rose', 'man'];
+  final List<String> level1ItemTypes = ['leaf', 'bark', 'root', 'flower', 'fruit'];
 
   @override
   Color backgroundColor() => const Color(0x00000000);
@@ -67,6 +67,14 @@ class EcoQuestGame extends FlameGame {
     _repositionActiveItems();
     _repositionTileBackgrounds();
   }
+
+  Map<String, int> materialsCollected = {
+    'leaf': 0,
+    'bark': 0,
+    'root': 0,
+    'flower': 0,
+    'fruit': 0,
+  };
 
   void _updateLayout(Vector2 gameSize) {
     double availableSize = min(gameSize.x, gameSize.y);
@@ -188,7 +196,7 @@ class EcoQuestGame extends FlameGame {
     overlays.remove('PhaseComplete');
     pauseEngine();
   }
-      
+        
   void restartGame() {
     scoreNotifier.value = 0;
     hintsRemaining = 5;
@@ -198,6 +206,15 @@ class EcoQuestGame extends FlameGame {
     plantsCollectedNotifier.value = 0;
     sixtyPercentAchievedTime = null;
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
+    
+    // NEW: Reset materials collection
+    materialsCollected = {
+      'leaf': 0,
+      'bark': 0,
+      'root': 0,
+      'flower': 0,
+      'fruit': 0,
+    };
     
     children.whereType<EcoItem>().toList().forEach((i) => i.removeFromParent());
     for (int r = 0; r < rows; r++) {
@@ -230,6 +247,15 @@ class EcoQuestGame extends FlameGame {
     sixtyPercentAchievedTime = null;
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
     
+    // NEW: Reset materials collection
+    materialsCollected = {
+      'leaf': 0,
+      'bark': 0,
+      'root': 0,
+      'flower': 0,
+      'fruit': 0,
+    };
+    
     children.whereType<EcoItem>().toList().forEach((i) => i.removeFromParent());
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
@@ -246,14 +272,24 @@ class EcoQuestGame extends FlameGame {
     scoreNotifier.value = 0;
   }
 
+  // 7. NEW: Method to get materials collected (for Phase 2 transition)
+  Map<String, int> getMaterialsCollected() {
+    return Map.from(materialsCollected);
+  }
+
+  // 8. NEW: Method to get total materials count
+  int getTotalMaterialsCollected() {
+    return materialsCollected.values.fold(0, (sum, count) => sum + count);
+  }
+
   void _buildTutorialGrid() {
     List<List<String>> fixedMap = [
-      ['rain', 'rain', 'summer', 'rain', 'rose', 'man'],
-      ['rose', 'man', 'hummingbird', 'rose', 'summer', 'hummingbird'],
-      ['hummingbird', 'rain', 'summer', 'man', 'rain', 'rose'],
-      ['man', 'rose', 'rain', 'hummingbird', 'man', 'summer'],
-      ['summer', 'hummingbird', 'rose', 'summer', 'hummingbird', 'rain'],
-      ['rain', 'man', 'man', 'rain', 'rose', 'hummingbird'],
+      ['leaf', 'leaf', 'root', 'leaf', 'flower', 'fruit'],
+      ['flower', 'fruit', 'bark', 'flower', 'root', 'bark'],
+      ['bark', 'leaf', 'root', 'fruit', 'leaf', 'flower'],
+      ['fruit', 'flower', 'leaf', 'bark', 'fruit', 'root'],
+      ['root', 'bark', 'flower', 'root', 'bark', 'leaf'],
+      ['leaf', 'fruit', 'fruit', 'leaf', 'flower', 'bark'],
     ];
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
@@ -393,7 +429,27 @@ class EcoQuestGame extends FlameGame {
 
   Future<void> _processMatches(List<EcoItem> matches) async {
     FlameAudio.play('bubble-pop.mp3');
+    
+    // Calculate points
     scoreNotifier.value += matches.length * 10;
+    
+    // NEW: Track materials collected by type
+    for (var item in matches) {
+      String materialType = item.type;
+      
+      // Standard match (3 items) - basic collection
+      if (matches.length == 3) {
+        materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 1;
+      }
+      // Larger matches get bonus materials
+      else if (matches.length == 4) {
+        materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 2;
+      }
+      else if (matches.length >= 5) {
+        materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 3;
+      }
+    }
+    
     for (var item in matches) {
       int r = item.gridPosition.x as int, c = item.gridPosition.y as int;
       add(MatchExplosionEffect(

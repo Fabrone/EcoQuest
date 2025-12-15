@@ -170,27 +170,245 @@ class _GameScreenState extends State<GameScreen> {
           child: _buildParallaxBackground(),
         ),
 
+        // Main content with header and game area
         Column(
           children: [
+            // Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
               child: _buildEnhancedHeader(),
             ),
 
+            // Game Area - uses all remaining space
             Expanded(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: AspectRatio(
-                    aspectRatio: 1.0, 
-                    child: _buildStyledGameBoard(),
-                  ),
+              child: Padding(
+                padding: const EdgeInsets.all(8.0), // Reduced from 16
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Materials Panel (18% of game area) - Increased from 15%
+                    Expanded(
+                      flex: 18,
+                      child: _buildMaterialsPanel(constraints),
+                    ),
+                    
+                    // Minimal padding between panels
+                    const SizedBox(width: 4), // Reduced from 8
+                    
+                    // Game Board (82%) - Increased from 85%
+                    Expanded(
+                      flex: 82,
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: 1.0,
+                          child: _buildStyledGameBoard(),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ],
         ),
       ],
+    );
+  }
+
+  //  Method to build the Materials Panel
+  Widget _buildMaterialsPanel() {
+    // Material type configurations with emojis
+    final materials = [
+      {'type': 'leaf', 'emoji': '🍃', 'label': 'Leaf', 'color': const Color(0xFF4CAF50)},
+      {'type': 'bark', 'emoji': '🪵', 'label': 'Bark', 'color': const Color(0xFF8D6E63)},
+      {'type': 'root', 'emoji': '🌱', 'label': 'Root', 'color': const Color(0xFFFDD835)},
+      {'type': 'flower', 'emoji': '🌸', 'label': 'Flower', 'color': const Color(0xFFEC407A)},
+      {'type': 'fruit', 'emoji': '🍇', 'label': 'Fruit', 'color': const Color(0xFF9C27B0)},
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF5D4E37).withValues(alpha: 0.9),
+            const Color(0xFF3E2723).withValues(alpha: 0.95),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFD4AF37),
+          width: 3,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFD4AF37).withValues(alpha: 0.3),
+            blurRadius: 12,
+            spreadRadius: 2,
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(13),
+                topRight: Radius.circular(13),
+              ),
+            ),
+            child: Center(
+              child: Text(
+                'MATERIALS',
+                style: GoogleFonts.exo2(
+                  fontSize: 16,
+                  color: const Color(0xFFD4AF37),
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+          ),
+          
+          // Materials list
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: materials.map((material) {
+                  return _buildMaterialItem(
+                    emoji: material['emoji'] as String,
+                    label: material['label'] as String,
+                    type: material['type'] as String,
+                    color: material['color'] as Color,
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          
+          // Total materials counter
+          Container(
+            margin: const EdgeInsets.all(8),
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFF2E7D32).withValues(alpha: 0.8),
+                  const Color(0xFF1B5E20).withValues(alpha: 0.9),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFD4AF37).withValues(alpha: 0.5),
+                width: 2,
+              ),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  'TOTAL',
+                  style: GoogleFonts.exo2(
+                    fontSize: 12,
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${game.getTotalMaterialsCollected()}',
+                  style: GoogleFonts.exo2(
+                    fontSize: 24,
+                    color: const Color(0xFFD4AF37),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMaterialItem({
+    required String emoji,
+    required String label,
+    required String type,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF5D4E37).withValues(alpha: 0.6),
+            const Color(0xFF3E2723).withValues(alpha: 0.7),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: color.withValues(alpha: 0.5),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 4,
+            offset: const Offset(2, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Emoji icon
+          Text(
+            emoji,
+            style: const TextStyle(fontSize: 24),
+          ),
+          const SizedBox(width: 8),
+          
+          // Label and count
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.exo2(
+                    fontSize: 11,
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  '${game.materialsCollected[type] ?? 0}',
+                  style: GoogleFonts.exo2(
+                    fontSize: 18,
+                    color: color,
+                    fontWeight: FontWeight.w900,
+                    height: 1.0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

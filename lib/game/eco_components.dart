@@ -329,16 +329,16 @@ class MatchExplosionEffect extends Component with HasGameReference<EcoQuestGame>
   
   Color _getParticleColor() {
     switch (itemType) {
-      case 'rain':
-        return const Color(0xFF64B5F6);
-      case 'hummingbird':
-        return const Color(0xFFFF6F00);
-      case 'summer':
-        return const Color(0xFFFDD835);
-      case 'rose':
-        return const Color(0xFFEC407A);
-      case 'man':
-        return const Color(0xFF8D6E63);
+      case 'leaf':
+        return const Color(0xFF4CAF50); // Green for leaves
+      case 'bark':
+        return const Color(0xFF8D6E63); // Brown for bark
+      case 'root':
+        return const Color(0xFFFDD835); // Yellow for roots
+      case 'flower':
+        return const Color(0xFFEC407A); // Pink for flowers
+      case 'fruit':
+        return const Color(0xFF9C27B0); // Purple for fruits
       default:
         return const Color(0xFF4CAF50);
     }
