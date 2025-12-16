@@ -11,10 +11,12 @@ class EcoQuestGame extends FlameGame {
   static const int rows = 6;
   static const int cols = 6;
 
-  // NEW: Add these callback functions
   VoidCallback? onGameOverCallback;
   VoidCallback? onPhaseCompleteCallback;
   VoidCallback? onInsufficientMaterialsCallback;
+
+  int _completionTime = 0;
+  int getCompletionTime() => _completionTime;
 
   double tileSize = 0; 
   double boardWidth = 0;
@@ -78,7 +80,7 @@ class EcoQuestGame extends FlameGame {
 
   void _updateLayout(Vector2 gameSize) {
     double availableSize = min(gameSize.x, gameSize.y);
-    double padding = 16.0; 
+    double padding = 8.0; 
     tileSize = (availableSize - (padding * 2)) / cols;
     boardWidth = cols * tileSize;
     boardHeight = rows * tileSize;
@@ -157,9 +159,14 @@ class EcoQuestGame extends FlameGame {
     }
     
     if (restoredCount == totalTiles) {
+      // CHANGED: Capture completion time BEFORE calculating materials
+      int completionTime = levelTimeNotifier.value;
+      
       plantsCollected = _calculateMaterialsCollected(restoredCount, restorationPercentage);
       plantsCollectedNotifier.value = plantsCollected;
-      _triggerPhaseTransition();
+      
+      // CHANGED: Pass completion time to phase transition
+      _triggerPhaseTransition(completionTime);
     }
   }
 
@@ -178,16 +185,18 @@ class EcoQuestGame extends FlameGame {
     return ((baseMaterials * scoreMultiplier) + timeBonus).round().clamp(10, 60);
   }
 
-  void _triggerPhaseTransition() {
+  void _triggerPhaseTransition(int completionTime) {
     pauseEngine();
     if (!_timerComponent.timer.finished) _timerComponent.timer.stop();
     
     if (plantsCollected > 0) {
-      // CHANGED: Call callback instead of adding overlay
+      // CHANGED: Pass completion time via callback parameter
       onPhaseCompleteCallback?.call();
+      // Store completion time for DyeExtractionScreen access
+      _completionTime = completionTime;
     } else {
-      // CHANGED: Call callback instead of adding overlay
       onInsufficientMaterialsCallback?.call();
+      _completionTime = completionTime;
     }
   }
   

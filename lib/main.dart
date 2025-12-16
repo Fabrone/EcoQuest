@@ -185,32 +185,40 @@ class _GameScreenState extends State<GameScreen> {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(8.0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Materials Panel (18% of game area)
-                    Expanded(
-                      flex: 18,
-                      child: ValueListenableBuilder<int>(
-                        valueListenable: materialsUpdateNotifier,
-                        builder: (context, _, __) => _buildMaterialsPanel(constraints),
-                      ),
-                    ),
+                child: LayoutBuilder(
+                  builder: (context, gameConstraints) {
+                    // CHANGED: Better mobile aspect ratio
+                    bool isMobile = gameConstraints.maxWidth < 600;
+                    double boardAspectRatio = isMobile ? 0.75 : 1.0; // Taller on mobile
                     
-                    // Minimal padding between panels
-                    const SizedBox(width: 4),
-                    
-                    // Game Board (82%)
-                    Expanded(
-                      flex: 82,
-                      child: Center(
-                        child: AspectRatio(
-                          aspectRatio: 1.0,
-                          child: _buildStyledGameBoard(),
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Materials Panel (18% of game area)
+                        Expanded(
+                          flex: 18,
+                          child: ValueListenableBuilder<int>(
+                            valueListenable: materialsUpdateNotifier,
+                            builder: (context, _, __) => _buildMaterialsPanel(constraints),
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
+                        
+                        // Minimal padding between panels
+                        const SizedBox(width: 4),
+                        
+                        // Game Board (82%)
+                        Expanded(
+                          flex: 82,
+                          child: Center(
+                            child: AspectRatio(
+                              aspectRatio: boardAspectRatio, // CHANGED: Dynamic aspect ratio
+                              child: _buildStyledGameBoard(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -232,15 +240,17 @@ class _GameScreenState extends State<GameScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Calculate responsive sizes based on available height
+        // CHANGED: Better spacing calculations
         final availableHeight = constraints.maxHeight;
-        final headerHeight = availableHeight * 0.08; // 8% for header
-        final totalHeight = availableHeight * 0.12; // Reduced from 15% to 12%
-        final padding = availableHeight * 0.02; // 2% for padding
-        final itemsHeight = availableHeight - headerHeight - totalHeight - (padding * 3);
-        final itemHeight = itemsHeight / materials.length;
+        final headerHeight = availableHeight * 0.08;
+        final totalHeight = availableHeight * 0.10; // Reduced from 0.12
+        final padding = availableHeight * 0.015; // Reduced from 0.02
         
-        // Responsive font sizes based on available width
+        // CHANGED: Calculate space for items more precisely
+        final itemsHeight = availableHeight - headerHeight - totalHeight - (padding * 4);
+        final itemHeight = (itemsHeight / materials.length) * 0.95; // 95% to ensure spacing
+        
+        // Responsive font sizes
         final titleFontSize = (constraints.maxWidth * 0.11).clamp(10.0, 16.0);
         final labelFontSize = (constraints.maxWidth * 0.08).clamp(8.0, 11.0);
         final countFontSize = (constraints.maxWidth * 0.13).clamp(14.0, 20.0);
@@ -308,7 +318,7 @@ class _GameScreenState extends State<GameScreen> {
                 ),
               ),
               
-              SizedBox(height: padding),
+              SizedBox(height: padding * 0.5), // CHANGED: Reduced spacing after header
               
               // Materials list - takes remaining space
               Expanded(
@@ -319,7 +329,7 @@ class _GameScreenState extends State<GameScreen> {
                   child: ListView.separated(
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: materials.length,
-                    separatorBuilder: (context, index) => SizedBox(height: padding * 0.5),
+                    separatorBuilder: (context, index) => SizedBox(height: padding * 0.3), // CHANGED: Reduced separator
                     itemBuilder: (context, index) {
                       final material = materials[index];
                       return _buildMaterialItem(
@@ -327,7 +337,7 @@ class _GameScreenState extends State<GameScreen> {
                         label: material['label'] as String,
                         type: material['type'] as String,
                         color: material['color'] as Color,
-                        itemHeight: itemHeight * 0.95,
+                        itemHeight: itemHeight,
                         labelFontSize: labelFontSize,
                         countFontSize: countFontSize,
                         emojiSize: emojiSize,
@@ -338,17 +348,19 @@ class _GameScreenState extends State<GameScreen> {
                 ),
               ),
               
-              SizedBox(height: padding),
+              SizedBox(height: padding * 0.5), // CHANGED: Reduced spacing before total
               
-              // Total materials counter - FIXED overflow
+              // Total materials counter
               Container(
                 height: totalHeight,
-                margin: EdgeInsets.symmetric(
-                  horizontal: constraints.maxWidth * 0.04,
-                  vertical: padding * 0.5,
+                margin: EdgeInsets.only(
+                  left: constraints.maxWidth * 0.04,
+                  right: constraints.maxWidth * 0.04,
+                  bottom: padding * 0.8, // CHANGED: Reduced bottom margin
                 ),
                 padding: EdgeInsets.symmetric(
                   horizontal: constraints.maxWidth * 0.06,
+                  vertical: totalHeight * 0.15, // CHANGED: Added vertical padding for better fit
                 ),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -831,23 +843,13 @@ class _GameScreenState extends State<GameScreen> {
       ),
       child: Stack(
         children: [
-          Positioned.fill(
-            child: Container(
-              margin: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: const Color(0xFF3E2723).withValues(alpha: 0.5),
-                  width: 2,
-                ),
-              ),
-            ),
-          ),
+          // REMOVED: Inner margin container that created the yellow-like border
           
           ..._buildCornerOrnaments(),
           
+          // CHANGED: Reduced padding for larger board
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(8), // Reduced from 16
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: Container(
@@ -864,7 +866,6 @@ class _GameScreenState extends State<GameScreen> {
                 ),
                 child: GameWidget(
                   game: game,
-                  // REMOVED: overlayBuilderMap - no longer needed
                 ),
               ),
             ),
@@ -1253,10 +1254,12 @@ class _GameScreenState extends State<GameScreen> {
                             scale: scale,
                             onPressed: () {
                               setState(() => _showPhaseComplete = false);
-                              // Navigate to Dye Extraction Screen
                               Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (context) => DyeExtractionScreen(game: game),
+                                  builder: (context) => DyeExtractionScreen(
+                                    game: game,
+                                    levelTimeRemaining: game.getCompletionTime(), // Pass actual completion time
+                                  ),
                                 ),
                               );
                             },
@@ -1438,10 +1441,12 @@ class _GameScreenState extends State<GameScreen> {
                                 scale: scale,
                                 onPressed: () {
                                   setState(() => _showInsufficientMaterials = false);
-                                  // Navigate to Dye Extraction Screen with limited materials
                                   Navigator.of(context).push(
                                     MaterialPageRoute(
-                                      builder: (context) => DyeExtractionScreen(game: game),
+                                      builder: (context) => DyeExtractionScreen(
+                                        game: game,
+                                        levelTimeRemaining: game.getCompletionTime(),
+                                      ),
                                     ),
                                   );
                                 },
