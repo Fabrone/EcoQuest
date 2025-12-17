@@ -240,16 +240,16 @@ class _GameScreenState extends State<GameScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // FIXED: Better spacing calculations for 6 items
+        // FIXED: Calculate dimensions with safety margins
         final availableHeight = constraints.maxHeight;
-        final headerHeight = availableHeight * 0.08;
-        final topPadding = availableHeight * 0.01;
-        final bottomPadding = availableHeight * 0.01;
+        final headerHeight = (availableHeight * 0.08).clamp(40.0, 60.0);
+        final topPadding = availableHeight * 0.012;
+        final bottomPadding = availableHeight * 0.012;
         
-        // FIXED: Calculate space for 6 items (5 materials + 1 total) with proper distribution
+        // Calculate ideal item height (for 6 items with spacing)
         final contentHeight = availableHeight - headerHeight - topPadding - bottomPadding;
-        final itemHeight = contentHeight / 6; // Divide equally among 6 items
-        final itemSpacing = itemHeight * 0.05; // Small spacing between items
+        final idealItemHeight = contentHeight / 6.2; // Slightly reduce to account for spacing
+        final itemSpacing = idealItemHeight * 0.08;
         
         // Responsive font sizes
         final titleFontSize = (constraints.maxWidth * 0.11).clamp(10.0, 16.0);
@@ -319,45 +319,47 @@ class _GameScreenState extends State<GameScreen> {
               
               SizedBox(height: topPadding),
               
-              // FIXED: Materials list + Total in a Column (not ListView)
               Expanded(
                 child: Padding(
                   padding: EdgeInsets.symmetric(
                     horizontal: constraints.maxWidth * 0.04,
                   ),
-                  child: Column(
-                    children: [
-                      // 5 Material items
-                      ...materials.map((material) => Padding(
-                        padding: EdgeInsets.only(bottom: itemSpacing),
-                        child: SizedBox(
-                          height: itemHeight - itemSpacing,
-                          child: _buildMaterialItem(
-                            emoji: material['emoji'] as String,
-                            label: material['label'] as String,
-                            type: material['type'] as String,
-                            color: material['color'] as Color,
-                            itemHeight: itemHeight - itemSpacing,
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Column(
+                      children: [
+                        // 5 Material items
+                        ...materials.map((material) => Padding(
+                          padding: EdgeInsets.only(bottom: itemSpacing),
+                          child: SizedBox(
+                            height: idealItemHeight,
+                            child: _buildMaterialItem(
+                              emoji: material['emoji'] as String,
+                              label: material['label'] as String,
+                              type: material['type'] as String,
+                              color: material['color'] as Color,
+                              itemHeight: idealItemHeight,
+                              labelFontSize: labelFontSize,
+                              countFontSize: countFontSize,
+                              emojiSize: emojiSize,
+                              availableWidth: constraints.maxWidth,
+                            ),
+                          ),
+                        )),
+                        
+                        // Total item
+                        SizedBox(
+                          height: idealItemHeight,
+                          child: _buildTotalMaterialItem(
+                            itemHeight: idealItemHeight,
                             labelFontSize: labelFontSize,
                             countFontSize: countFontSize,
                             emojiSize: emojiSize,
                             availableWidth: constraints.maxWidth,
                           ),
                         ),
-                      )),
-                      
-                      // Total item
-                      SizedBox(
-                        height: itemHeight - itemSpacing,
-                        child: _buildTotalMaterialItem(
-                          itemHeight: itemHeight - itemSpacing,
-                          labelFontSize: labelFontSize,
-                          countFontSize: countFontSize,
-                          emojiSize: emojiSize,
-                          availableWidth: constraints.maxWidth,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),

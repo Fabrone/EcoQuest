@@ -72,21 +72,23 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
   }
 
   void _initializeMaterials() {
-    // Calculate material quality based on time remaining
     int timeRemaining = widget.levelTimeRemaining;
     
-    if (timeRemaining > 100) {
-      materialQuality = 'Fresh';
-      qualityMultiplier = 1.5;
-    } else if (timeRemaining > 30) {
-      materialQuality = 'Good';
-      qualityMultiplier = 1.0;
+    if (timeRemaining >= 100) {
+      // Excellent quality - completed very quickly (100+ seconds remaining)
+      materialQuality = 'Premium Harvest';
+      qualityMultiplier = 1.5; // +50% bonus
+    } else if (timeRemaining > 40 && timeRemaining < 100) {
+      // Good quality - moderate speed (40-99 seconds remaining)
+      materialQuality = 'Quality Harvest';
+      qualityMultiplier = 1.25; // +25% bonus
     } else {
-      materialQuality = 'Adequate';
-      qualityMultiplier = 0.75;
+      // Basic quality - slow completion (0-40 seconds remaining)
+      materialQuality = 'Basic Harvest';
+      qualityMultiplier = 1.0; // No bonus
     }
     
-    // FIXED: Get actual materials from game instead of calculating from plants
+    // Get actual materials from game
     Map<String, int> gameMaterials = widget.game.getMaterialsCollected();
     
     materials = {
@@ -354,6 +356,16 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
   }
 
   Widget _buildTransitionScreen() {
+    // Determine quality color
+    Color qualityColor;
+    if (materialQuality == 'Premium Harvest') {
+      qualityColor = Colors.greenAccent;
+    } else if (materialQuality == 'Quality Harvest') {
+      qualityColor = Colors.amber;
+    } else {
+      qualityColor = Colors.orange;
+    }
+    
     return FadeTransition(
       opacity: _transitionController,
       child: SafeArea(
@@ -412,14 +424,10 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                               ),
                             ),
                             Text(
-                              '${entry.value} (${materialQualities[entry.key]})',
+                              '${entry.value}',
                               style: GoogleFonts.vt323(
                                 fontSize: 20,
-                                color: materialQuality == 'Fresh' 
-                                    ? Colors.greenAccent 
-                                    : materialQuality == 'Good'
-                                        ? Colors.amber
-                                        : Colors.orange,
+                                color: qualityColor,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -427,24 +435,81 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                         ),
                       )),
                       const SizedBox(height: 20),
+                      
+                      // UPDATED: Better quality display with detailed info
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.amber.withValues(alpha: 0.2),
+                          color: qualityColor.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: qualityColor, width: 2),
                         ),
-                        child: Row(
+                        child: Column(
                           children: [
-                            const Icon(Icons.star, color: Colors.amber, size: 24),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Quality Bonus: ${(qualityMultiplier * 100 - 100).toInt()}% dye yield!',
-                                style: GoogleFonts.vt323(
-                                  fontSize: 18,
-                                  color: Colors.amber,
-                                  fontWeight: FontWeight.bold,
+                            Row(
+                              children: [
+                                Icon(
+                                  materialQuality == 'Premium Harvest' 
+                                      ? Icons.stars 
+                                      : materialQuality == 'Quality Harvest'
+                                          ? Icons.star
+                                          : Icons.eco,
+                                  color: qualityColor, 
+                                  size: 28,
                                 ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        materialQuality.toUpperCase(),
+                                        style: GoogleFonts.vt323(
+                                          fontSize: 20,
+                                          color: qualityColor,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      Text(
+                                        _getQualityDescription(),
+                                        style: GoogleFonts.vt323(
+                                          fontSize: 14,
+                                          color: Colors.white70,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12, 
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.trending_up, 
+                                    color: qualityColor, 
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Dye Yield Bonus: +${((qualityMultiplier - 1) * 100).toInt()}%',
+                                    style: GoogleFonts.vt323(
+                                      fontSize: 18,
+                                      color: qualityColor,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -476,6 +541,19 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
         ),
       ),
     );
+  }
+
+  String _getQualityDescription() {
+    switch (materialQuality) {
+      case 'Premium Harvest':
+        return 'Swift restoration! Materials collected at peak potency.';
+      case 'Quality Harvest':
+        return 'Efficient work! Materials in good condition.';
+      case 'Basic Harvest':
+        return 'Task completed. Materials suitable for processing.';
+      default:
+        return '';
+    }
   }
 
   Widget _buildWorkshopScreen() {
