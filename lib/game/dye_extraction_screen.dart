@@ -215,13 +215,16 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
   }
 
   void _calculateCrushingScore() {
-    double tapsPerSecond = tapCount / 10.0;
-    if (tapsPerSecond >= 8) {
-      crushingEfficiency = 1.2;
-    } else if (tapsPerSecond >= 5) {
-      crushingEfficiency = 1.0;
+    double crushingProgress = (tapCount / 80.0 * 100).clamp(0.0, 100.0);
+    
+    if (crushingProgress >= 90) {
+      crushingEfficiency = 1.3; // +30% bonus for perfect crushing
+    } else if (crushingProgress >= 70) {
+      crushingEfficiency = 1.15; // +15% bonus for good crushing
+    } else if (crushingProgress >= 50) {
+      crushingEfficiency = 1.0; // Standard yield
     } else {
-      crushingEfficiency = 0.8;
+      crushingEfficiency = 0.85; // -15% penalty for poor crushing
     }
     
     setState(() {
@@ -794,128 +797,730 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
   }
 
   Widget _buildCrushingGame() {
-    double progress = tapCount / 80.0;
-    progress = progress.clamp(0.0, 1.0);
+    // Calculate crushing progress (0-100%)
+    double crushingProgress = (tapCount / 80.0 * 100).clamp(0.0, 100.0);
+    
+    // Determine crushing quality based on progress
+    String crushingQuality;
+    Color qualityColor;
+    if (crushingProgress >= 90) {
+      crushingQuality = 'PERFECTLY CRUSHED';
+      qualityColor = Colors.greenAccent;
+    } else if (crushingProgress >= 70) {
+      crushingQuality = 'WELL CRUSHED';
+      qualityColor = Colors.amber;
+    } else if (crushingProgress >= 50) {
+      crushingQuality = 'MODERATELY CRUSHED';
+      qualityColor = Colors.orange;
+    } else {
+      crushingQuality = 'COARSELY CRUSHED';
+      qualityColor = Colors.red;
+    }
+    
+    // Dynamic particle system based on crushing progress
+    double particleSize = math.max(8.0, 40 - (crushingProgress * 0.32));
+    int particleCount = math.min(20, 5 + (crushingProgress / 5).floor());
+    double dustOpacity = math.min(0.6, crushingProgress / 150);
     
     return SafeArea(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minHeight: MediaQuery.of(context).size.height - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'TAP RAPIDLY TO CRUSH!',
-                  style: GoogleFonts.vt323(
-                    fontSize: 32,
-                    color: Colors.amber,
-                    fontWeight: FontWeight.bold,
+      child: Container(
+        color: const Color(0xFF1B3A1B),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: MediaQuery.of(context).size.height - 
+                        MediaQuery.of(context).padding.top - 
+                        MediaQuery.of(context).padding.bottom,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Text(
+                    'CRUSH THE MATERIALS!',
+                    style: GoogleFonts.vt323(
+                      fontSize: 32,
+                      color: Colors.amber,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 40),
-                
-                // Animated Mortar & Pestle
-                GestureDetector(
-                  onTap: _onCrushTap,
-                  child: AnimatedBuilder(
-                    animation: _crushingController,
-                    builder: (context, child) {
-                      return Transform.translate(
-                        offset: Offset(0, -20 * _crushingController.value),
-                        child: Container(
-                          width: 200,
-                          height: 200,
-                          decoration: BoxDecoration(
-                            color: Colors.brown.shade700,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.5),
-                                blurRadius: 20,
-                                spreadRadius: 5,
+                  const SizedBox(height: 8),
+                  Text(
+                    'Tap the mortar rapidly for better extraction',
+                    style: GoogleFonts.vt323(
+                      fontSize: 16,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 30),
+                  
+                  // Enhanced Mortar & Pestle Scene
+                  GestureDetector(
+                    onTapDown: (_) => _onCrushTap(),
+                    child: SizedBox(
+                      width: 300,
+                      height: 320,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        clipBehavior: Clip.none,
+                        children: [
+                          // Wooden base/table
+                          Positioned(
+                            bottom: -10,
+                            child: Container(
+                              width: 320,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.brown.shade600,
+                                    Colors.brown.shade800,
+                                  ],
+                                ),
                               ),
-                            ],
+                            ),
                           ),
-                          child: const Icon(
-                            Icons.circle,
-                            size: 100,
-                            color: Colors.brown,
+                          
+                          // Main mortar bowl - outer rim
+                          Positioned(
+                            bottom: 20,
+                            child: Container(
+                              width: 280,
+                              height: 280,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: RadialGradient(
+                                  center: const Alignment(-0.3, -0.4),
+                                  radius: 1.2,
+                                  colors: [
+                                    Colors.grey.shade400,
+                                    Colors.grey.shade600,
+                                    Colors.grey.shade800,
+                                    Colors.grey.shade900,
+                                  ],
+                                  stops: const [0.0, 0.4, 0.7, 1.0],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.7),
+                                    blurRadius: 30,
+                                    spreadRadius: 5,
+                                    offset: const Offset(0, 15),
+                                  ),
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.3),
+                                    blurRadius: 60,
+                                    spreadRadius: 10,
+                                    offset: const Offset(0, 25),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
+                          
+                          // Inner mortar bowl with materials
+                          Positioned(
+                            bottom: 40,
+                            child: Container(
+                              width: 240,
+                              height: 240,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: RadialGradient(
+                                  center: Alignment.center,
+                                  radius: 0.85,
+                                  colors: [
+                                    Colors.grey.shade800,
+                                    Colors.grey.shade900,
+                                    Colors.black87,
+                                  ],
+                                  stops: const [0.0, 0.6, 1.0],
+                                ),
+                              ),
+                              child: ClipOval(
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    // Background dust/powder cloud
+                                    if (crushingProgress > 20)
+                                      Positioned.fill(
+                                        child: AnimatedOpacity(
+                                          duration: const Duration(milliseconds: 300),
+                                          opacity: dustOpacity,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              gradient: RadialGradient(
+                                                colors: [
+                                                  dyeColor.withValues(alpha: 0.3),
+                                                  dyeColor.withValues(alpha: 0.1),
+                                                  Colors.transparent,
+                                                ],
+                                                stops: const [0.0, 0.5, 1.0],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    
+                                    // Scattered material particles
+                                    ...List.generate(particleCount, (index) {
+                                      // Create consistent random positions using index as seed
+                                      final random = math.Random(index);
+                                      double angle = (index / particleCount) * 2 * math.pi + (random.nextDouble() * 0.5);
+                                      double radius = 20 + (random.nextDouble() * 65);
+                                      double xPos = math.cos(angle) * radius;
+                                      double yPos = math.sin(angle) * radius;
+                                      
+                                      // Particle rotation for more natural look
+                                      double rotation = random.nextDouble() * math.pi;
+                                      
+                                      return AnimatedPositioned(
+                                        duration: const Duration(milliseconds: 400),
+                                        curve: Curves.easeOutCubic,
+                                        left: 120 + xPos - (particleSize / 2),
+                                        top: 120 + yPos - (particleSize / 2),
+                                        child: Transform.rotate(
+                                          angle: rotation,
+                                          child: AnimatedContainer(
+                                            duration: const Duration(milliseconds: 400),
+                                            width: particleSize,
+                                            height: particleSize,
+                                            decoration: BoxDecoration(
+                                              color: dyeColor.withValues(
+                                                alpha: 0.7 + (crushingProgress / 333)
+                                              ),
+                                              borderRadius: BorderRadius.circular(
+                                                // Becomes more rounded/powder-like as crushing progresses
+                                                particleSize * (0.2 + (crushingProgress / 200))
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: dyeColor.withValues(alpha: 0.3),
+                                                  blurRadius: 3,
+                                                  spreadRadius: 0.5,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                    
+                                    // Fine dust particles (appear at higher progress)
+                                    if (crushingProgress > 40)
+                                      ...List.generate(12, (index) {
+                                        final random = math.Random(index + 100);
+                                        double angle = (index / 12) * 2 * math.pi + (random.nextDouble() * 0.8);
+                                        double radius = 30 + (random.nextDouble() * 50);
+                                        double xPos = math.cos(angle) * radius;
+                                        double yPos = math.sin(angle) * radius;
+                                        
+                                        return Positioned(
+                                          left: 120 + xPos - 3,
+                                          top: 120 + yPos - 3,
+                                          child: AnimatedOpacity(
+                                            duration: const Duration(milliseconds: 500),
+                                            opacity: dustOpacity * 0.8,
+                                            child: Container(
+                                              width: 6,
+                                              height: 6,
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                color: dyeColor.withValues(alpha: 0.5),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: dyeColor.withValues(alpha: 0.3),
+                                                    blurRadius: 4,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      }),
+                                    
+                                    // Powder accumulation at bottom (high progress)
+                                    if (crushingProgress > 60)
+                                      Positioned(
+                                        bottom: 0,
+                                        child: AnimatedContainer(
+                                          duration: const Duration(milliseconds: 500),
+                                          width: 180,
+                                          height: 40 + (crushingProgress / 5),
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                              colors: [
+                                                dyeColor.withValues(alpha: 0.0),
+                                                dyeColor.withValues(alpha: 0.4),
+                                                dyeColor.withValues(alpha: 0.7),
+                                              ],
+                                            ),
+                                            borderRadius: const BorderRadius.only(
+                                              bottomLeft: Radius.circular(100),
+                                              bottomRight: Radius.circular(100),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          
+                          // Animated Pestle with realistic crushing motion
+                          AnimatedBuilder(
+                            animation: _crushingController,
+                            builder: (context, child) {
+                              // Smooth crushing motion with easing
+                              double pestleOffset = -30 * math.sin(_crushingController.value * math.pi);
+                              double pestleRotation = 0.15 * math.sin(_crushingController.value * math.pi * 2);
+                              double pestleScale = 1.0 - (0.05 * _crushingController.value);
+                              
+                              return Positioned(
+                                top: 0,
+                                right: 40,
+                                child: Transform.scale(
+                                  scale: pestleScale,
+                                  child: Transform.translate(
+                                    offset: Offset(0, pestleOffset),
+                                    child: Transform.rotate(
+                                      angle: pestleRotation - 0.3,
+                                      origin: const Offset(0, 80),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // Pestle handle (wooden)
+                                          Container(
+                                            width: 22,
+                                            height: 100,
+                                            decoration: BoxDecoration(
+                                              borderRadius: BorderRadius.circular(11),
+                                              gradient: LinearGradient(
+                                                begin: Alignment.centerLeft,
+                                                end: Alignment.centerRight,
+                                                colors: [
+                                                  Colors.brown.shade400,
+                                                  Colors.brown.shade600,
+                                                  Colors.brown.shade400,
+                                                ],
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black.withValues(alpha: 0.4),
+                                                  blurRadius: 8,
+                                                  offset: const Offset(4, 4),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          // Handle grip texture
+                                          Container(
+                                            width: 24,
+                                            height: 8,
+                                            decoration: BoxDecoration(
+                                              color: Colors.brown.shade700,
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Container(
+                                            width: 24,
+                                            height: 8,
+                                            decoration: BoxDecoration(
+                                              color: Colors.brown.shade700,
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          // Pestle head (stone)
+                                          Container(
+                                            width: 40,
+                                            height: 70,
+                                            decoration: BoxDecoration(
+                                              borderRadius: const BorderRadius.only(
+                                                topLeft: Radius.circular(20),
+                                                topRight: Radius.circular(20),
+                                                bottomLeft: Radius.circular(20),
+                                                bottomRight: Radius.circular(20),
+                                              ),
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                                colors: [
+                                                  Colors.grey.shade300,
+                                                  Colors.grey.shade500,
+                                                  Colors.grey.shade700,
+                                                  Colors.grey.shade600,
+                                                ],
+                                                stops: const [0.0, 0.3, 0.7, 1.0],
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black.withValues(alpha: 0.5),
+                                                  blurRadius: 12,
+                                                  offset: const Offset(3, 5),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          
+                          // Impact effect particles (spawn on tap)
+                          if (_crushingController.isAnimating && crushingProgress < 95)
+                            Positioned(
+                              bottom: 140,
+                              child: AnimatedBuilder(
+                                animation: _crushingController,
+                                builder: (context, child) {
+                                  return Opacity(
+                                    opacity: 1.0 - _crushingController.value,
+                                    child: Container(
+                                      width: 60 * _crushingController.value,
+                                      height: 60 * _crushingController.value,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: dyeColor.withValues(
+                                            alpha: 0.6 * (1.0 - _crushingController.value)
+                                          ),
+                                          width: 3,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          
+                          // Tap prompt indicator
+                          Positioned(
+                            bottom: 10,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 300),
+                              opacity: crushingProgress < 20 ? 1.0 : 0.0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withValues(alpha: 0.9),
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.amber.withValues(alpha: 0.4),
+                                      blurRadius: 10,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.touch_app, color: Colors.black, size: 20),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'TAP HERE',
+                                      style: GoogleFonts.vt323(
+                                        fontSize: 18,
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 30),
+                  
+                  // Enhanced Progress Display
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: qualityColor, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: qualityColor.withValues(alpha: 0.3),
+                          blurRadius: 15,
+                          spreadRadius: 2,
                         ),
-                      );
-                    },
-                  ),
-                ),
-                
-                const SizedBox(height: 40),
-                
-                // Progress Bar
-                Container(
-                  width: double.infinity,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade800,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.amber, width: 2),
-                  ),
-                  child: Stack(
-                    children: [
-                      FractionallySizedBox(
-                        widthFactor: progress,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.green,
-                            borderRadius: BorderRadius.circular(18),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.green.withValues(alpha: 0.5),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        // Quality Status with icon
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              crushingProgress >= 90 
+                                  ? Icons.workspace_premium
+                                  : crushingProgress >= 70
+                                      ? Icons.thumb_up
+                                      : crushingProgress >= 50
+                                          ? Icons.trending_up
+                                          : Icons.hourglass_bottom,
+                              color: qualityColor,
+                              size: 32,
+                            ),
+                            const SizedBox(width: 12),
+                            Flexible(
+                              child: Text(
+                                crushingQuality,
+                                style: GoogleFonts.vt323(
+                                  fontSize: 24,
+                                  color: qualityColor,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        const SizedBox(height: 16),
+                        
+                        // Large progress percentage
+                        Text(
+                          '${crushingProgress.toInt()}%',
+                          style: GoogleFonts.vt323(
+                            fontSize: 48,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            shadows: [
+                              Shadow(
+                                color: qualityColor.withValues(alpha: 0.5),
                                 blurRadius: 10,
                               ),
                             ],
                           ),
                         ),
-                      ),
-                      Center(
-                        child: Text(
-                          'Progress: ${(progress * 100).toInt()}%',
-                          style: GoogleFonts.vt323(
-                            fontSize: 20,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
+                        
+                        const SizedBox(height: 12),
+                        
+                        // Animated progress bar
+                        Container(
+                          width: double.infinity,
+                          height: 35,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade900,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: Colors.amber, width: 2),
+                          ),
+                          child: Stack(
+                            children: [
+                              // Animated progress fill
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                width: (MediaQuery.of(context).size.width - 88) * (crushingProgress / 100),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      qualityColor,
+                                      qualityColor.withValues(alpha: 0.7),
+                                      qualityColor,
+                                    ],
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: qualityColor.withValues(alpha: 0.6),
+                                      blurRadius: 12,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Milestone markers
+                              Positioned.fill(
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                  children: [50, 70, 90].map((milestone) {
+                                    bool reached = crushingProgress >= milestone;
+                                    return Container(
+                                      width: 3,
+                                      decoration: BoxDecoration(
+                                        color: reached 
+                                            ? Colors.white
+                                            : Colors.white.withValues(alpha: 0.3),
+                                        boxShadow: reached ? [
+                                          BoxShadow(
+                                            color: Colors.white.withValues(alpha: 0.5),
+                                            blurRadius: 6,
+                                          ),
+                                        ] : null,
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
+                        
+                        const SizedBox(height: 20),
+                        
+                        // Stats grid
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildCrushingStat(
+                              icon: Icons.touch_app,
+                              label: 'Taps',
+                              value: '$tapCount',
+                              color: Colors.blue,
+                            ),
+                            _buildCrushingStat(
+                              icon: Icons.timer,
+                              label: 'Time',
+                              value: '${crushingTimeLeft}s',
+                              color: crushingTimeLeft <= 3 
+                                  ? Colors.red 
+                                  : Colors.amber,
+                            ),
+                            _buildCrushingStat(
+                              icon: Icons.speed,
+                              label: 'Rate',
+                              value: crushingTimeLeft < 10 
+                                  ? '${(tapCount / (10 - crushingTimeLeft)).toStringAsFixed(1)}/s'
+                                  : '0.0/s',
+                              color: Colors.green,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Quality tier indicators with better visuals
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.amber.withValues(alpha: 0.3),
+                        width: 1,
                       ),
-                    ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.emoji_events,
+                              color: Colors.amber,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Quality Tiers & Bonuses:',
+                              style: GoogleFonts.vt323(
+                                fontSize: 18,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _buildQualityTier('90-100%', 'Perfect (+30% yield)', Colors.greenAccent, crushingProgress >= 90),
+                        _buildQualityTier('70-89%', 'Good (+15% yield)', Colors.amber, crushingProgress >= 70 && crushingProgress < 90),
+                        _buildQualityTier('50-69%', 'Fair (standard)', Colors.orange, crushingProgress >= 50 && crushingProgress < 70),
+                        _buildQualityTier('0-49%', 'Poor (-15% yield)', Colors.red, crushingProgress < 50),
+                      ],
+                    ),
                   ),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                Text(
-                  'Taps: $tapCount',
-                  style: GoogleFonts.vt323(
-                    fontSize: 24,
-                    color: Colors.white,
-                  ),
-                ),
-                
-                Text(
-                  'Time: ${crushingTimeLeft}s',
-                  style: GoogleFonts.vt323(
-                    fontSize: 24,
-                    color: Colors.amber,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCrushingStat({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: GoogleFonts.vt323(
+            fontSize: 14,
+            color: Colors.white70,
+          ),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.vt323(
+            fontSize: 20,
+            color: color,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQualityTier(String range, String label, Color color, bool active) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: active ? color : Colors.grey.shade700,
+              border: Border.all(
+                color: active ? color : Colors.grey.shade600,
+                width: 2,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$range - $label',
+            style: GoogleFonts.vt323(
+              fontSize: 14,
+              color: active ? color : Colors.white54,
+              fontWeight: active ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ],
       ),
     );
   }
