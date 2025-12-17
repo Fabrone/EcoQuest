@@ -1,11 +1,11 @@
 import 'dart:math';
+import 'package:ecoquest/game/eco_components.dart';
 import 'package:ecoquest/main.dart';
 import 'package:flame/components.dart';
 import 'package:flame/effects.dart';
 import 'package:flame/game.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
-import 'eco_components.dart';
 
 class EcoQuestGame extends FlameGame {
   static const int rows = 6;
@@ -66,8 +66,9 @@ class EcoQuestGame extends FlameGame {
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
     _updateLayout(size);
-    _repositionActiveItems();
     _repositionTileBackgrounds();
+    _repositionActiveItems();
+    _updateItemSizes(); // NEW: Update sprite sizes on resize
   }
 
   Map<String, int> materialsCollected = {
@@ -77,6 +78,20 @@ class EcoQuestGame extends FlameGame {
     'flower': 0,
     'fruit': 0,
   };
+
+  void _updateItemSizes() {
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        EcoItem? item = gridItems[r][c];
+        if (item != null) {
+          // Update sprite size to match new tile size
+          final spriteScale = 0.80;
+          item.size = Vector2.all(tileSize * spriteScale);
+          item.sizeVal = tileSize; // Update stored size value
+        }
+      }
+    }
+  }
 
   void _updateLayout(Vector2 gameSize) {
     double availableSize = min(gameSize.x, gameSize.y);
@@ -119,8 +134,10 @@ class EcoQuestGame extends FlameGame {
       for (int c = 0; c < cols; c++) {
         EcoItem? item = gridItems[r][c];
         if (item != null) {
-          item.position = Vector2(startX + c * tileSize, startY + r * tileSize);
-          item.size = Vector2(tileSize, tileSize);
+          // FIXED: Position at tile center consistently
+          final centerX = startX + (c * tileSize) + (tileSize / 2);
+          final centerY = startY + (r * tileSize) + (tileSize / 2);
+          item.position = Vector2(centerX, centerY);
         }
       }
     }
@@ -352,16 +369,29 @@ class EcoQuestGame extends FlameGame {
   }
 
   void _spawnItemAt(int r, int c, String type, {bool animate = true}) {
-    Vector2 finalPos = Vector2(startX + c * tileSize, startY + r * tileSize);
-    Vector2 spawnPos = animate ? Vector2(startX + c * tileSize, startY - tileSize) : finalPos;
+    // FIXED: Calculate center position for sprites consistently
+    final centerX = startX + (c * tileSize) + (tileSize / 2);
+    final centerY = startY + (r * tileSize) + (tileSize / 2);
+    
+    Vector2 finalPos = Vector2(centerX, centerY);
+    Vector2 spawnPos = animate 
+        ? Vector2(centerX, startY - tileSize) // Start above, but same X
+        : finalPos;
+    
     final item = EcoItem(type: type, sizeVal: tileSize)
       ..position = spawnPos
-      ..size = Vector2(tileSize, tileSize)
       ..gridPosition = Point(r, c)
       ..priority = 1;
+      
     gridItems[r][c] = item;
     add(item);
-    if (animate) item.add(MoveToEffect(finalPos, EffectController(duration: 0.4, curve: Curves.bounceOut)));
+    
+    if (animate) {
+      item.add(MoveToEffect(
+        finalPos, 
+        EffectController(duration: 0.4, curve: Curves.bounceOut)
+      ));
+    }
   }
 
   void onDragStart(EcoItem draggedItem) {
@@ -392,24 +422,33 @@ class EcoQuestGame extends FlameGame {
     }
     selectedItem = null;
   }
-  
+    
   Future<void> _swapItems(EcoItem item1, EcoItem item2) async {
     isProcessing = true;
+    
+    // FIXED: Get current center positions
     final pos1 = item1.position.clone();
     final pos2 = item2.position.clone();
+    
+    // Animate swap
     item1.add(MoveToEffect(pos2, EffectController(duration: 0.15)));
     item2.add(MoveToEffect(pos1, EffectController(duration: 0.15)));
     await Future.delayed(const Duration(milliseconds: 160));
+    
+    // Update grid positions
     Point p1 = item1.gridPosition;
     Point p2 = item2.gridPosition;
     gridItems[p1.x as int][p1.y as int] = item2;
     gridItems[p2.x as int][p2.y as int] = item1;
     item1.gridPosition = p2;
     item2.gridPosition = p1;
+    
+    // Check for matches
     List<EcoItem> matches = _findMatches();
     if (matches.isNotEmpty) {
       await _processMatches(matches);
     } else {
+      // Swap back if no matches
       item1.add(MoveToEffect(pos1, EffectController(duration: 0.15)));
       item2.add(MoveToEffect(pos2, EffectController(duration: 0.15)));
       await Future.delayed(const Duration(milliseconds: 160));
@@ -535,8 +574,15 @@ class EcoQuestGame extends FlameGame {
             gridItems[r + fallDist][c] = item;
             gridItems[r][c] = null;
             item.gridPosition = Point(r + fallDist, c);
-            item.add(MoveToEffect(Vector2(startX + c * tileSize, startY + (r + fallDist) * tileSize),
-              EffectController(duration: 0.15 * fallDist)));
+            
+            // FIXED: Move to center of destination tile
+            final centerX = startX + (c * tileSize) + (tileSize / 2);
+            final centerY = startY + ((r + fallDist) * tileSize) + (tileSize / 2);
+            
+            item.add(MoveToEffect(
+              Vector2(centerX, centerY),
+              EffectController(duration: 0.15 * fallDist)
+            ));
           }
         }
       }
@@ -581,6 +627,7 @@ class EcoQuestGame extends FlameGame {
   Future<void> _shuffleBoard() async {
     isProcessing = true;
     List<EcoItem> allItems = gridItems.expand((list) => list).whereType<EcoItem>().toList();
+    
     do {
       allItems.shuffle();
       int index = 0;
@@ -592,11 +639,21 @@ class EcoQuestGame extends FlameGame {
         }
       }
     } while (!_hasPossibleMoves() || _findMatches().isNotEmpty);
+    
+    // FIXED: Animate to center positions
     for (var item in allItems) {
-      int r = item.gridPosition.x as int, c = item.gridPosition.y as int;
-      item.add(MoveToEffect(Vector2(startX + c * tileSize, startY + r * tileSize),
-        EffectController(duration: 0.5, curve: Curves.easeInOut)));
+      int r = item.gridPosition.x as int;
+      int c = item.gridPosition.y as int;
+      
+      final centerX = startX + (c * tileSize) + (tileSize / 2);
+      final centerY = startY + (r * tileSize) + (tileSize / 2);
+      
+      item.add(MoveToEffect(
+        Vector2(centerX, centerY),
+        EffectController(duration: 0.5, curve: Curves.easeInOut)
+      ));
     }
+    
     await Future.delayed(const Duration(milliseconds: 550));
     isProcessing = false;
   }

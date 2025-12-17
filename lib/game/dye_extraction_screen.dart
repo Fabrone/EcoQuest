@@ -75,10 +75,10 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     // Calculate material quality based on time remaining
     int timeRemaining = widget.levelTimeRemaining;
     
-    if (timeRemaining > 140) {
+    if (timeRemaining > 100) {
       materialQuality = 'Fresh';
       qualityMultiplier = 1.5;
-    } else if (timeRemaining > 70) {
+    } else if (timeRemaining > 30) {
       materialQuality = 'Good';
       qualityMultiplier = 1.0;
     } else {

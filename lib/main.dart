@@ -240,22 +240,21 @@ class _GameScreenState extends State<GameScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // CHANGED: Better spacing calculations
+        // FIXED: Better spacing calculations for 6 items
         final availableHeight = constraints.maxHeight;
         final headerHeight = availableHeight * 0.08;
-        final totalHeight = availableHeight * 0.10; // Reduced from 0.12
-        final padding = availableHeight * 0.015; // Reduced from 0.02
+        final topPadding = availableHeight * 0.01;
+        final bottomPadding = availableHeight * 0.01;
         
-        // CHANGED: Calculate space for items more precisely
-        final itemsHeight = availableHeight - headerHeight - totalHeight - (padding * 4);
-        final itemHeight = (itemsHeight / materials.length) * 0.95; // 95% to ensure spacing
+        // FIXED: Calculate space for 6 items (5 materials + 1 total) with proper distribution
+        final contentHeight = availableHeight - headerHeight - topPadding - bottomPadding;
+        final itemHeight = contentHeight / 6; // Divide equally among 6 items
+        final itemSpacing = itemHeight * 0.05; // Small spacing between items
         
         // Responsive font sizes
         final titleFontSize = (constraints.maxWidth * 0.11).clamp(10.0, 16.0);
         final labelFontSize = (constraints.maxWidth * 0.08).clamp(8.0, 11.0);
         final countFontSize = (constraints.maxWidth * 0.13).clamp(14.0, 20.0);
-        final totalLabelFontSize = (constraints.maxWidth * 0.08).clamp(8.0, 12.0);
-        final totalCountFontSize = (constraints.maxWidth * 0.14).clamp(16.0, 24.0);
         final emojiSize = (constraints.maxWidth * 0.16).clamp(14.0, 24.0);
         
         return Container(
@@ -318,96 +317,52 @@ class _GameScreenState extends State<GameScreen> {
                 ),
               ),
               
-              SizedBox(height: padding * 0.5), // CHANGED: Reduced spacing after header
+              SizedBox(height: topPadding),
               
-              // Materials list - takes remaining space
+              // FIXED: Materials list + Total in a Column (not ListView)
               Expanded(
                 child: Padding(
                   padding: EdgeInsets.symmetric(
                     horizontal: constraints.maxWidth * 0.04,
                   ),
-                  child: ListView.separated(
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: materials.length,
-                    separatorBuilder: (context, index) => SizedBox(height: padding * 0.3), // CHANGED: Reduced separator
-                    itemBuilder: (context, index) {
-                      final material = materials[index];
-                      return _buildMaterialItem(
-                        emoji: material['emoji'] as String,
-                        label: material['label'] as String,
-                        type: material['type'] as String,
-                        color: material['color'] as Color,
-                        itemHeight: itemHeight,
-                        labelFontSize: labelFontSize,
-                        countFontSize: countFontSize,
-                        emojiSize: emojiSize,
-                        availableWidth: constraints.maxWidth,
-                      );
-                    },
-                  ),
-                ),
-              ),
-              
-              SizedBox(height: padding * 0.5), // CHANGED: Reduced spacing before total
-              
-              // Total materials counter
-              Container(
-                height: totalHeight,
-                margin: EdgeInsets.only(
-                  left: constraints.maxWidth * 0.04,
-                  right: constraints.maxWidth * 0.04,
-                  bottom: padding * 0.8, // CHANGED: Reduced bottom margin
-                ),
-                padding: EdgeInsets.symmetric(
-                  horizontal: constraints.maxWidth * 0.06,
-                  vertical: totalHeight * 0.15, // CHANGED: Added vertical padding for better fit
-                ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFF2E7D32).withValues(alpha: 0.8),
-                      const Color(0xFF1B5E20).withValues(alpha: 0.9),
+                  child: Column(
+                    children: [
+                      // 5 Material items
+                      ...materials.map((material) => Padding(
+                        padding: EdgeInsets.only(bottom: itemSpacing),
+                        child: SizedBox(
+                          height: itemHeight - itemSpacing,
+                          child: _buildMaterialItem(
+                            emoji: material['emoji'] as String,
+                            label: material['label'] as String,
+                            type: material['type'] as String,
+                            color: material['color'] as Color,
+                            itemHeight: itemHeight - itemSpacing,
+                            labelFontSize: labelFontSize,
+                            countFontSize: countFontSize,
+                            emojiSize: emojiSize,
+                            availableWidth: constraints.maxWidth,
+                          ),
+                        ),
+                      )),
+                      
+                      // Total item
+                      SizedBox(
+                        height: itemHeight - itemSpacing,
+                        child: _buildTotalMaterialItem(
+                          itemHeight: itemHeight - itemSpacing,
+                          labelFontSize: labelFontSize,
+                          countFontSize: countFontSize,
+                          emojiSize: emojiSize,
+                          availableWidth: constraints.maxWidth,
+                        ),
+                      ),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: const Color(0xFFD4AF37).withValues(alpha: 0.5),
-                    width: 1.5,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Flexible(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          'TOTAL',
-                          style: GoogleFonts.exo2(
-                            fontSize: totalLabelFontSize,
-                            color: Colors.white70,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Flexible(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          '${game.getTotalMaterialsCollected()}',
-                          style: GoogleFonts.exo2(
-                            fontSize: totalCountFontSize,
-                            color: const Color(0xFFD4AF37),
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
               ),
+              
+              SizedBox(height: bottomPadding),
             ],
           ),
         );
@@ -509,6 +464,111 @@ class _GameScreenState extends State<GameScreen> {
                           style: GoogleFonts.exo2(
                             fontSize: countFontSize,
                             color: color,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTotalMaterialItem({
+    required double itemHeight,
+    required double labelFontSize,
+    required double countFontSize,
+    required double emojiSize,
+    required double availableWidth,
+  }) {
+    return StatefulBuilder(
+      builder: (context, setState) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {});
+          }
+        });
+        
+        return Container(
+          height: itemHeight,
+          padding: EdgeInsets.symmetric(
+            vertical: itemHeight * 0.08,
+            horizontal: availableWidth * 0.05,
+          ),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                const Color(0xFF2E7D32).withValues(alpha: 0.7),
+                const Color(0xFF1B5E20).withValues(alpha: 0.8),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: const Color(0xFFD4AF37).withValues(alpha: 0.6),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 3,
+                offset: const Offset(1, 1),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              // Icon
+              SizedBox(
+                width: emojiSize,
+                height: emojiSize,
+                child: Center(
+                  child: Icon(
+                    Icons.inventory_2,
+                    size: emojiSize * 0.9,
+                    color: const Color(0xFFD4AF37),
+                  ),
+                ),
+              ),
+              SizedBox(width: availableWidth * 0.03),
+              
+              // Label and count
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Flexible(
+                      flex: 6,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'TOTAL',
+                          style: GoogleFonts.exo2(
+                            fontSize: labelFontSize,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Flexible(
+                      flex: 4,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          '${game.getTotalMaterialsCollected()}',
+                          style: GoogleFonts.exo2(
+                            fontSize: countFontSize,
+                            color: const Color(0xFFD4AF37),
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -814,28 +874,12 @@ class _GameScreenState extends State<GameScreen> {
   Widget _buildStyledGameBoard() {
     return Container(
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF5D4E37),
-            Color(0xFF8B7355),
-            Color(0xFF5D4E37),
-          ],
-        ),
+        // REMOVED: gradient background
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: const Color(0xFFD4AF37),
-          width: 6.0,
-        ),
+        // REMOVED: Golden border
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFD4AF37).withValues(alpha: 0.2),
-            blurRadius: 30,
-            spreadRadius: 4,
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.6),
+            color: Colors.black.withValues(alpha: 0.4),
             blurRadius: 16,
             offset: const Offset(0, 8),
           ),
@@ -843,30 +887,18 @@ class _GameScreenState extends State<GameScreen> {
       ),
       child: Stack(
         children: [
-          // REMOVED: Inner margin container that created the yellow-like border
+          // REMOVED: Corner ornaments
           
-          ..._buildCornerOrnaments(),
-          
-          // CHANGED: Reduced padding for larger board
+          // Minimal padding, direct game rendering
           Padding(
-            padding: const EdgeInsets.all(8), // Reduced from 16
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2D1E17).withValues(alpha: 0.3),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.5),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                      spreadRadius: -2,
-                    ),
-                  ],
-                ),
-                child: GameWidget(
-                  game: game,
-                ),
+            padding: const EdgeInsets.all(8), // Reduced padding
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF2D1E17).withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: GameWidget(
+                game: game,
               ),
             ),
           ),
@@ -875,7 +907,7 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  List<Widget> _buildCornerOrnaments() {
+  /*List<Widget> _buildCornerOrnaments() {
     return [
       // Top-left
       Positioned(
@@ -938,7 +970,7 @@ class _GameScreenState extends State<GameScreen> {
         size: 18,
       ),
     );
-  }
+  }*/
 
   Widget _buildMaterialChip(String emoji, int count, double scale) {
     return Container(

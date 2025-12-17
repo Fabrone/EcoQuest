@@ -172,12 +172,11 @@ class TileBackground extends PositionComponent with HasGameReference<EcoQuestGam
   }
 }
 
-// EcoItem component remains the same
 class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQuestGame> {
   final String type;
   Point gridPosition = const Point(0, 0);
   bool isSelected = false;
-  final double sizeVal;
+  double sizeVal; // Make this mutable for resizing
   
   double _glowAnimation = 0.0;
 
@@ -187,6 +186,14 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
   Future<void> onLoad() async {
     try {
       sprite = await game.loadSprite('$type.png');
+      
+      // FIXED: Scale sprite to 80% of tile size for better fit
+      final spriteScale = 0.80;
+      size = Vector2.all(sizeVal * spriteScale);
+      
+      // FIXED: Center sprite within tile - anchor at center
+      anchor = Anchor.center;
+      
     } catch (e) {
       debugPrint("❌ Failed to load image for $type: $e");
     }
@@ -195,6 +202,12 @@ class EcoItem extends SpriteComponent with DragCallbacks, HasGameReference<EcoQu
   @override
   void update(double dt) {
     super.update(dt);
+    
+    // ADDED: Update size if sizeVal changes (for responsive resizing)
+    final expectedSize = sizeVal * 0.80;
+    if ((size.x - expectedSize).abs() > 0.1) {
+      size = Vector2.all(expectedSize);
+    }
     
     if (isSelected) {
       _glowAnimation += dt * 3;
