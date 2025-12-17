@@ -55,8 +55,6 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
   
   // Crushing mini-game
   int tapCount = 0;
-  Timer? crushingTimer;
-  int crushingTimeLeft = 10;
   
   // Filtering mini-game
   double filterPosition = 0.0;
@@ -128,7 +126,6 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     _crushingController.dispose();
     _bubbleController.dispose();
     temperatureTimer?.cancel();
-    crushingTimer?.cancel();
     filteringTimer?.cancel();
     super.dispose();
   }
@@ -193,17 +190,6 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     setState(() {
       currentPhase = 2;
       tapCount = 0;
-      crushingTimeLeft = 10;
-    });
-    
-    crushingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        crushingTimeLeft--;
-        if (crushingTimeLeft <= 0) {
-          timer.cancel();
-          _calculateCrushingScore();
-        }
-      });
     });
   }
 
@@ -211,6 +197,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     setState(() {
       tapCount++;
       _crushingController.forward(from: 0);
+      
+      // Check if crushing is complete (100%)
+      double crushingProgress = (tapCount / 80.0 * 100).clamp(0.0, 100.0);
+      if (crushingProgress >= 100.0) {
+        _calculateCrushingScore();
+      }
     });
   }
 
@@ -1393,20 +1385,16 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                               color: Colors.blue,
                             ),
                             _buildCrushingStat(
-                              icon: Icons.timer,
-                              label: 'Time',
-                              value: '${crushingTimeLeft}s',
-                              color: crushingTimeLeft <= 3 
-                                  ? Colors.red 
-                                  : Colors.amber,
-                            ),
-                            _buildCrushingStat(
                               icon: Icons.speed,
                               label: 'Rate',
-                              value: crushingTimeLeft < 10 
-                                  ? '${(tapCount / (10 - crushingTimeLeft)).toStringAsFixed(1)}/s'
-                                  : '0.0/s',
+                              value: '${(tapCount / 80 * 100).toStringAsFixed(0)}%',
                               color: Colors.green,
+                            ),
+                            _buildCrushingStat(
+                              icon: Icons.flag,
+                              label: 'Goal',
+                              value: '100%',
+                              color: Colors.amber,
                             ),
                           ],
                         ),
