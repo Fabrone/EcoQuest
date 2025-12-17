@@ -7,10 +7,10 @@ import 'package:google_fonts/google_fonts.dart';
 
 class DyeExtractionScreen extends StatefulWidget {
   final EcoQuestGame game;
-  final int levelTimeRemaining; // Pass this from game
-  
+  final int levelTimeRemaining;
+
   const DyeExtractionScreen({
-    super.key, 
+    super.key,
     required this.game,
     this.levelTimeRemaining = 100,
   });
@@ -19,43 +19,49 @@ class DyeExtractionScreen extends StatefulWidget {
   State<DyeExtractionScreen> createState() => _DyeExtractionScreenState();
 }
 
-class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerProviderStateMixin {
+class _DyeExtractionScreenState extends State<DyeExtractionScreen>
+    with TickerProviderStateMixin {
   // Material Quality System
   String materialQuality = 'Good';
   double qualityMultiplier = 1.0;
   Map<String, int> materials = {};
   Map<String, String> materialQualities = {};
-  
+
   // Workshop State
-  int currentPhase = 0; // 0=Transition, 1=Workshop, 2=Crushing, 3=Temperature, 4=Filtering, 5=Complete
+  int currentPhase =
+      0; // 0=Transition, 1=Workshop, 2=Crushing, 3=Temperature, 4=Filtering, 5=Complete
   String? selectedRecipe;
   List<String> selectedMaterials = [];
-  
+
   // Mini-game scores
   double crushingEfficiency = 1.0;
   double temperatureMaintained = 1.0;
   double filteringPurity = 1.0;
-  
+
   // Final results
   int dyeProduced = 0;
   int ecoCoinsEarned = 0;
   Color dyeColor = Colors.green;
   String dyeType = '';
-  
+
   // Animation controllers
   late AnimationController _transitionController;
   late AnimationController _crushingController;
   late AnimationController _bubbleController;
-  
-  // Temperature mini-game
+
+  // Temperature mini-game - UPDATED
   double temperature = 70.0;
   double temperatureTarget = 70.0;
   Timer? temperatureTimer;
-  int temperatureTimeCorrect = 0;
-  
+  double heatingProgress = 0.0; // Progress towards completion (0.0 to 100.0)
+  double damageAccumulated = 0.0; // Damage from overheating
+  int timeInOptimalZone = 0; // Deciseconds in optimal zone
+  int timeInDangerZone = 0; // Deciseconds in danger zone
+  bool heatingComplete = false;
+
   // Crushing mini-game
   int tapCount = 0;
-  
+
   // Filtering mini-game
   double filterPosition = 0.0;
   int swipeCount = 0;
@@ -71,7 +77,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
 
   void _initializeMaterials() {
     int timeRemaining = widget.levelTimeRemaining;
-    
+
     if (timeRemaining >= 100) {
       // Excellent quality - completed very quickly (100+ seconds remaining)
       materialQuality = 'Premium Harvest';
@@ -85,10 +91,10 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
       materialQuality = 'Basic Harvest';
       qualityMultiplier = 1.0; // No bonus
     }
-    
+
     // Get actual materials from game
     Map<String, int> gameMaterials = widget.game.getMaterialsCollected();
-    
+
     materials = {
       '🍃 Leaves': gameMaterials['leaf'] ?? 0,
       '🪵 Bark': gameMaterials['bark'] ?? 0,
@@ -96,7 +102,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
       '🌺 Flowers': gameMaterials['flower'] ?? 0,
       '🫐 Fruits': gameMaterials['fruit'] ?? 0,
     };
-    
+
     // Assign qualities to all materials
     materials.forEach((key, value) {
       materialQualities[key] = materialQuality;
@@ -108,12 +114,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
       vsync: this,
       duration: const Duration(milliseconds: 800),
     )..forward();
-    
+
     _crushingController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    
+
     _bubbleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
@@ -180,13 +186,13 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
 
   void _startCrushing() {
     if (selectedRecipe == null) return;
-    
+
     // Deduct materials
     Map<String, int> required = _getRecipeRequirements(selectedRecipe!);
     required.forEach((key, value) {
       materials[key] = (materials[key] ?? 0) - value;
     });
-    
+
     setState(() {
       currentPhase = 2;
       tapCount = 0;
@@ -197,7 +203,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     setState(() {
       tapCount++;
       _crushingController.forward(from: 0);
-      
+
       // Check if crushing is complete (100%)
       double crushingProgress = (tapCount / 80.0 * 100).clamp(0.0, 100.0);
       if (crushingProgress >= 100.0) {
@@ -208,7 +214,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
 
   void _calculateCrushingScore() {
     double crushingProgress = (tapCount / 80.0 * 100).clamp(0.0, 100.0);
-    
+
     if (crushingProgress >= 90) {
       crushingEfficiency = 1.3; // +30% bonus for perfect crushing
     } else if (crushingProgress >= 70) {
@@ -218,33 +224,78 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     } else {
       crushingEfficiency = 0.85; // -15% penalty for poor crushing
     }
-    
+
     setState(() {
       currentPhase = 3;
       temperature = 70.0;
-      temperatureTimeCorrect = 0;
     });
-    
+
     _startTemperatureGame();
   }
 
   void _startTemperatureGame() {
-    temperatureTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+    setState(() {
+      heatingProgress = 0.0;
+      damageAccumulated = 0.0;
+      timeInOptimalZone = 0;
+      timeInDangerZone = 0;
+      heatingComplete = false;
+    });
+
+    temperatureTimer = Timer.periodic(const Duration(milliseconds: 100), (
+      timer,
+    ) {
       setState(() {
-        // Random temperature drift
-        temperature += (math.Random().nextDouble() - 0.5) * 2;
+        // Natural temperature drift (simulating heat loss/gain)
+        temperature += (math.Random().nextDouble() - 0.5) * 1.5;
         temperature = temperature.clamp(40.0, 100.0);
-        
-        // Check if in optimal zone (60-80°C)
+
+        // OPTIMAL ZONE: 60-80°C (Fast heating progress)
         if (temperature >= 60 && temperature <= 80) {
-          temperatureTimeCorrect++;
+          timeInOptimalZone++;
+          heatingProgress += 0.8; // Fast progress in optimal zone
+          timeInDangerZone = 0; // Reset danger counter
+        }
+        // ACCEPTABLE ZONE: 50-60°C or 80-85°C (Slow heating progress)
+        else if ((temperature >= 50 && temperature < 60) ||
+            (temperature > 80 && temperature <= 85)) {
+          heatingProgress += 0.3; // Slower progress
+          timeInDangerZone = 0;
+        }
+        // DANGER ZONE: 85-95°C (Very slow progress + damage accumulation)
+        else if (temperature > 85 && temperature <= 95) {
+          heatingProgress += 0.1; // Very slow progress
+          timeInDangerZone++;
+
+          // Accumulate damage gradually in danger zone
+          if (timeInDangerZone > 10) {
+            // After 1 second in danger zone
+            damageAccumulated += 0.15; // Gradual damage
+          }
+        }
+        // CRITICAL ZONE: 95-100°C (Rapid damage, minimal progress)
+        else if (temperature > 95) {
+          heatingProgress += 0.05; // Minimal progress
+          timeInDangerZone++;
+          damageAccumulated += 0.5; // Rapid damage accumulation
+        }
+        // TOO COLD ZONE: Below 50°C (No progress)
+        else {
+          // No progress, but no damage either
+          timeInDangerZone = 0;
+        }
+
+        // Clamp values
+        heatingProgress = heatingProgress.clamp(0.0, 100.0);
+        damageAccumulated = damageAccumulated.clamp(0.0, 100.0);
+
+        // Check if heating is complete
+        if (heatingProgress >= 100.0 && !heatingComplete) {
+          heatingComplete = true;
+          timer.cancel();
+          _calculateTemperatureScore();
         }
       });
-      
-      if (temperatureTimeCorrect >= 150) { // 15 seconds
-        timer.cancel();
-        _calculateTemperatureScore();
-      }
     });
   }
 
@@ -255,16 +306,26 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
   }
 
   void _calculateTemperatureScore() {
-    // If maintained for full time
-    temperatureMaintained = 1.0;
-    
+    // Calculate temperature maintenance quality based on damage
+    if (damageAccumulated <= 5) {
+      temperatureMaintained = 1.2; // Perfect heating: +20% bonus
+    } else if (damageAccumulated <= 15) {
+      temperatureMaintained = 1.0; // Good heating: standard yield
+    } else if (damageAccumulated <= 30) {
+      temperatureMaintained = 0.85; // Fair heating: -15% penalty
+    } else if (damageAccumulated <= 50) {
+      temperatureMaintained = 0.7; // Poor heating: -30% penalty
+    } else {
+      temperatureMaintained = 0.5; // Critical damage: -50% penalty
+    }
+
     setState(() {
       currentPhase = 4;
       swipeCount = 0;
       filteringTimeLeft = 15;
       filterPosition = 0.0;
     });
-    
+
     _startFilteringGame();
   }
 
@@ -298,24 +359,25 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
   void _calculateFinalResults() {
     // Base yield from recipe
     int baseYield = 8; // ml per recipe
-    
+
     // Apply all multipliers
-    double finalYield = baseYield * 
-                       qualityMultiplier * 
-                       crushingEfficiency * 
-                       temperatureMaintained * 
-                       filteringPurity;
-    
+    double finalYield =
+        baseYield *
+        qualityMultiplier *
+        crushingEfficiency *
+        temperatureMaintained *
+        filteringPurity;
+
     dyeProduced = finalYield.round();
-    
+
     // Calculate EcoCoins (base 5 per ml)
     ecoCoinsEarned = (dyeProduced * 5).toInt();
-    
+
     // Bonus for high performance
     if (crushingEfficiency > 1.1 && filteringPurity > 0.9) {
       ecoCoinsEarned = (ecoCoinsEarned * 1.3).toInt();
     }
-    
+
     setState(() {
       currentPhase = 5;
     });
@@ -325,9 +387,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF1B3A1B),
-      body: SafeArea(
-        child: _buildCurrentPhase(),
-      ),
+      body: SafeArea(child: _buildCurrentPhase()),
     );
   }
 
@@ -360,7 +420,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     } else {
       qualityColor = Colors.orange;
     }
-    
+
     return FadeTransition(
       opacity: _transitionController,
       child: SafeArea(
@@ -404,33 +464,35 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                         ),
                       ),
                       const SizedBox(height: 16),
-                      ...materials.entries.map((entry) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                '${entry.key}:',
-                                style: GoogleFonts.vt323(
-                                  fontSize: 20,
-                                  color: Colors.white70,
+                      ...materials.entries.map(
+                        (entry) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  '${entry.key}:',
+                                  style: GoogleFonts.vt323(
+                                    fontSize: 20,
+                                    color: Colors.white70,
+                                  ),
                                 ),
                               ),
-                            ),
-                            Text(
-                              '${entry.value}',
-                              style: GoogleFonts.vt323(
-                                fontSize: 20,
-                                color: qualityColor,
-                                fontWeight: FontWeight.bold,
+                              Text(
+                                '${entry.value}',
+                                style: GoogleFonts.vt323(
+                                  fontSize: 20,
+                                  color: qualityColor,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      )),
+                      ),
                       const SizedBox(height: 20),
-                      
+
                       // UPDATED: Better quality display with detailed info
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -444,18 +506,19 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                             Row(
                               children: [
                                 Icon(
-                                  materialQuality == 'Premium Harvest' 
-                                      ? Icons.stars 
+                                  materialQuality == 'Premium Harvest'
+                                      ? Icons.stars
                                       : materialQuality == 'Quality Harvest'
-                                          ? Icons.star
-                                          : Icons.eco,
-                                  color: qualityColor, 
+                                      ? Icons.star
+                                      : Icons.eco,
+                                  color: qualityColor,
                                   size: 28,
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         materialQuality.toUpperCase(),
@@ -480,7 +543,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                             const SizedBox(height: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 12, 
+                                horizontal: 12,
                                 vertical: 6,
                               ),
                               decoration: BoxDecoration(
@@ -491,8 +554,8 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(
-                                    Icons.trending_up, 
-                                    color: qualityColor, 
+                                    Icons.trending_up,
+                                    color: qualityColor,
                                     size: 20,
                                   ),
                                   const SizedBox(width: 8),
@@ -524,7 +587,10 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.amber,
                     foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 16,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -569,7 +635,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                 ),
               ),
               const SizedBox(height: 20),
-              
+
               // Materials Inventory
               Container(
                 padding: const EdgeInsets.all(16),
@@ -591,37 +657,39 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                       ),
                     ),
                     const Divider(color: Colors.green),
-                    ...materials.entries.map((entry) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              entry.key,
-                              style: GoogleFonts.vt323(
-                                fontSize: 18,
-                                color: Colors.white70,
+                    ...materials.entries.map(
+                      (entry) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                entry.key,
+                                style: GoogleFonts.vt323(
+                                  fontSize: 18,
+                                  color: Colors.white70,
+                                ),
                               ),
                             ),
-                          ),
-                          Text(
-                            '${entry.value}',
-                            style: GoogleFonts.vt323(
-                              fontSize: 18,
-                              color: Colors.amber,
-                              fontWeight: FontWeight.bold,
+                            Text(
+                              '${entry.value}',
+                              style: GoogleFonts.vt323(
+                                fontSize: 18,
+                                color: Colors.amber,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    )),
+                    ),
                   ],
                 ),
               ),
-              
+
               const SizedBox(height: 20),
-              
+
               // Recipe Book
               Container(
                 padding: const EdgeInsets.all(16),
@@ -643,7 +711,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                       ),
                     ),
                     const Divider(color: Colors.amber),
-                    
+
                     // Basic Dyes
                     Text(
                       'BASIC DYES:',
@@ -653,14 +721,39 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    _buildRecipeButton('Green Dye', '10 Leaves', Colors.green, _canCraftRecipe('Green Dye')),
-                    _buildRecipeButton('Brown Dye', '10 Bark', Colors.brown, _canCraftRecipe('Brown Dye')),
-                    _buildRecipeButton('Yellow Dye', '10 Roots', Colors.yellow, _canCraftRecipe('Yellow Dye')),
-                    _buildRecipeButton('Red Dye', '10 Flowers', Colors.red, _canCraftRecipe('Red Dye')),
-                    _buildRecipeButton('Purple Dye', '10 Fruits', Colors.purple, _canCraftRecipe('Purple Dye')),
-                    
+                    _buildRecipeButton(
+                      'Green Dye',
+                      '10 Leaves',
+                      Colors.green,
+                      _canCraftRecipe('Green Dye'),
+                    ),
+                    _buildRecipeButton(
+                      'Brown Dye',
+                      '10 Bark',
+                      Colors.brown,
+                      _canCraftRecipe('Brown Dye'),
+                    ),
+                    _buildRecipeButton(
+                      'Yellow Dye',
+                      '10 Roots',
+                      Colors.yellow,
+                      _canCraftRecipe('Yellow Dye'),
+                    ),
+                    _buildRecipeButton(
+                      'Red Dye',
+                      '10 Flowers',
+                      Colors.red,
+                      _canCraftRecipe('Red Dye'),
+                    ),
+                    _buildRecipeButton(
+                      'Purple Dye',
+                      '10 Fruits',
+                      Colors.purple,
+                      _canCraftRecipe('Purple Dye'),
+                    ),
+
                     const SizedBox(height: 12),
-                    
+
                     // Mixed Dyes
                     Text(
                       'MIXED DYES:',
@@ -670,15 +763,30 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    _buildRecipeButton('Blue Dye', '5 Leaves + 5 Fruits', Colors.blue, _canCraftRecipe('Blue Dye')),
-                    _buildRecipeButton('Orange Dye', '5 Roots + 5 Flowers', Colors.orange, _canCraftRecipe('Orange Dye')),
-                    _buildRecipeButton('Teal Dye', '5 Leaves + 5 Bark', Colors.teal, _canCraftRecipe('Teal Dye')),
+                    _buildRecipeButton(
+                      'Blue Dye',
+                      '5 Leaves + 5 Fruits',
+                      Colors.blue,
+                      _canCraftRecipe('Blue Dye'),
+                    ),
+                    _buildRecipeButton(
+                      'Orange Dye',
+                      '5 Roots + 5 Flowers',
+                      Colors.orange,
+                      _canCraftRecipe('Orange Dye'),
+                    ),
+                    _buildRecipeButton(
+                      'Teal Dye',
+                      '5 Leaves + 5 Bark',
+                      Colors.teal,
+                      _canCraftRecipe('Teal Dye'),
+                    ),
                   ],
                 ),
               ),
-              
+
               const SizedBox(height: 20),
-              
+
               if (selectedRecipe != null)
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -717,7 +825,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                     ],
                   ),
                 ),
-              
+
               // Extra padding at bottom
               const SizedBox(height: 40),
             ],
@@ -727,7 +835,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     );
   }
 
-  Widget _buildRecipeButton(String name, String requirements, Color color, bool canCraft) {
+  Widget _buildRecipeButton(
+    String name,
+    String requirements,
+    Color color,
+    bool canCraft,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
@@ -735,12 +848,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: canCraft 
+            color: canCraft
                 ? color.withValues(alpha: 0.2)
                 : Colors.grey.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: selectedRecipe == name 
+              color: selectedRecipe == name
                   ? Colors.amber
                   : (canCraft ? color : Colors.grey),
               width: selectedRecipe == name ? 3 : 1,
@@ -791,7 +904,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
   Widget _buildCrushingGame() {
     // Calculate crushing progress (0-100%)
     double crushingProgress = (tapCount / 80.0 * 100).clamp(0.0, 100.0);
-    
+
     // Determine crushing quality based on progress
     String crushingQuality;
     Color qualityColor;
@@ -808,12 +921,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
       crushingQuality = 'COARSELY CRUSHED';
       qualityColor = Colors.red;
     }
-    
+
     // Dynamic particle system based on crushing progress
     double particleSize = math.max(8.0, 40 - (crushingProgress * 0.32));
     int particleCount = math.min(20, 5 + (crushingProgress / 5).floor());
     double dustOpacity = math.min(0.6, crushingProgress / 150);
-    
+
     return SafeArea(
       child: Container(
         color: const Color(0xFF1B3A1B),
@@ -821,9 +934,10 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
           physics: const BouncingScrollPhysics(),
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              minHeight: MediaQuery.of(context).size.height - 
-                        MediaQuery.of(context).padding.top - 
-                        MediaQuery.of(context).padding.bottom,
+              minHeight:
+                  MediaQuery.of(context).size.height -
+                  MediaQuery.of(context).padding.top -
+                  MediaQuery.of(context).padding.bottom,
             ),
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -848,9 +962,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                       color: Colors.white70,
                     ),
                   ),
-                  
+
                   const SizedBox(height: 30),
-                  
+
                   // Enhanced Mortar & Pestle Scene
                   GestureDetector(
                     onTapDown: (_) => _onCrushTap(),
@@ -880,7 +994,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                               ),
                             ),
                           ),
-                          
+
                           // Main mortar bowl - outer rim
                           Positioned(
                             bottom: 20,
@@ -917,7 +1031,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                               ),
                             ),
                           ),
-                          
+
                           // Inner mortar bowl with materials
                           Positioned(
                             bottom: 40,
@@ -945,15 +1059,21 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                     if (crushingProgress > 20)
                                       Positioned.fill(
                                         child: AnimatedOpacity(
-                                          duration: const Duration(milliseconds: 300),
+                                          duration: const Duration(
+                                            milliseconds: 300,
+                                          ),
                                           opacity: dustOpacity,
                                           child: Container(
                                             decoration: BoxDecoration(
                                               shape: BoxShape.circle,
                                               gradient: RadialGradient(
                                                 colors: [
-                                                  dyeColor.withValues(alpha: 0.3),
-                                                  dyeColor.withValues(alpha: 0.1),
+                                                  dyeColor.withValues(
+                                                    alpha: 0.3,
+                                                  ),
+                                                  dyeColor.withValues(
+                                                    alpha: 0.1,
+                                                  ),
                                                   Colors.transparent,
                                                 ],
                                                 stops: const [0.0, 0.5, 1.0],
@@ -962,41 +1082,58 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                           ),
                                         ),
                                       ),
-                                    
+
                                     // Scattered material particles
                                     ...List.generate(particleCount, (index) {
                                       // Create consistent random positions using index as seed
                                       final random = math.Random(index);
-                                      double angle = (index / particleCount) * 2 * math.pi + (random.nextDouble() * 0.5);
-                                      double radius = 20 + (random.nextDouble() * 65);
+                                      double angle =
+                                          (index / particleCount) *
+                                              2 *
+                                              math.pi +
+                                          (random.nextDouble() * 0.5);
+                                      double radius =
+                                          20 + (random.nextDouble() * 65);
                                       double xPos = math.cos(angle) * radius;
                                       double yPos = math.sin(angle) * radius;
-                                      
+
                                       // Particle rotation for more natural look
-                                      double rotation = random.nextDouble() * math.pi;
-                                      
+                                      double rotation =
+                                          random.nextDouble() * math.pi;
+
                                       return AnimatedPositioned(
-                                        duration: const Duration(milliseconds: 400),
+                                        duration: const Duration(
+                                          milliseconds: 400,
+                                        ),
                                         curve: Curves.easeOutCubic,
                                         left: 120 + xPos - (particleSize / 2),
                                         top: 120 + yPos - (particleSize / 2),
                                         child: Transform.rotate(
                                           angle: rotation,
                                           child: AnimatedContainer(
-                                            duration: const Duration(milliseconds: 400),
+                                            duration: const Duration(
+                                              milliseconds: 400,
+                                            ),
                                             width: particleSize,
                                             height: particleSize,
                                             decoration: BoxDecoration(
                                               color: dyeColor.withValues(
-                                                alpha: 0.7 + (crushingProgress / 333)
+                                                alpha:
+                                                    0.7 +
+                                                    (crushingProgress / 333),
                                               ),
                                               borderRadius: BorderRadius.circular(
                                                 // Becomes more rounded/powder-like as crushing progresses
-                                                particleSize * (0.2 + (crushingProgress / 200))
+                                                particleSize *
+                                                    (0.2 +
+                                                        (crushingProgress /
+                                                            200)),
                                               ),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: dyeColor.withValues(alpha: 0.3),
+                                                  color: dyeColor.withValues(
+                                                    alpha: 0.3,
+                                                  ),
                                                   blurRadius: 3,
                                                   spreadRadius: 0.5,
                                                 ),
@@ -1006,31 +1143,40 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                         ),
                                       );
                                     }),
-                                    
+
                                     // Fine dust particles (appear at higher progress)
                                     if (crushingProgress > 40)
                                       ...List.generate(12, (index) {
                                         final random = math.Random(index + 100);
-                                        double angle = (index / 12) * 2 * math.pi + (random.nextDouble() * 0.8);
-                                        double radius = 30 + (random.nextDouble() * 50);
+                                        double angle =
+                                            (index / 12) * 2 * math.pi +
+                                            (random.nextDouble() * 0.8);
+                                        double radius =
+                                            30 + (random.nextDouble() * 50);
                                         double xPos = math.cos(angle) * radius;
                                         double yPos = math.sin(angle) * radius;
-                                        
+
                                         return Positioned(
                                           left: 120 + xPos - 3,
                                           top: 120 + yPos - 3,
                                           child: AnimatedOpacity(
-                                            duration: const Duration(milliseconds: 500),
+                                            duration: const Duration(
+                                              milliseconds: 500,
+                                            ),
                                             opacity: dustOpacity * 0.8,
                                             child: Container(
                                               width: 6,
                                               height: 6,
                                               decoration: BoxDecoration(
                                                 shape: BoxShape.circle,
-                                                color: dyeColor.withValues(alpha: 0.5),
+                                                color: dyeColor.withValues(
+                                                  alpha: 0.5,
+                                                ),
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: dyeColor.withValues(alpha: 0.3),
+                                                    color: dyeColor.withValues(
+                                                      alpha: 0.3,
+                                                    ),
                                                     blurRadius: 4,
                                                   ),
                                                 ],
@@ -1039,13 +1185,15 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                           ),
                                         );
                                       }),
-                                    
+
                                     // Powder accumulation at bottom (high progress)
                                     if (crushingProgress > 60)
                                       Positioned(
                                         bottom: 0,
                                         child: AnimatedContainer(
-                                          duration: const Duration(milliseconds: 500),
+                                          duration: const Duration(
+                                            milliseconds: 500,
+                                          ),
                                           width: 180,
                                           height: 40 + (crushingProgress / 5),
                                           decoration: BoxDecoration(
@@ -1058,10 +1206,15 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                                 dyeColor.withValues(alpha: 0.7),
                                               ],
                                             ),
-                                            borderRadius: const BorderRadius.only(
-                                              bottomLeft: Radius.circular(100),
-                                              bottomRight: Radius.circular(100),
-                                            ),
+                                            borderRadius:
+                                                const BorderRadius.only(
+                                                  bottomLeft: Radius.circular(
+                                                    100,
+                                                  ),
+                                                  bottomRight: Radius.circular(
+                                                    100,
+                                                  ),
+                                                ),
                                           ),
                                         ),
                                       ),
@@ -1070,16 +1223,23 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                               ),
                             ),
                           ),
-                          
+
                           // Animated Pestle with realistic crushing motion
                           AnimatedBuilder(
                             animation: _crushingController,
                             builder: (context, child) {
                               // Smooth crushing motion with easing
-                              double pestleOffset = -30 * math.sin(_crushingController.value * math.pi);
-                              double pestleRotation = 0.15 * math.sin(_crushingController.value * math.pi * 2);
-                              double pestleScale = 1.0 - (0.05 * _crushingController.value);
-                              
+                              double pestleOffset =
+                                  -30 *
+                                  math.sin(_crushingController.value * math.pi);
+                              double pestleRotation =
+                                  0.15 *
+                                  math.sin(
+                                    _crushingController.value * math.pi * 2,
+                                  );
+                              double pestleScale =
+                                  1.0 - (0.05 * _crushingController.value);
+
                               return Positioned(
                                 top: 0,
                                 right: 40,
@@ -1098,7 +1258,8 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                             width: 22,
                                             height: 100,
                                             decoration: BoxDecoration(
-                                              borderRadius: BorderRadius.circular(11),
+                                              borderRadius:
+                                                  BorderRadius.circular(11),
                                               gradient: LinearGradient(
                                                 begin: Alignment.centerLeft,
                                                 end: Alignment.centerRight,
@@ -1110,7 +1271,8 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                               ),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: Colors.black.withValues(alpha: 0.4),
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.4),
                                                   blurRadius: 8,
                                                   offset: const Offset(4, 4),
                                                 ),
@@ -1123,7 +1285,8 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                             height: 8,
                                             decoration: BoxDecoration(
                                               color: Colors.brown.shade700,
-                                              borderRadius: BorderRadius.circular(4),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
                                             ),
                                           ),
                                           const SizedBox(height: 2),
@@ -1132,7 +1295,8 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                             height: 8,
                                             decoration: BoxDecoration(
                                               color: Colors.brown.shade700,
-                                              borderRadius: BorderRadius.circular(4),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
                                             ),
                                           ),
                                           const SizedBox(height: 4),
@@ -1141,12 +1305,20 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                             width: 40,
                                             height: 70,
                                             decoration: BoxDecoration(
-                                              borderRadius: const BorderRadius.only(
-                                                topLeft: Radius.circular(20),
-                                                topRight: Radius.circular(20),
-                                                bottomLeft: Radius.circular(20),
-                                                bottomRight: Radius.circular(20),
-                                              ),
+                                              borderRadius:
+                                                  const BorderRadius.only(
+                                                    topLeft: Radius.circular(
+                                                      20,
+                                                    ),
+                                                    topRight: Radius.circular(
+                                                      20,
+                                                    ),
+                                                    bottomLeft: Radius.circular(
+                                                      20,
+                                                    ),
+                                                    bottomRight:
+                                                        Radius.circular(20),
+                                                  ),
                                               gradient: LinearGradient(
                                                 begin: Alignment.topLeft,
                                                 end: Alignment.bottomRight,
@@ -1156,11 +1328,17 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                                   Colors.grey.shade700,
                                                   Colors.grey.shade600,
                                                 ],
-                                                stops: const [0.0, 0.3, 0.7, 1.0],
+                                                stops: const [
+                                                  0.0,
+                                                  0.3,
+                                                  0.7,
+                                                  1.0,
+                                                ],
                                               ),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: Colors.black.withValues(alpha: 0.5),
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.5),
                                                   blurRadius: 12,
                                                   offset: const Offset(3, 5),
                                                 ),
@@ -1175,9 +1353,10 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                               );
                             },
                           ),
-                          
+
                           // Impact effect particles (spawn on tap)
-                          if (_crushingController.isAnimating && crushingProgress < 95)
+                          if (_crushingController.isAnimating &&
+                              crushingProgress < 95)
                             Positioned(
                               bottom: 140,
                               child: AnimatedBuilder(
@@ -1192,7 +1371,10 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                         shape: BoxShape.circle,
                                         border: Border.all(
                                           color: dyeColor.withValues(
-                                            alpha: 0.6 * (1.0 - _crushingController.value)
+                                            alpha:
+                                                0.6 *
+                                                (1.0 -
+                                                    _crushingController.value),
                                           ),
                                           width: 3,
                                         ),
@@ -1202,7 +1384,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                 },
                               ),
                             ),
-                          
+
                           // Tap prompt indicator
                           Positioned(
                             bottom: 10,
@@ -1210,13 +1392,18 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                               duration: const Duration(milliseconds: 300),
                               opacity: crushingProgress < 20 ? 1.0 : 0.0,
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.amber.withValues(alpha: 0.9),
                                   borderRadius: BorderRadius.circular(20),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.amber.withValues(alpha: 0.4),
+                                      color: Colors.amber.withValues(
+                                        alpha: 0.4,
+                                      ),
                                       blurRadius: 10,
                                       spreadRadius: 2,
                                     ),
@@ -1225,7 +1412,11 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(Icons.touch_app, color: Colors.black, size: 20),
+                                    const Icon(
+                                      Icons.touch_app,
+                                      color: Colors.black,
+                                      size: 20,
+                                    ),
                                     const SizedBox(width: 8),
                                     Text(
                                       'TAP HERE',
@@ -1244,9 +1435,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 30),
-                  
+
                   // Enhanced Progress Display
                   Container(
                     padding: const EdgeInsets.all(20),
@@ -1269,13 +1460,13 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(
-                              crushingProgress >= 90 
+                              crushingProgress >= 90
                                   ? Icons.workspace_premium
                                   : crushingProgress >= 70
-                                      ? Icons.thumb_up
-                                      : crushingProgress >= 50
-                                          ? Icons.trending_up
-                                          : Icons.hourglass_bottom,
+                                  ? Icons.thumb_up
+                                  : crushingProgress >= 50
+                                  ? Icons.trending_up
+                                  : Icons.hourglass_bottom,
                               color: qualityColor,
                               size: 32,
                             ),
@@ -1292,9 +1483,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                             ),
                           ],
                         ),
-                        
+
                         const SizedBox(height: 16),
-                        
+
                         // Large progress percentage
                         Text(
                           '${crushingProgress.toInt()}%',
@@ -1310,9 +1501,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                             ],
                           ),
                         ),
-                        
+
                         const SizedBox(height: 12),
-                        
+
                         // Animated progress bar
                         Container(
                           width: double.infinity,
@@ -1327,7 +1518,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                               // Animated progress fill
                               AnimatedContainer(
                                 duration: const Duration(milliseconds: 300),
-                                width: (MediaQuery.of(context).size.width - 88) * (crushingProgress / 100),
+                                width:
+                                    (MediaQuery.of(context).size.width - 88) *
+                                    (crushingProgress / 100),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(16),
                                   gradient: LinearGradient(
@@ -1339,7 +1532,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: qualityColor.withValues(alpha: 0.6),
+                                      color: qualityColor.withValues(
+                                        alpha: 0.6,
+                                      ),
                                       blurRadius: 12,
                                     ),
                                   ],
@@ -1348,21 +1543,28 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                               // Milestone markers
                               Positioned.fill(
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
                                   children: [50, 70, 90].map((milestone) {
-                                    bool reached = crushingProgress >= milestone;
+                                    bool reached =
+                                        crushingProgress >= milestone;
                                     return Container(
                                       width: 3,
                                       decoration: BoxDecoration(
-                                        color: reached 
+                                        color: reached
                                             ? Colors.white
-                                            : Colors.white.withValues(alpha: 0.3),
-                                        boxShadow: reached ? [
-                                          BoxShadow(
-                                            color: Colors.white.withValues(alpha: 0.5),
-                                            blurRadius: 6,
-                                          ),
-                                        ] : null,
+                                            : Colors.white.withValues(
+                                                alpha: 0.3,
+                                              ),
+                                        boxShadow: reached
+                                            ? [
+                                                BoxShadow(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.5),
+                                                  blurRadius: 6,
+                                                ),
+                                              ]
+                                            : null,
                                       ),
                                     );
                                   }).toList(),
@@ -1371,9 +1573,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                             ],
                           ),
                         ),
-                        
+
                         const SizedBox(height: 20),
-                        
+
                         // Stats grid
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1387,7 +1589,8 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                             _buildCrushingStat(
                               icon: Icons.speed,
                               label: 'Rate',
-                              value: '${(tapCount / 80 * 100).toStringAsFixed(0)}%',
+                              value:
+                                  '${(tapCount / 80 * 100).toStringAsFixed(0)}%',
                               color: Colors.green,
                             ),
                             _buildCrushingStat(
@@ -1401,9 +1604,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                       ],
                     ),
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // Quality tier indicators with better visuals
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -1437,10 +1640,30 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _buildQualityTier('90-100%', 'Perfect (+30% yield)', Colors.greenAccent, crushingProgress >= 90),
-                        _buildQualityTier('70-89%', 'Good (+15% yield)', Colors.amber, crushingProgress >= 70 && crushingProgress < 90),
-                        _buildQualityTier('50-69%', 'Fair (standard)', Colors.orange, crushingProgress >= 50 && crushingProgress < 70),
-                        _buildQualityTier('0-49%', 'Poor (-15% yield)', Colors.red, crushingProgress < 50),
+                        _buildQualityTier(
+                          '90-100%',
+                          'Perfect (+30% yield)',
+                          Colors.greenAccent,
+                          crushingProgress >= 90,
+                        ),
+                        _buildQualityTier(
+                          '70-89%',
+                          'Good (+15% yield)',
+                          Colors.amber,
+                          crushingProgress >= 70 && crushingProgress < 90,
+                        ),
+                        _buildQualityTier(
+                          '50-69%',
+                          'Fair (standard)',
+                          Colors.orange,
+                          crushingProgress >= 50 && crushingProgress < 70,
+                        ),
+                        _buildQualityTier(
+                          '0-49%',
+                          'Poor (-15% yield)',
+                          Colors.red,
+                          crushingProgress < 50,
+                        ),
                       ],
                     ),
                   ),
@@ -1465,10 +1688,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
         const SizedBox(height: 4),
         Text(
           label,
-          style: GoogleFonts.vt323(
-            fontSize: 14,
-            color: Colors.white70,
-          ),
+          style: GoogleFonts.vt323(fontSize: 14, color: Colors.white70),
         ),
         Text(
           value,
@@ -1482,7 +1702,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     );
   }
 
-  Widget _buildQualityTier(String range, String label, Color color, bool active) {
+  Widget _buildQualityTier(
+    String range,
+    String label,
+    Color color,
+    bool active,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
@@ -1515,195 +1740,815 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
 
   Widget _buildTemperatureGame() {
     bool inOptimalZone = temperature >= 60 && temperature <= 80;
-    
+    bool inAcceptableZone =
+        (temperature >= 50 && temperature < 60) ||
+        (temperature > 80 && temperature <= 85);
+    bool inDangerZone = temperature > 85 && temperature <= 95;
+    bool inCriticalZone = temperature > 95;
+    //bool tooCold = temperature < 50;
+
+    // Determine current zone status
+    String zoneStatus;
+    Color zoneColor;
+    IconData zoneIcon;
+
+    if (inCriticalZone) {
+      zoneStatus = 'CRITICAL! BURNING!';
+      zoneColor = Colors.red;
+      zoneIcon = Icons.local_fire_department;
+    } else if (inDangerZone) {
+      zoneStatus = 'DANGER ZONE!';
+      zoneColor = Colors.orange;
+      zoneIcon = Icons.warning;
+    } else if (inOptimalZone) {
+      zoneStatus = 'OPTIMAL HEATING';
+      zoneColor = Colors.green;
+      zoneIcon = Icons.check_circle;
+    } else if (inAcceptableZone) {
+      zoneStatus = 'ACCEPTABLE';
+      zoneColor = Colors.amber;
+      zoneIcon = Icons.schedule;
+    } else {
+      zoneStatus = 'TOO COLD';
+      zoneColor = Colors.blue;
+      zoneIcon = Icons.ac_unit;
+    }
+
+    // Calculate bubble intensity and color based on temperature
+    int bubbleCount = ((temperature - 40) / 10).floor().clamp(0, 6);
+    Color liquidColor = inCriticalZone
+        ? Colors.red.withValues(alpha: 0.8)
+        : inDangerZone
+        ? Colors.orange.withValues(alpha: 0.7)
+        : dyeColor.withValues(alpha: 0.6);
+
     return SafeArea(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minHeight: MediaQuery.of(context).size.height - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'MAINTAIN OPTIMAL HEAT!',
-                  style: GoogleFonts.vt323(
-                    fontSize: 32,
-                    color: Colors.amber,
-                    fontWeight: FontWeight.bold,
+      child: Container(
+        color: const Color(0xFF1B3A1B),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight:
+                  MediaQuery.of(context).size.height -
+                  MediaQuery.of(context).padding.top -
+                  MediaQuery.of(context).padding.bottom,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Text(
+                    'HEAT EXTRACTION PROCESS',
+                    style: GoogleFonts.vt323(
+                      fontSize: 32,
+                      color: Colors.amber,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 40),
-                
-                // Beaker with bubbles
-                AnimatedBuilder(
-                  animation: _bubbleController,
-                  builder: (context, child) {
-                    return Stack(
+                  const SizedBox(height: 8),
+                  Text(
+                    'Maintain optimal temperature to complete heating',
+                    style: GoogleFonts.vt323(
+                      fontSize: 16,
+                      color: Colors.white70,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  // 3D-styled Laboratory Heating Setup
+                  SizedBox(
+                    height: 400,
+                    child: Stack(
                       alignment: Alignment.center,
+                      clipBehavior: Clip.none,
                       children: [
-                        Container(
-                          width: 150,
-                          height: 200,
-                          decoration: BoxDecoration(
-                            color: dyeColor.withValues(alpha: 0.6),
-                            borderRadius: const BorderRadius.only(
-                              bottomLeft: Radius.circular(75),
-                              bottomRight: Radius.circular(75),
+                        // Laboratory table/surface
+                        Positioned(
+                          bottom: 0,
+                          child: Container(
+                            width: 350,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.grey.shade700,
+                                  Colors.grey.shade900,
+                                ],
+                              ),
                             ),
-                            border: Border.all(color: Colors.white, width: 3),
                           ),
-                          child: Center(
-                            child: Text(
-                              '${temperature.toInt()}°C',
+                        ),
+
+                        // Bunsen burner / Heat source base
+                        Positioned(
+                          bottom: 40,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Flame effect
+                              AnimatedBuilder(
+                                animation: _bubbleController,
+                                builder: (context, child) {
+                                  double flameHeight = temperature > 50
+                                      ? 60 + (temperature - 50) * 1.5
+                                      : 30;
+                                  double flameWidth =
+                                      40 + (temperature - 50) * 0.5;
+
+                                  return Container(
+                                    width: flameWidth.clamp(30, 100),
+                                    height: flameHeight.clamp(20, 140),
+                                    decoration: BoxDecoration(
+                                      gradient: RadialGradient(
+                                        center: Alignment.bottomCenter,
+                                        radius: 1.2,
+                                        colors: inCriticalZone
+                                            ? [
+                                                Colors.white,
+                                                Colors.red,
+                                                Colors.deepOrange,
+                                                Colors.orange.withValues(
+                                                  alpha: 0.0,
+                                                ),
+                                              ]
+                                            : inDangerZone
+                                            ? [
+                                                Colors.yellow,
+                                                Colors.orange,
+                                                Colors.deepOrange,
+                                                Colors.orange.withValues(
+                                                  alpha: 0.0,
+                                                ),
+                                              ]
+                                            : [
+                                                Colors.blue.shade200,
+                                                Colors.blue,
+                                                Colors.orange,
+                                                Colors.orange.withValues(
+                                                  alpha: 0.0,
+                                                ),
+                                              ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(
+                                        flameWidth / 2,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+
+                              // Burner base
+                              Container(
+                                width: 80,
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.grey.shade600,
+                                      Colors.grey.shade800,
+                                    ],
+                                  ),
+                                  borderRadius: const BorderRadius.only(
+                                    bottomLeft: Radius.circular(12),
+                                    bottomRight: Radius.circular(12),
+                                  ),
+                                  border: Border.all(
+                                    color: Colors.grey.shade900,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Flask/Beaker with liquid
+                        Positioned(
+                          bottom: 140,
+                          child: AnimatedBuilder(
+                            animation: _bubbleController,
+                            builder: (context, child) {
+                              return Stack(
+                                alignment: Alignment.center,
+                                clipBehavior: Clip.none,
+                                children: [
+                                  // Flask body - rounded bottom
+                                  Container(
+                                    width: 180,
+                                    height: 220,
+                                    decoration: BoxDecoration(
+                                      color: Colors.transparent,
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(20),
+                                        topRight: Radius.circular(20),
+                                        bottomLeft: Radius.circular(90),
+                                        bottomRight: Radius.circular(90),
+                                      ),
+                                      border: Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.3,
+                                        ),
+                                        width: 4,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.1,
+                                          ),
+                                          blurRadius: 20,
+                                          spreadRadius: 5,
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(18),
+                                        topRight: Radius.circular(18),
+                                        bottomLeft: Radius.circular(88),
+                                        bottomRight: Radius.circular(88),
+                                      ),
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          // Liquid fill
+                                          Positioned.fill(
+                                            child: AnimatedContainer(
+                                              duration: const Duration(
+                                                milliseconds: 300,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  begin: Alignment.topCenter,
+                                                  end: Alignment.bottomCenter,
+                                                  colors: [
+                                                    liquidColor.withValues(
+                                                      alpha: 0.4,
+                                                    ),
+                                                    liquidColor,
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+
+                                          // Steam/vapor effect at top
+                                          if (temperature > 70)
+                                            Positioned(
+                                              top: -20,
+                                              child: AnimatedOpacity(
+                                                duration: const Duration(
+                                                  milliseconds: 500,
+                                                ),
+                                                opacity:
+                                                    ((temperature - 70) / 30)
+                                                        .clamp(0.0, 0.8),
+                                                child: Container(
+                                                  width: 100,
+                                                  height: 60,
+                                                  decoration: BoxDecoration(
+                                                    gradient: LinearGradient(
+                                                      begin: Alignment
+                                                          .bottomCenter,
+                                                      end: Alignment.topCenter,
+                                                      colors: [
+                                                        Colors.white.withValues(
+                                                          alpha: 0.5,
+                                                        ),
+                                                        Colors.white.withValues(
+                                                          alpha: 0.2,
+                                                        ),
+                                                        Colors.white.withValues(
+                                                          alpha: 0.0,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          50,
+                                                        ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+
+                                          // Animated bubbles
+                                          ...List.generate(bubbleCount, (
+                                            index,
+                                          ) {
+                                            double offset =
+                                                (_bubbleController.value *
+                                                    180) +
+                                                (index * 30);
+                                            double x =
+                                                30 +
+                                                (index * 25.0) +
+                                                (math.sin(
+                                                      _bubbleController.value *
+                                                              2 *
+                                                              math.pi +
+                                                          index,
+                                                    ) *
+                                                    15);
+
+                                            return Positioned(
+                                              bottom: offset % 180,
+                                              left: x,
+                                              child: Container(
+                                                width: 8 + (index * 2.0),
+                                                height: 8 + (index * 2.0),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.6),
+                                                  shape: BoxShape.circle,
+                                                  border: Border.all(
+                                                    color: Colors.white
+                                                        .withValues(alpha: 0.4),
+                                                    width: 1,
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          }),
+
+                                          // Temperature display inside flask
+                                          Center(
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 20,
+                                                    vertical: 10,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.6,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                border: Border.all(
+                                                  color: zoneColor,
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              child: Text(
+                                                '${temperature.toInt()}°C',
+                                                style: GoogleFonts.vt323(
+                                                  fontSize: 36,
+                                                  color: zoneColor,
+                                                  fontWeight: FontWeight.bold,
+                                                  shadows: [
+                                                    Shadow(
+                                                      color: zoneColor
+                                                          .withValues(
+                                                            alpha: 0.5,
+                                                          ),
+                                                      blurRadius: 10,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Flask neck/opening
+                                  Positioned(
+                                    top: -30,
+                                    child: Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: Colors.transparent,
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                          width: 4,
+                                        ),
+                                        borderRadius: const BorderRadius.only(
+                                          topLeft: Radius.circular(8),
+                                          topRight: Radius.circular(8),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  // Heating Progress & Status Display
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: zoneColor, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: zoneColor.withValues(alpha: 0.3),
+                          blurRadius: 15,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        // Zone Status with icon
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(zoneIcon, color: zoneColor, size: 32),
+                            const SizedBox(width: 12),
+                            Flexible(
+                              child: Text(
+                                zoneStatus,
+                                style: GoogleFonts.vt323(
+                                  fontSize: 24,
+                                  color: zoneColor,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Heating Progress Bar
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'HEATING PROGRESS',
+                                  style: GoogleFonts.vt323(
+                                    fontSize: 18,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  '${heatingProgress.toInt()}%',
+                                  style: GoogleFonts.vt323(
+                                    fontSize: 24,
+                                    color: Colors.amber,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              width: double.infinity,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade900,
+                                borderRadius: BorderRadius.circular(15),
+                                border: Border.all(
+                                  color: Colors.green,
+                                  width: 2,
+                                ),
+                              ),
+                              child: Stack(
+                                children: [
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 300),
+                                    width:
+                                        (MediaQuery.of(context).size.width -
+                                            88) *
+                                        (heatingProgress / 100),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(13),
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.green,
+                                          Colors.greenAccent,
+                                          Colors.green,
+                                        ],
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.green.withValues(
+                                            alpha: 0.6,
+                                          ),
+                                          blurRadius: 10,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // Damage Indicator
+                        if (damageAccumulated > 0)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.warning,
+                                        color: Colors.red,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'DAMAGE',
+                                        style: GoogleFonts.vt323(
+                                          fontSize: 18,
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    '${damageAccumulated.toInt()}%',
+                                    style: GoogleFonts.vt323(
+                                      fontSize: 20,
+                                      color: Colors.red,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                width: double.infinity,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade900,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: Colors.red,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: Stack(
+                                  children: [
+                                    AnimatedContainer(
+                                      duration: const Duration(
+                                        milliseconds: 300,
+                                      ),
+                                      width:
+                                          (MediaQuery.of(context).size.width -
+                                              88) *
+                                          (damageAccumulated / 100),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(8),
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Colors.red,
+                                            Colors.orange,
+                                            Colors.red,
+                                          ],
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.red.withValues(
+                                              alpha: 0.6,
+                                            ),
+                                            blurRadius: 8,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Temperature Control Slider
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.amber.withValues(alpha: 0.5),
+                        width: 2,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          'TEMPERATURE CONTROL',
+                          style: GoogleFonts.vt323(
+                            fontSize: 20,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Visual temperature scale
+                        Row(
+                          children: [
+                            // Cold indicator
+                            Column(
+                              children: [
+                                Icon(
+                                  Icons.ac_unit,
+                                  color: Colors.blue,
+                                  size: 20,
+                                ),
+                                Text(
+                                  '40°',
+                                  style: GoogleFonts.vt323(
+                                    fontSize: 12,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // Slider
+                            Expanded(
+                              child: SliderTheme(
+                                data: SliderThemeData(
+                                  trackHeight: 20,
+                                  thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 15,
+                                  ),
+                                  overlayShape: const RoundSliderOverlayShape(
+                                    overlayRadius: 25,
+                                  ),
+                                ),
+                                child: Slider(
+                                  value: temperature,
+                                  min: 40,
+                                  max: 100,
+                                  divisions: 60,
+                                  activeColor: zoneColor,
+                                  inactiveColor: Colors.grey.shade700,
+                                  thumbColor: Colors.white,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      temperature = value;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ),
+
+                            // Hot indicator
+                            Column(
+                              children: [
+                                Icon(
+                                  Icons.local_fire_department,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
+                                Text(
+                                  '100°',
+                                  style: GoogleFonts.vt323(
+                                    fontSize: 12,
+                                    color: Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // Quick adjustment buttons
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _buildTempButton(
+                              icon: Icons.remove_circle,
+                              label: '-5°',
+                              color: Colors.blue,
+                              onPressed: () => _adjustTemperature(-5),
+                            ),
+                            _buildTempButton(
+                              icon: Icons.remove,
+                              label: '-1°',
+                              color: Colors.lightBlue,
+                              onPressed: () => _adjustTemperature(-1),
+                            ),
+                            _buildTempButton(
+                              icon: Icons.add,
+                              label: '+1°',
+                              color: Colors.orange,
+                              onPressed: () => _adjustTemperature(1),
+                            ),
+                            _buildTempButton(
+                              icon: Icons.add_circle,
+                              label: '+5°',
+                              color: Colors.red,
+                              onPressed: () => _adjustTemperature(5),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Temperature Zone Guide
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.amber.withValues(alpha: 0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              color: Colors.amber,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Temperature Zones:',
                               style: GoogleFonts.vt323(
-                                fontSize: 32,
+                                fontSize: 18,
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                          ),
+                          ],
                         ),
-                        // Animated bubbles
-                        if (temperature > 70)
-                          ...List.generate(3, (index) {
-                            double offset = _bubbleController.value * 150;
-                            return Positioned(
-                              bottom: offset + (index * 50),
-                              left: 50 + (index * 25.0),
-                              child: Container(
-                                width: 10 + (index * 5.0),
-                                height: 10 + (index * 5.0),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.5),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            );
-                          }),
+                        const SizedBox(height: 12),
+                        _buildTempZoneInfo(
+                          '60-80°C',
+                          'Optimal (Fast progress)',
+                          Colors.green,
+                        ),
+                        _buildTempZoneInfo(
+                          '50-60°C, 80-85°C',
+                          'Acceptable (Slow)',
+                          Colors.amber,
+                        ),
+                        _buildTempZoneInfo(
+                          '85-95°C',
+                          'Danger (Damage!)',
+                          Colors.orange,
+                        ),
+                        _buildTempZoneInfo(
+                          '95-100°C',
+                          'Critical (High damage!)',
+                          Colors.red,
+                        ),
+                        _buildTempZoneInfo(
+                          'Below 50°C',
+                          'Too cold (No progress)',
+                          Colors.blue,
+                        ),
                       ],
-                    );
-                  },
-                ),
-                
-                const SizedBox(height: 40),
-                
-                // Temperature Status
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: inOptimalZone 
-                        ? Colors.green.withValues(alpha: 0.3)
-                        : Colors.red.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: inOptimalZone ? Colors.green : Colors.red,
-                      width: 2,
                     ),
                   ),
-                  child: Text(
-                    inOptimalZone ? 'OPTIMAL ZONE!' : 'ADJUST HEAT!',
-                    style: GoogleFonts.vt323(
-                      fontSize: 24,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                // Temperature Slider
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        'TOO COLD',
-                        style: GoogleFonts.vt323(
-                          fontSize: 14,
-                          color: Colors.blue,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Expanded(
-                      flex: 3,
-                      child: Slider(
-                        value: temperature,
-                        min: 40,
-                        max: 100,
-                        divisions: 60,
-                        activeColor: inOptimalZone ? Colors.green : Colors.red,
-                        inactiveColor: Colors.grey,
-                        onChanged: (value) {
-                          setState(() {
-                            temperature = value;
-                          });
-                        },
-                      ),
-                    ),
-                    Flexible(
-                      child: Text(
-                        'TOO HOT',
-                        style: GoogleFonts.vt323(
-                          fontSize: 14,
-                          color: Colors.red,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                
-                const SizedBox(height: 20),
-                
-                // Temperature Controls
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 20,
-                  runSpacing: 10,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: () => _adjustTemperature(-5),
-                      icon: const Icon(Icons.remove),
-                      label: Text(
-                        'COOL DOWN',
-                        style: GoogleFonts.vt323(fontSize: 18),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: () => _adjustTemperature(5),
-                      icon: const Icon(Icons.add),
-                      label: Text(
-                        'HEAT UP',
-                        style: GoogleFonts.vt323(fontSize: 18),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-                
-                const SizedBox(height: 20),
-                
-                Text(
-                  'Time: ${(temperatureTimeCorrect / 10).toStringAsFixed(1)}s / 15s',
-                  style: GoogleFonts.vt323(
-                    fontSize: 20,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1711,15 +2556,92 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
     );
   }
 
+  Widget _buildTempButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: color, width: 2),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(label, style: GoogleFonts.vt323(fontSize: 12, color: color)),
+      ],
+    );
+  }
+
+  Widget _buildTempZoneInfo(String range, String description, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(color: color, width: 2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                children: [
+                  TextSpan(
+                    text: '$range: ',
+                    style: GoogleFonts.vt323(
+                      fontSize: 14,
+                      color: color,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  TextSpan(
+                    text: description,
+                    style: GoogleFonts.vt323(
+                      fontSize: 14,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFilteringGame() {
     double purity = (swipeCount / 20.0 * 100).clamp(0.0, 100.0);
-    
+
     return SafeArea(
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            minHeight: MediaQuery.of(context).size.height - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom,
+            minHeight:
+                MediaQuery.of(context).size.height -
+                MediaQuery.of(context).padding.top -
+                MediaQuery.of(context).padding.bottom,
           ),
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -1736,7 +2658,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                   ),
                 ),
                 const SizedBox(height: 40),
-                
+
                 // Filter Animation
                 GestureDetector(
                   onPanUpdate: _onFilterSwipe,
@@ -1757,17 +2679,22 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                           top: 40,
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            children: List.generate(5, (index) => Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
-                              child: Icon(
-                                Icons.circle,
-                                size: 20,
-                                color: Colors.brown.withValues(alpha: 0.7),
+                            children: List.generate(
+                              5,
+                              (index) => Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
+                                child: Icon(
+                                  Icons.circle,
+                                  size: 20,
+                                  color: Colors.brown.withValues(alpha: 0.7),
+                                ),
                               ),
-                            )),
+                            ),
                           ),
                         ),
-                        
+
                         // Filter screen
                         Transform.translate(
                           offset: Offset(filterPosition, 0),
@@ -1791,7 +2718,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                             ),
                           ),
                         ),
-                        
+
                         // Pure dye drops
                         Positioned(
                           bottom: 40,
@@ -1800,7 +2727,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                             children: List.generate(
                               (swipeCount / 4).floor().clamp(0, 5),
                               (index) => Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                ),
                                 child: Icon(
                                   Icons.water_drop,
                                   size: 30,
@@ -1814,9 +2743,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                     ),
                   ),
                 ),
-                
+
                 const SizedBox(height: 40),
-                
+
                 // Purity Meter
                 Container(
                   width: double.infinity,
@@ -1848,33 +2777,24 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                     ],
                   ),
                 ),
-                
+
                 const SizedBox(height: 20),
-                
+
                 Text(
                   'Swipes: $swipeCount',
-                  style: GoogleFonts.vt323(
-                    fontSize: 20,
-                    color: Colors.white,
-                  ),
+                  style: GoogleFonts.vt323(fontSize: 20, color: Colors.white),
                 ),
-                
+
                 Text(
                   'Time: ${filteringTimeLeft}s',
-                  style: GoogleFonts.vt323(
-                    fontSize: 20,
-                    color: Colors.amber,
-                  ),
+                  style: GoogleFonts.vt323(fontSize: 20, color: Colors.amber),
                 ),
-                
+
                 const SizedBox(height: 20),
-                
+
                 Text(
                   'Swipe the filter left & right rapidly!',
-                  style: GoogleFonts.vt323(
-                    fontSize: 18,
-                    color: Colors.white70,
-                  ),
+                  style: GoogleFonts.vt323(fontSize: 18, color: Colors.white70),
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -1892,7 +2812,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
         child: Column(
           children: [
             const SizedBox(height: 40),
-            
+
             Text(
               'DYE EXTRACTION COMPLETE!',
               style: GoogleFonts.vt323(
@@ -1902,9 +2822,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
               ),
               textAlign: TextAlign.center,
             ),
-            
+
             const SizedBox(height: 40),
-            
+
             // Dye Bottle
             Container(
               width: 150,
@@ -1937,9 +2857,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                 ),
               ),
             ),
-            
+
             const SizedBox(height: 40),
-            
+
             // Results Summary
             Container(
               padding: const EdgeInsets.all(20),
@@ -1950,26 +2870,53 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
               ),
               child: Column(
                 children: [
-                  _buildResultRow('Dye Type:', selectedRecipe ?? 'N/A', Colors.amber),
-                  _buildResultRow('Material Quality:', materialQuality, 
-                    materialQuality == 'Fresh' 
-                        ? Colors.greenAccent 
+                  _buildResultRow(
+                    'Dye Type:',
+                    selectedRecipe ?? 'N/A',
+                    Colors.amber,
+                  ),
+                  _buildResultRow(
+                    'Material Quality:',
+                    materialQuality,
+                    materialQuality == 'Fresh'
+                        ? Colors.greenAccent
                         : materialQuality == 'Good'
-                            ? Colors.amber
-                            : Colors.orange),
-                  _buildResultRow('Quality Bonus:', '+${((qualityMultiplier - 1) * 100).toInt()}%', Colors.green),
+                        ? Colors.amber
+                        : Colors.orange,
+                  ),
+                  _buildResultRow(
+                    'Quality Bonus:',
+                    '+${((qualityMultiplier - 1) * 100).toInt()}%',
+                    Colors.green,
+                  ),
                   const Divider(color: Colors.white30),
-                  _buildResultRow('Crushing:', '${(crushingEfficiency * 100).toInt()}%', 
-                    crushingEfficiency >= 1.1 ? Colors.greenAccent : Colors.white),
-                  _buildResultRow('Temperature:', 'Perfect!', Colors.greenAccent),
-                  _buildResultRow('Filtering:', '${(filteringPurity * 100).toInt()}%', 
-                    filteringPurity >= 0.9 ? Colors.greenAccent : Colors.white),
+                  _buildResultRow(
+                    'Crushing:',
+                    '${(crushingEfficiency * 100).toInt()}%',
+                    crushingEfficiency >= 1.1
+                        ? Colors.greenAccent
+                        : Colors.white,
+                  ),
+                  _buildResultRow(
+                    'Temperature:',
+                    'Perfect!',
+                    Colors.greenAccent,
+                  ),
+                  _buildResultRow(
+                    'Filtering:',
+                    '${(filteringPurity * 100).toInt()}%',
+                    filteringPurity >= 0.9 ? Colors.greenAccent : Colors.white,
+                  ),
                   const Divider(color: Colors.white30),
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.monetization_on, color: Colors.amber, size: 32),
+                      const Icon(
+                        Icons.monetization_on,
+                        color: Colors.amber,
+                        size: 32,
+                      ),
                       const SizedBox(width: 12),
                       Text(
                         '$ecoCoinsEarned EcoCoins',
@@ -1984,9 +2931,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                 ],
               ),
             ),
-            
+
             const SizedBox(height: 30),
-            
+
             // Unlocked Items
             Container(
               padding: const EdgeInsets.all(16),
@@ -2009,18 +2956,15 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                   Text(
                     '✓ ${dyeType.split(' ')[0]} Face Paint\n'
                     '✓ ${dyeType.split(' ')[0]} Body Paint',
-                    style: GoogleFonts.vt323(
-                      fontSize: 18,
-                      color: Colors.white,
-                    ),
+                    style: GoogleFonts.vt323(fontSize: 18, color: Colors.white),
                     textAlign: TextAlign.center,
                   ),
                 ],
               ),
             ),
-            
+
             const SizedBox(height: 30),
-            
+
             // Action Buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -2058,10 +3002,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
         children: [
           Text(
             label,
-            style: GoogleFonts.vt323(
-              fontSize: 18,
-              color: Colors.white70,
-            ),
+            style: GoogleFonts.vt323(fontSize: 18, color: Colors.white70),
           ),
           Text(
             value,
@@ -2088,9 +3029,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
         backgroundColor: color,
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       child: Column(
         children: [
@@ -2098,10 +3037,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
           const SizedBox(height: 8),
           Text(
             label,
-            style: GoogleFonts.vt323(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+            style: GoogleFonts.vt323(fontSize: 16, fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
           ),
         ],
@@ -2141,42 +3077,29 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                 ),
               ),
               const SizedBox(height: 20),
-              
-              Icon(
-                Icons.check_circle,
-                color: Colors.green,
-                size: 60,
-              ),
+
+              Icon(Icons.check_circle, color: Colors.green, size: 60),
               const SizedBox(height: 20),
-              
+
               Text(
                 'Total Dye Produced: $dyeProduced ml',
-                style: GoogleFonts.vt323(
-                  color: Colors.amber,
-                  fontSize: 22,
-                ),
+                style: GoogleFonts.vt323(color: Colors.amber, fontSize: 22),
               ),
               const SizedBox(height: 10),
-              
+
               Text(
                 'Total EcoCoins: $ecoCoinsEarned',
-                style: GoogleFonts.vt323(
-                  color: Colors.green,
-                  fontSize: 22,
-                ),
+                style: GoogleFonts.vt323(color: Colors.green, fontSize: 22),
               ),
               const SizedBox(height: 20),
-              
+
               Text(
                 'This dye will be carried forward to future levels!',
-                style: GoogleFonts.vt323(
-                  color: Colors.white70,
-                  fontSize: 16,
-                ),
+                style: GoogleFonts.vt323(color: Colors.white70, fontSize: 16),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 30),
-              
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -2205,7 +3128,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                     label: 'Exit',
                     color: Colors.red,
                     onPressed: () async {
-                      await SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+                      await SystemChannels.platform.invokeMethod(
+                        'SystemNavigator.pop',
+                      );
                     },
                   ),
                 ],
@@ -2244,21 +3169,14 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen> with TickerPr
                   ),
                 ],
               ),
-              child: Icon(
-                icon,
-                size: 24,
-                color: Colors.white,
-              ),
+              child: Icon(icon, size: 24, color: Colors.white),
             ),
           ),
         ),
         const SizedBox(height: 8),
         Text(
           label,
-          style: GoogleFonts.vt323(
-            fontSize: 14,
-            color: Colors.white,
-          ),
+          style: GoogleFonts.vt323(fontSize: 14, color: Colors.white),
         ),
       ],
     );
