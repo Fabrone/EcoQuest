@@ -66,7 +66,14 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   double filterPosition = 0.0;
   int swipeCount = 0;
   Timer? filteringTimer;
-  int filteringTimeLeft = 15;
+  int filteringTimeLeft = 30; // Increased from 15 to 30 seconds
+  double filteringProgress = 0.0; // Track actual filtration progress (0-100)
+  double impurityLevel = 100.0; // Start with 100% impurities
+  List<Map<String, dynamic>> impurityParticles = []; // Track individual impurity particles
+  bool isFiltering = false; // Track if user is actively filtering
+  double filterClothSag = 0.0; // Visual feedback for filter cloth
+  int consecutiveSwipes = 0; // Bonus for consistent swiping
+  DateTime? lastSwipeTime;
 
   @override
   void initState() {
@@ -330,10 +337,47 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   }
 
   void _startFilteringGame() {
+    // Initialize impurity particles
+    final random = math.Random();
+    impurityParticles = List.generate(25, (index) {
+      return {
+        'id': index,
+        'x': 40.0 + random.nextDouble() * 200, // Spread across filter area
+        'y': 20.0 + random.nextDouble() * 80, // Top section
+        'size': 8.0 + random.nextDouble() * 12, // Varied sizes
+        'removed': false,
+        'falling': false,
+        'fallSpeed': 0.5 + random.nextDouble() * 1.0,
+      };
+    });
+
+    setState(() {
+      filteringProgress = 0.0;
+      impurityLevel = 100.0;
+      swipeCount = 0;
+      filteringTimeLeft = 30;
+      consecutiveSwipes = 0;
+      isFiltering = false;
+    });
+
     filteringTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         filteringTimeLeft--;
-        if (filteringTimeLeft <= 0) {
+        
+        // Natural settling - small progress even without swiping
+        if (filteringProgress < 100) {
+          filteringProgress += 0.3;
+          impurityLevel = math.max(0, 100 - filteringProgress);
+        }
+        
+        // Reset consecutive swipes if no recent activity
+        if (lastSwipeTime != null && 
+            DateTime.now().difference(lastSwipeTime!).inSeconds > 2) {
+          consecutiveSwipes = 0;
+        }
+        
+        // Auto-complete if progress reaches 100% OR time runs out
+        if (filteringProgress >= 100.0 || filteringTimeLeft <= 0) {
           timer.cancel();
           _calculateFilteringScore();
         }
@@ -342,17 +386,86 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   }
 
   void _onFilterSwipe(DragUpdateDetails details) {
+    if (filteringProgress >= 100.0) return; // Don't process if complete
+    
     setState(() {
       filterPosition += details.delta.dx;
-      if (filterPosition.abs() > 50) {
+      isFiltering = true;
+      
+      // Track consecutive swipes for bonus
+      if (lastSwipeTime != null && 
+          DateTime.now().difference(lastSwipeTime!).inMilliseconds < 500) {
+        consecutiveSwipes = math.min(consecutiveSwipes + 1, 10);
+      } else {
+        consecutiveSwipes = 1;
+      }
+      lastSwipeTime = DateTime.now();
+      
+      // Complete swipe cycle
+      if (filterPosition.abs() > 60) {
         swipeCount++;
         filterPosition = 0;
+        
+        // Calculate progress boost based on consecutive swipes (bonus for rhythm)
+        double progressBoost = 3.5 + (consecutiveSwipes * 0.3);
+        filteringProgress = math.min(100.0, filteringProgress + progressBoost);
+        impurityLevel = math.max(0, 100 - filteringProgress);
+        
+        // Visual feedback
+        filterClothSag = 15.0;
+        
+        // Remove impurity particles progressively
+        int particlesToRemove = (swipeCount / 3).floor();
+        for (int i = 0; i < impurityParticles.length && particlesToRemove > 0; i++) {
+          if (!impurityParticles[i]['removed'] && !impurityParticles[i]['falling']) {
+            impurityParticles[i]['falling'] = true;
+            particlesToRemove--;
+          }
+        }
+        
+        // Animate particles falling
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (mounted) {
+            setState(() {
+              for (var particle in impurityParticles) {
+                if (particle['falling'] && !particle['removed']) {
+                  particle['y'] += particle['fallSpeed'] * 20;
+                  if (particle['y'] > 300) {
+                    particle['removed'] = true;
+                  }
+                }
+              }
+            });
+          }
+        });
       }
+      
+      // Reset sag animation
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (mounted) {
+          setState(() {
+            filterClothSag = 0.0;
+            isFiltering = false;
+          });
+        }
+      });
     });
   }
 
   void _calculateFilteringScore() {
-    filteringPurity = (swipeCount / 20.0).clamp(0.7, 1.0);
+    // Base purity on actual progress achieved
+    double achievedPurity = filteringProgress / 100.0;
+    
+    // Time bonus: finished faster = better quality
+    double timeBonus = filteringTimeLeft > 0 ? (filteringTimeLeft / 30.0) * 0.15 : 0.0;
+    
+    // Technique bonus: consistent swiping
+    double techniqueBonus = math.min(consecutiveSwipes / 50.0, 0.1);
+    
+    // Calculate final purity (0.7 to 1.0 range)
+    filteringPurity = (0.7 + (achievedPurity * 0.3) + timeBonus + techniqueBonus)
+        .clamp(0.7, 1.0);
+    
     _calculateFinalResults();
   }
 
@@ -2631,176 +2744,829 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   }
 
   Widget _buildFilteringGame() {
-    double purity = (swipeCount / 20.0 * 100).clamp(0.0, 100.0);
+    // Calculate quality indicators
+    String qualityStatus;
+    Color qualityColor;
+    IconData qualityIcon;
+    
+    if (filteringProgress >= 90) {
+      qualityStatus = 'CRYSTAL CLEAR';
+      qualityColor = Colors.greenAccent;
+      qualityIcon = Icons.water_drop;
+    } else if (filteringProgress >= 70) {
+      qualityStatus = 'WELL FILTERED';
+      qualityColor = Colors.green;
+      qualityIcon = Icons.check_circle;
+    } else if (filteringProgress >= 50) {
+      qualityStatus = 'FILTERING...';
+      qualityColor = Colors.amber;
+      qualityIcon = Icons.hourglass_empty;
+    } else if (filteringProgress >= 30) {
+      qualityStatus = 'MURKY';
+      qualityColor = Colors.orange;
+      qualityIcon = Icons.warning;
+    } else {
+      qualityStatus = 'VERY CLOUDY';
+      qualityColor = Colors.red;
+      qualityIcon = Icons.cloud;
+    }
+    
+    // Calculate liquid color - transitions from murky to clear
+    Color liquidColor = Color.lerp(
+      dyeColor.withValues(alpha: 0.3), // Murky/diluted
+      dyeColor.withValues(alpha: 0.9), // Clear/vibrant
+      filteringProgress / 100.0,
+    )!;
 
     return SafeArea(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minHeight:
-                MediaQuery.of(context).size.height -
-                MediaQuery.of(context).padding.top -
-                MediaQuery.of(context).padding.bottom,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'FILTER THE MIXTURE!',
-                  style: GoogleFonts.vt323(
-                    fontSize: 32,
-                    color: Colors.amber,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 40),
-
-                // Filter Animation
-                GestureDetector(
-                  onPanUpdate: _onFilterSwipe,
-                  child: Container(
-                    width: double.infinity,
-                    height: 300,
-                    constraints: const BoxConstraints(maxWidth: 400),
-                    decoration: BoxDecoration(
-                      color: Colors.brown.shade900.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.amber, width: 2),
+      child: Container(
+        color: const Color(0xFF1B3A1B),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: MediaQuery.of(context).size.height -
+                  MediaQuery.of(context).padding.top -
+                  MediaQuery.of(context).padding.bottom,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Text(
+                    'FILTRATION PROCESS',
+                    style: GoogleFonts.vt323(
+                      fontSize: 32,
+                      color: Colors.amber,
+                      fontWeight: FontWeight.bold,
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Swipe the filter cloth back and forth to remove impurities',
+                    style: GoogleFonts.vt323(
+                      fontSize: 16,
+                      color: Colors.white70,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  // 3D Filtration Setup
+                  SizedBox(
+                    height: 450,
                     child: Stack(
                       alignment: Alignment.center,
+                      clipBehavior: Clip.none,
                       children: [
-                        // Plant debris
+                        // Laboratory bench/table
                         Positioned(
-                          top: 40,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: List.generate(
-                              5,
-                              (index) => Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                ),
-                                child: Icon(
-                                  Icons.circle,
-                                  size: 20,
-                                  color: Colors.brown.withValues(alpha: 0.7),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        // Filter screen
-                        Transform.translate(
-                          offset: Offset(filterPosition, 0),
+                          bottom: 0,
                           child: Container(
-                            width: 250,
-                            height: 10,
+                            width: 360,
+                            height: 50,
                             decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
                               gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
                                 colors: [
-                                  Colors.grey.shade400,
-                                  Colors.grey.shade600,
-                                  Colors.grey.shade400,
+                                  Colors.brown.shade600,
+                                  Colors.brown.shade800,
                                 ],
                               ),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withValues(alpha: 0.5),
-                                  blurRadius: 10,
+                                  blurRadius: 15,
+                                  offset: const Offset(0, 8),
                                 ),
                               ],
                             ),
                           ),
                         ),
 
-                        // Pure dye drops
+                        // Collection beaker (bottom)
                         Positioned(
-                          bottom: 40,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: List.generate(
-                              (swipeCount / 4).floor().clamp(0, 5),
-                              (index) => Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
+                          bottom: 50,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Beaker body
+                              Container(
+                                width: 200,
+                                height: 180,
+                                decoration: BoxDecoration(
+                                  color: Colors.transparent,
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.4),
+                                    width: 4,
+                                  ),
+                                  borderRadius: const BorderRadius.only(
+                                    bottomLeft: Radius.circular(15),
+                                    bottomRight: Radius.circular(15),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.white.withValues(alpha: 0.1),
+                                      blurRadius: 20,
+                                      spreadRadius: 5,
+                                    ),
+                                  ],
                                 ),
-                                child: Icon(
-                                  Icons.water_drop,
-                                  size: 30,
-                                  color: dyeColor,
+                                child: Stack(
+                                  alignment: Alignment.bottomCenter,
+                                  children: [
+                                    // Collected filtered dye
+                                    AnimatedContainer(
+                                      duration: const Duration(milliseconds: 400),
+                                      width: 192,
+                                      height: (filteringProgress / 100.0) * 160,
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            liquidColor.withValues(alpha: 0.6),
+                                            liquidColor,
+                                          ],
+                                        ),
+                                        borderRadius: const BorderRadius.only(
+                                          bottomLeft: Radius.circular(12),
+                                          bottomRight: Radius.circular(12),
+                                        ),
+                                      ),
+                                    ),
+                                    
+                                    // Surface shimmer effect
+                                    if (filteringProgress > 10)
+                                      Positioned(
+                                        top: 20 + ((100 - filteringProgress) / 100.0) * 140,
+                                        child: AnimatedOpacity(
+                                          duration: const Duration(milliseconds: 300),
+                                          opacity: 0.3,
+                                          child: Container(
+                                            width: 180,
+                                            height: 3,
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                colors: [
+                                                  Colors.transparent,
+                                                  Colors.white.withValues(alpha: 0.6),
+                                                  Colors.transparent,
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    
+                                    // Volume markings
+                                    Positioned(
+                                      left: 8,
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                        children: List.generate(4, (index) {
+                                          int ml = 50 + (index * 50);
+                                          bool filled = filteringProgress >= (ml / 2);
+                                          return Row(
+                                            children: [
+                                              Container(
+                                                width: 15,
+                                                height: 1,
+                                                color: filled 
+                                                    ? Colors.white.withValues(alpha: 0.6)
+                                                    : Colors.white.withValues(alpha: 0.3),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                '${ml}ml',
+                                                style: GoogleFonts.vt323(
+                                                  fontSize: 12,
+                                                  color: filled
+                                                      ? Colors.white.withValues(alpha: 0.8)
+                                                      : Colors.white.withValues(alpha: 0.4),
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        }),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
+                              
+                              // Beaker rim
+                              Positioned(
+                                top: -4,
+                                child: Container(
+                                  width: 208,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.5),
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Funnel with filter cloth
+                        Positioned(
+                          top: 80,
+                          child: GestureDetector(
+                            onPanUpdate: _onFilterSwipe,
+                            onPanEnd: (_) {
+                              setState(() {
+                                isFiltering = false;
+                              });
+                            },
+                            child: Stack(
+                              alignment: Alignment.topCenter,
+                              clipBehavior: Clip.none,
+                              children: [
+                                // Funnel structure
+                                CustomPaint(
+                                  size: const Size(280, 200),
+                                  painter: FunnelPainter(
+                                    rimColor: Colors.grey.shade300,
+                                    bodyColor: Colors.grey.shade600,
+                                  ),
+                                ),
+                                
+                                // Heated mixture being poured (source)
+                                Positioned(
+                                  top: -60,
+                                  child: AnimatedOpacity(
+                                    duration: const Duration(milliseconds: 300),
+                                    opacity: filteringProgress < 95 ? 0.8 : 0.2,
+                                    child: Container(
+                                      width: 80,
+                                      height: 80,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: RadialGradient(
+                                          colors: [
+                                            dyeColor.withValues(alpha: 0.7),
+                                            dyeColor.withValues(alpha: 0.4),
+                                          ],
+                                        ),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(alpha: 0.3),
+                                          width: 3,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: Icon(
+                                          Icons.science,
+                                          color: Colors.white.withValues(alpha: 0.7),
+                                          size: 40,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                
+                                // Pour stream
+                                if (filteringProgress < 95)
+                                  Positioned(
+                                    top: 10,
+                                    child: Container(
+                                      width: 20,
+                                      height: 45,
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            dyeColor.withValues(alpha: 0.5),
+                                            dyeColor.withValues(alpha: 0.7),
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Filter cloth (moveable) with impurities
+                                  Positioned(
+                                    top: 55,
+                                    child: Transform.translate(
+                                      offset: Offset(filterPosition, filterClothSag),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 150),
+                                        child: Stack(
+                                          alignment: Alignment.center,
+                                          clipBehavior: Clip.none,
+                                          children: [
+                                          // Cloth mesh
+                                          Container(
+                                            width: 240,
+                                            height: 120,
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                                colors: [
+                                                  Colors.white.withValues(alpha: 0.9),
+                                                  Colors.grey.shade200.withValues(alpha: 0.8),
+                                                  Colors.white.withValues(alpha: 0.9),
+                                                ],
+                                              ),
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(
+                                                color: Colors.grey.shade400,
+                                                width: 2,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black.withValues(alpha: 0.3),
+                                                  blurRadius: 12,
+                                                  offset: const Offset(0, 6),
+                                                ),
+                                              ],
+                                            ),
+                                            child: CustomPaint(
+                                              painter: ClothMeshPainter(),
+                                            ),
+                                          ),
+                                          
+                                          // Impurity particles on filter
+                                          ...impurityParticles.map((particle) {
+                                            if (particle['removed']) return const SizedBox.shrink();
+                                            
+                                            double particleX = particle['x'];
+                                            double particleY = particle['y'];
+                                            double particleSize = particle['size'];
+                                            bool falling = particle['falling'];
+                                            
+                                            return AnimatedPositioned(
+                                              duration: const Duration(milliseconds: 300),
+                                              left: particleX - (particleSize / 2),
+                                              top: particleY - (particleSize / 2),
+                                              child: AnimatedOpacity(
+                                                duration: const Duration(milliseconds: 200),
+                                                opacity: falling ? 0.3 : 0.9,
+                                                child: Container(
+                                                  width: particleSize,
+                                                  height: particleSize,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.brown.shade700,
+                                                    shape: BoxShape.circle,
+                                                    border: Border.all(
+                                                      color: Colors.brown.shade900,
+                                                      width: 1,
+                                                    ),
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: Colors.black.withValues(alpha: 0.4),
+                                                        blurRadius: 3,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          }),
+                                          
+                                          // Active filtering indicator
+                                          if (isFiltering)
+                                            Positioned.fill(
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  border: Border.all(
+                                                    color: Colors.blue.withValues(alpha: 0.6),
+                                                    width: 3,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          
+                                          // Swipe direction indicator
+                                          if (filteringProgress < 20)
+                                            Positioned(
+                                              bottom: -40,
+                                              child: AnimatedOpacity(
+                                                duration: const Duration(milliseconds: 500),
+                                                opacity: isFiltering ? 0.0 : 1.0,
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      Icons.arrow_back,
+                                                      color: Colors.amber,
+                                                      size: 24,
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(
+                                                        horizontal: 12,
+                                                        vertical: 6,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.amber.withValues(alpha: 0.9),
+                                                        borderRadius: BorderRadius.circular(12),
+                                                      ),
+                                                      child: Text(
+                                                        'SWIPE HERE',
+                                                        style: GoogleFonts.vt323(
+                                                          fontSize: 16,
+                                                          color: Colors.black,
+                                                          fontWeight: FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Icon(
+                                                      Icons.arrow_forward,
+                                                      color: Colors.amber,
+                                                      size: 24,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                
+                                // Filtered droplets falling
+                                if (swipeCount > 0)
+                                  ...List.generate(3, (index) {
+                                    double offset = (index * 40.0) + (swipeCount % 3) * 15.0;
+                                    return Positioned(
+                                      top: 160 + offset,
+                                      left: 130 + (index * 15.0),
+                                      child: AnimatedOpacity(
+                                        duration: const Duration(milliseconds: 800),
+                                        opacity: offset < 80 ? 0.8 : 0.0,
+                                        child: Icon(
+                                          Icons.water_drop,
+                                          color: liquidColor,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                              ],
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
 
-                const SizedBox(height: 40),
+                  const SizedBox(height: 30),
 
-                // Purity Meter
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.green, width: 2),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        'Purity: ${purity.toInt()}%',
-                        style: GoogleFonts.vt323(
-                          fontSize: 24,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
+                  // Progress Display
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: qualityColor, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: qualityColor.withValues(alpha: 0.3),
+                          blurRadius: 15,
+                          spreadRadius: 2,
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: purity / 100,
-                        backgroundColor: Colors.grey.shade800,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          purity >= 85 ? Colors.green : Colors.orange,
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        // Quality Status
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(qualityIcon, color: qualityColor, size: 32),
+                            const SizedBox(width: 12),
+                            Flexible(
+                              child: Text(
+                                qualityStatus,
+                                style: GoogleFonts.vt323(
+                                  fontSize: 24,
+                                  color: qualityColor,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        minHeight: 20,
-                      ),
-                    ],
+
+                        const SizedBox(height: 20),
+
+                        // Filtration Progress
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'FILTRATION',
+                              style: GoogleFonts.vt323(
+                                fontSize: 18,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              '${filteringProgress.toInt()}%',
+                              style: GoogleFonts.vt323(
+                                fontSize: 24,
+                                color: qualityColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade900,
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(color: qualityColor, width: 2),
+                          ),
+                          child: Stack(
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                width: (MediaQuery.of(context).size.width - 88) *
+                                    (filteringProgress / 100),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(13),
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      qualityColor,
+                                      qualityColor.withValues(alpha: 0.7),
+                                      qualityColor,
+                                    ],
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: qualityColor.withValues(alpha: 0.6),
+                                      blurRadius: 10,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Stats Grid
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildFilteringStat(
+                              icon: Icons.swap_horiz,
+                              label: 'Swipes',
+                              value: '$swipeCount',
+                              color: Colors.blue,
+                            ),
+                            _buildFilteringStat(
+                              icon: Icons.cleaning_services,
+                              label: 'Purity',
+                              value: '${(100 - impurityLevel).toInt()}%',
+                              color: Colors.green,
+                            ),
+                            _buildFilteringStat(
+                              icon: Icons.timer,
+                              label: 'Time',
+                              value: '${filteringTimeLeft}s',
+                              color: filteringTimeLeft > 15 ? Colors.amber : Colors.red,
+                            ),
+                          ],
+                        ),
+
+                        // Consecutive swipes bonus indicator
+                        if (consecutiveSwipes >= 3)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 16),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.purple.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.purple,
+                                  width: 2,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.star,
+                                    color: Colors.purple.shade200,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'RHYTHM BONUS: ${consecutiveSwipes}x',
+                                    style: GoogleFonts.vt323(
+                                      fontSize: 16,
+                                      color: Colors.purple.shade200,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
 
-                const SizedBox(height: 20),
+                  const SizedBox(height: 20),
 
-                Text(
-                  'Swipes: $swipeCount',
-                  style: GoogleFonts.vt323(fontSize: 20, color: Colors.white),
-                ),
+                  // Quality Tiers Guide
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.amber.withValues(alpha: 0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.emoji_events,
+                              color: Colors.amber,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Filtration Quality Guide:',
+                              style: GoogleFonts.vt323(
+                                fontSize: 18,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _buildFilterQualityTier(
+                          '90-100%',
+                          'Crystal Clear (Best yield)',
+                          Colors.greenAccent,
+                          filteringProgress >= 90,
+                        ),
+                        _buildFilterQualityTier(
+                          '70-89%',
+                          'Clear (Good yield)',
+                          Colors.green,
+                          filteringProgress >= 70 && filteringProgress < 90,
+                        ),
+                        _buildFilterQualityTier(
+                          '50-69%',
+                          'Slightly cloudy (Fair)',
+                          Colors.amber,
+                          filteringProgress >= 50 && filteringProgress < 70,
+                        ),
+                        _buildFilterQualityTier(
+                          '30-49%',
+                          'Murky (Reduced yield)',
+                          Colors.orange,
+                          filteringProgress >= 30 && filteringProgress < 50,
+                        ),
+                        _buildFilterQualityTier(
+                          '0-29%',
+                          'Very cloudy (Poor)',
+                          Colors.red,
+                          filteringProgress < 30,
+                        ),
+                      ],
+                    ),
+                  ),
 
-                Text(
-                  'Time: ${filteringTimeLeft}s',
-                  style: GoogleFonts.vt323(fontSize: 20, color: Colors.amber),
-                ),
+                  const SizedBox(height: 16),
 
-                const SizedBox(height: 20),
-
-                Text(
-                  'Swipe the filter left & right rapidly!',
-                  style: GoogleFonts.vt323(fontSize: 18, color: Colors.white70),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+                  // Technique tips
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.blue.withValues(alpha: 0.5),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.lightbulb_outline,
+                          color: Colors.blue.shade200,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Tip: Maintain a steady swiping rhythm for bonus progress!',
+                            style: GoogleFonts.vt323(
+                              fontSize: 14,
+                              color: Colors.blue.shade100,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildFilteringStat({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: GoogleFonts.vt323(fontSize: 14, color: Colors.white70),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.vt323(
+            fontSize: 20,
+            color: color,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterQualityTier(
+    String range,
+    String label,
+    Color color,
+    bool active,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: active ? color : Colors.grey.shade700,
+              border: Border.all(
+                color: active ? color : Colors.grey.shade600,
+                width: 2,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$range - $label',
+              style: GoogleFonts.vt323(
+                fontSize: 14,
+                color: active ? color : Colors.white54,
+                fontWeight: active ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3181,4 +3947,104 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
       ],
     );
   }
+}
+
+// Custom painter for the funnel shape
+class FunnelPainter extends CustomPainter {
+  final Color rimColor;
+  final Color bodyColor;
+
+  FunnelPainter({
+    required this.rimColor,
+    required this.bodyColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..style = PaintingStyle.fill
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          rimColor,
+          bodyColor,
+          bodyColor.withValues(alpha: 0.7),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    final path = Path();
+    
+    // Funnel top rim (wide opening)
+    path.moveTo(size.width * 0.1, size.height * 0.15);
+    path.lineTo(size.width * 0.9, size.height * 0.15);
+    
+    // Right side slope down to narrow spout
+    path.lineTo(size.width * 0.6, size.height * 0.85);
+    path.lineTo(size.width * 0.55, size.height);
+    
+    // Bottom spout
+    path.lineTo(size.width * 0.45, size.height);
+    path.lineTo(size.width * 0.4, size.height * 0.85);
+    
+    // Left side slope back up
+    path.lineTo(size.width * 0.1, size.height * 0.15);
+    path.close();
+
+    canvas.drawPath(path, paint);
+
+    // Draw rim highlight
+    final rimPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.3)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+
+    final rimPath = Path();
+    rimPath.moveTo(size.width * 0.1, size.height * 0.15);
+    rimPath.lineTo(size.width * 0.9, size.height * 0.15);
+    canvas.drawPath(rimPath, rimPaint);
+
+    // Draw outline
+    final outlinePaint = Paint()
+      ..color = Colors.grey.shade800
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    canvas.drawPath(path, outlinePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// Custom painter for filter cloth mesh pattern
+class ClothMeshPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.grey.shade400.withValues(alpha: 0.4)
+      ..strokeWidth = 0.5
+      ..style = PaintingStyle.stroke;
+
+    // Draw horizontal lines
+    for (double i = 0; i < size.height; i += 6) {
+      canvas.drawLine(
+        Offset(0, i),
+        Offset(size.width, i),
+        paint,
+      );
+    }
+
+    // Draw vertical lines
+    for (double i = 0; i < size.width; i += 6) {
+      canvas.drawLine(
+        Offset(i, 0),
+        Offset(i, size.height),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
