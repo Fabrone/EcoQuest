@@ -33,6 +33,17 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   String? selectedRecipe;
   List<String> selectedMaterials = [];
 
+  late AnimationController _bottlePlacementController;
+  late AnimationController _shelfShineController;
+
+  List<StoredDye> storedDyes = []; // Tracks all stored dyes
+  bool _showStorageSuccess = false;
+
+  // Dye tracking variables
+  int totalDyeProduced = 0;
+  int dyeRemaining = 0;
+  List<Map<String, dynamic>> completedActivities = [];
+
   // Mini-game scores
   double crushingEfficiency = 1.0;
   double temperatureMaintained = 1.0;
@@ -69,7 +80,8 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   int filteringTimeLeft = 30; // Increased from 15 to 30 seconds
   double filteringProgress = 0.0; // Track actual filtration progress (0-100)
   double impurityLevel = 100.0; // Start with 100% impurities
-  List<Map<String, dynamic>> impurityParticles = []; // Track individual impurity particles
+  List<Map<String, dynamic>> impurityParticles =
+      []; // Track individual impurity particles
   bool isFiltering = false; // Track if user is actively filtering
   double filterClothSag = 0.0; // Visual feedback for filter cloth
   int consecutiveSwipes = 0; // Bonus for consistent swiping
@@ -80,6 +92,32 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     super.initState();
     _initializeMaterials();
     _initializeAnimations();
+
+    // ADD THESE NEW CONTROLLERS:
+    _bottlePlacementController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+
+    _shelfShineController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _transitionController.dispose();
+    _crushingController.dispose();
+    _bubbleController.dispose();
+    temperatureTimer?.cancel();
+    filteringTimer?.cancel();
+
+    // ADD THESE:
+    _bottlePlacementController.dispose();
+    _shelfShineController.dispose();
+
+    super.dispose();
   }
 
   void _initializeMaterials() {
@@ -133,16 +171,6 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     )..repeat();
   }
 
-  @override
-  void dispose() {
-    _transitionController.dispose();
-    _crushingController.dispose();
-    _bubbleController.dispose();
-    temperatureTimer?.cancel();
-    filteringTimer?.cancel();
-    super.dispose();
-  }
-
   void _startWorkshop() {
     setState(() {
       currentPhase = 1;
@@ -189,6 +217,30 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
       default:
         return {};
     }
+  }
+
+  void _addDyeToStorage() {
+    setState(() {
+      storedDyes.add(StoredDye(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: dyeType,
+        color: dyeColor,
+        volume: dyeProduced,
+        isNew: true,
+      ));
+      _showStorageSuccess = true;
+    });
+    
+    _bottlePlacementController.forward(from: 0);
+    
+    // Mark bottle as not new after animation
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted && storedDyes.isNotEmpty) {
+        setState(() {
+          storedDyes.last.isNew = false;
+        });
+      }
+    });
   }
 
   void _startCrushing() {
@@ -363,19 +415,19 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     filteringTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         filteringTimeLeft--;
-        
+
         // Natural settling - small progress even without swiping
         if (filteringProgress < 100) {
           filteringProgress += 0.3;
           impurityLevel = math.max(0, 100 - filteringProgress);
         }
-        
+
         // Reset consecutive swipes if no recent activity
-        if (lastSwipeTime != null && 
+        if (lastSwipeTime != null &&
             DateTime.now().difference(lastSwipeTime!).inSeconds > 2) {
           consecutiveSwipes = 0;
         }
-        
+
         // Auto-complete if progress reaches 100% OR time runs out
         if (filteringProgress >= 100.0 || filteringTimeLeft <= 0) {
           timer.cancel();
@@ -386,46 +438,58 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   }
 
   void _onFilterSwipe(DragUpdateDetails details) {
-    if (filteringProgress >= 100.0) return; // Don't process if complete
+    // Safety check: Don't process if filtering is complete
+    if (filteringProgress >= 100.0) return;
     
+    // Safety check: Don't process if timer is cancelled
+    if (filteringTimer == null || !filteringTimer!.isActive) return;
+    
+    // Safety check: Ensure we have valid delta information
+    if (details.delta.dx.isNaN || details.delta.dx.isInfinite) return;
+
     setState(() {
       filterPosition += details.delta.dx;
       isFiltering = true;
-      
+
       // Track consecutive swipes for bonus
-      if (lastSwipeTime != null && 
+      if (lastSwipeTime != null &&
           DateTime.now().difference(lastSwipeTime!).inMilliseconds < 500) {
         consecutiveSwipes = math.min(consecutiveSwipes + 1, 10);
       } else {
         consecutiveSwipes = 1;
       }
       lastSwipeTime = DateTime.now();
-      
+
       // Complete swipe cycle
       if (filterPosition.abs() > 60) {
         swipeCount++;
         filterPosition = 0;
-        
+
         // Calculate progress boost based on consecutive swipes (bonus for rhythm)
         double progressBoost = 3.5 + (consecutiveSwipes * 0.3);
         filteringProgress = math.min(100.0, filteringProgress + progressBoost);
         impurityLevel = math.max(0, 100 - filteringProgress);
-        
+
         // Visual feedback
         filterClothSag = 15.0;
-        
+
         // Remove impurity particles progressively
         int particlesToRemove = (swipeCount / 3).floor();
-        for (int i = 0; i < impurityParticles.length && particlesToRemove > 0; i++) {
-          if (!impurityParticles[i]['removed'] && !impurityParticles[i]['falling']) {
+        for (
+          int i = 0;
+          i < impurityParticles.length && particlesToRemove > 0;
+          i++
+        ) {
+          if (!impurityParticles[i]['removed'] &&
+              !impurityParticles[i]['falling']) {
             impurityParticles[i]['falling'] = true;
             particlesToRemove--;
           }
         }
-        
-        // Animate particles falling
+
+        // Animate particles falling - with safety check
         Future.delayed(const Duration(milliseconds: 50), () {
-          if (mounted) {
+          if (mounted && filteringTimer != null && filteringTimer!.isActive) {
             setState(() {
               for (var particle in impurityParticles) {
                 if (particle['falling'] && !particle['removed']) {
@@ -438,11 +502,22 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
             });
           }
         });
+        
+        // Check if we've reached 100% and auto-complete
+        if (filteringProgress >= 100.0) {
+          filteringTimer?.cancel();
+          // Delay slightly to allow final animation frame
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (mounted) {
+              _calculateFilteringScore();
+            }
+          });
+        }
       }
-      
-      // Reset sag animation
+
+      // Reset sag animation - with safety check
       Future.delayed(const Duration(milliseconds: 150), () {
-        if (mounted) {
+        if (mounted && filteringTimer != null && filteringTimer!.isActive) {
           setState(() {
             filterClothSag = 0.0;
             isFiltering = false;
@@ -455,17 +530,22 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   void _calculateFilteringScore() {
     // Base purity on actual progress achieved
     double achievedPurity = filteringProgress / 100.0;
-    
+
     // Time bonus: finished faster = better quality
-    double timeBonus = filteringTimeLeft > 0 ? (filteringTimeLeft / 30.0) * 0.15 : 0.0;
-    
+    double timeBonus = filteringTimeLeft > 0
+        ? (filteringTimeLeft / 30.0) * 0.15
+        : 0.0;
+
     // Technique bonus: consistent swiping
     double techniqueBonus = math.min(consecutiveSwipes / 50.0, 0.1);
-    
+
     // Calculate final purity (0.7 to 1.0 range)
-    filteringPurity = (0.7 + (achievedPurity * 0.3) + timeBonus + techniqueBonus)
-        .clamp(0.7, 1.0);
-    
+    filteringPurity =
+        (0.7 + (achievedPurity * 0.3) + timeBonus + techniqueBonus).clamp(
+          0.7,
+          1.0,
+        );
+
     _calculateFinalResults();
   }
 
@@ -494,6 +574,86 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     setState(() {
       currentPhase = 5;
     });
+  }
+
+
+  bool _hasEnoughMaterialsForAnyCraft() {
+    return materials.values.any((amount) => amount >= 5);
+  }
+
+  List<String> _getCraftableRecipes() {
+    List<String> craftable = [];
+    Map<String, Map<String, int>> allRecipes = {
+      'Green Dye': {'🍃 Leaves': 10},
+      'Brown Dye': {'🪵 Bark': 10},
+      'Yellow Dye': {'🌿 Roots': 10},
+      'Red Dye': {'🌺 Flowers': 10},
+      'Purple Dye': {'🫐 Fruits': 10},
+      'Blue Dye': {'🍃 Leaves': 5, '🫐 Fruits': 5},
+      'Orange Dye': {'🌿 Roots': 5, '🌺 Flowers': 5},
+      'Teal Dye': {'🍃 Leaves': 5, '🪵 Bark': 5},
+    };
+
+    allRecipes.forEach((recipe, requirements) {
+      bool canCraft = true;
+      requirements.forEach((material, needed) {
+        if ((materials[material] ?? 0) < needed) {
+          canCraft = false;
+        }
+      });
+      if (canCraft) craftable.add(recipe);
+    });
+
+    return craftable;
+  }
+
+  void _showInsufficientMaterialsDialog() {
+    List<String> craftable = _getCraftableRecipes();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2D1E17),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Insufficient Materials',
+          style: GoogleFonts.vt323(fontSize: 22, color: Colors.amber),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              craftable.isEmpty
+                  ? 'You don\'t have enough materials to craft any more dyes.'
+                  : 'You can still craft:',
+              style: GoogleFonts.vt323(fontSize: 16, color: Colors.white70),
+            ),
+            if (craftable.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              ...craftable.map(
+                (recipe) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text(
+                    '• $recipe',
+                    style: GoogleFonts.vt323(fontSize: 16, color: Colors.green),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(
+              'OK',
+              style: GoogleFonts.vt323(fontSize: 18, color: Colors.amber),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -2748,7 +2908,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     String qualityStatus;
     Color qualityColor;
     IconData qualityIcon;
-    
+
     if (filteringProgress >= 90) {
       qualityStatus = 'CRYSTAL CLEAR';
       qualityColor = Colors.greenAccent;
@@ -2770,7 +2930,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
       qualityColor = Colors.red;
       qualityIcon = Icons.cloud;
     }
-    
+
     // Calculate liquid color - transitions from murky to clear
     Color liquidColor = Color.lerp(
       dyeColor.withValues(alpha: 0.3), // Murky/diluted
@@ -2785,7 +2945,8 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
           physics: const BouncingScrollPhysics(),
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              minHeight: MediaQuery.of(context).size.height -
+              minHeight:
+                  MediaQuery.of(context).size.height -
                   MediaQuery.of(context).padding.top -
                   MediaQuery.of(context).padding.bottom,
             ),
@@ -2872,7 +3033,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.white.withValues(alpha: 0.1),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.1,
+                                      ),
                                       blurRadius: 20,
                                       spreadRadius: 5,
                                     ),
@@ -2883,7 +3046,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                   children: [
                                     // Collected filtered dye
                                     AnimatedContainer(
-                                      duration: const Duration(milliseconds: 400),
+                                      duration: const Duration(
+                                        milliseconds: 400,
+                                      ),
                                       width: 192,
                                       height: (filteringProgress / 100.0) * 160,
                                       decoration: BoxDecoration(
@@ -2901,13 +3066,19 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                         ),
                                       ),
                                     ),
-                                    
+
                                     // Surface shimmer effect
                                     if (filteringProgress > 10)
                                       Positioned(
-                                        top: 20 + ((100 - filteringProgress) / 100.0) * 140,
+                                        top:
+                                            20 +
+                                            ((100 - filteringProgress) /
+                                                    100.0) *
+                                                140,
                                         child: AnimatedOpacity(
-                                          duration: const Duration(milliseconds: 300),
+                                          duration: const Duration(
+                                            milliseconds: 300,
+                                          ),
                                           opacity: 0.3,
                                           child: Container(
                                             width: 180,
@@ -2916,7 +3087,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                               gradient: LinearGradient(
                                                 colors: [
                                                   Colors.transparent,
-                                                  Colors.white.withValues(alpha: 0.6),
+                                                  Colors.white.withValues(
+                                                    alpha: 0.6,
+                                                  ),
                                                   Colors.transparent,
                                                 ],
                                               ),
@@ -2924,23 +3097,29 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                           ),
                                         ),
                                       ),
-                                    
+
                                     // Volume markings
                                     Positioned(
                                       left: 8,
                                       child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceEvenly,
                                         children: List.generate(4, (index) {
                                           int ml = 50 + (index * 50);
-                                          bool filled = filteringProgress >= (ml / 2);
+                                          bool filled =
+                                              filteringProgress >= (ml / 2);
                                           return Row(
                                             children: [
                                               Container(
                                                 width: 15,
                                                 height: 1,
-                                                color: filled 
-                                                    ? Colors.white.withValues(alpha: 0.6)
-                                                    : Colors.white.withValues(alpha: 0.3),
+                                                color: filled
+                                                    ? Colors.white.withValues(
+                                                        alpha: 0.6,
+                                                      )
+                                                    : Colors.white.withValues(
+                                                        alpha: 0.3,
+                                                      ),
                                               ),
                                               const SizedBox(width: 4),
                                               Text(
@@ -2948,8 +3127,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                                 style: GoogleFonts.vt323(
                                                   fontSize: 12,
                                                   color: filled
-                                                      ? Colors.white.withValues(alpha: 0.8)
-                                                      : Colors.white.withValues(alpha: 0.4),
+                                                      ? Colors.white.withValues(
+                                                          alpha: 0.8,
+                                                        )
+                                                      : Colors.white.withValues(
+                                                          alpha: 0.4,
+                                                        ),
                                                 ),
                                               ),
                                             ],
@@ -2960,7 +3143,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                   ],
                                 ),
                               ),
-                              
+
                               // Beaker rim
                               Positioned(
                                 top: -4,
@@ -2971,7 +3154,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                     color: Colors.white.withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(6),
                                     border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.5),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.5,
+                                      ),
                                       width: 2,
                                     ),
                                   ),
@@ -3003,7 +3188,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                     bodyColor: Colors.grey.shade600,
                                   ),
                                 ),
-                                
+
                                 // Heated mixture being poured (source)
                                 Positioned(
                                   top: -60,
@@ -3022,21 +3207,25 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                           ],
                                         ),
                                         border: Border.all(
-                                          color: Colors.white.withValues(alpha: 0.3),
+                                          color: Colors.white.withValues(
+                                            alpha: 0.3,
+                                          ),
                                           width: 3,
                                         ),
                                       ),
                                       child: Center(
                                         child: Icon(
                                           Icons.science,
-                                          color: Colors.white.withValues(alpha: 0.7),
+                                          color: Colors.white.withValues(
+                                            alpha: 0.7,
+                                          ),
                                           size: 40,
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
-                                
+
                                 // Pour stream
                                 if (filteringProgress < 95)
                                   Positioned(
@@ -3058,17 +3247,22 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                     ),
                                   ),
 
-                                  // Filter cloth (moveable) with impurities
-                                  Positioned(
-                                    top: 55,
-                                    child: Transform.translate(
-                                      offset: Offset(filterPosition, filterClothSag),
-                                      child: AnimatedContainer(
-                                        duration: const Duration(milliseconds: 150),
-                                        child: Stack(
-                                          alignment: Alignment.center,
-                                          clipBehavior: Clip.none,
-                                          children: [
+                                // Filter cloth (moveable) with impurities
+                                Positioned(
+                                  top: 55,
+                                  child: Transform.translate(
+                                    offset: Offset(
+                                      filterPosition,
+                                      filterClothSag,
+                                    ),
+                                    child: AnimatedContainer(
+                                      duration: const Duration(
+                                        milliseconds: 150,
+                                      ),
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        clipBehavior: Clip.none,
+                                        children: [
                                           // Cloth mesh
                                           Container(
                                             width: 240,
@@ -3078,19 +3272,26 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                                 begin: Alignment.topCenter,
                                                 end: Alignment.bottomCenter,
                                                 colors: [
-                                                  Colors.white.withValues(alpha: 0.9),
-                                                  Colors.grey.shade200.withValues(alpha: 0.8),
-                                                  Colors.white.withValues(alpha: 0.9),
+                                                  Colors.white.withValues(
+                                                    alpha: 0.9,
+                                                  ),
+                                                  Colors.grey.shade200
+                                                      .withValues(alpha: 0.8),
+                                                  Colors.white.withValues(
+                                                    alpha: 0.9,
+                                                  ),
                                                 ],
                                               ),
-                                              borderRadius: BorderRadius.circular(8),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
                                               border: Border.all(
                                                 color: Colors.grey.shade400,
                                                 width: 2,
                                               ),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: Colors.black.withValues(alpha: 0.3),
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.3),
                                                   blurRadius: 12,
                                                   offset: const Offset(0, 6),
                                                 ),
@@ -3100,36 +3301,52 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                               painter: ClothMeshPainter(),
                                             ),
                                           ),
-                                          
+
                                           // Impurity particles on filter
                                           ...impurityParticles.map((particle) {
-                                            if (particle['removed']) return const SizedBox.shrink();
-                                            
+                                            if (particle['removed']) {
+                                              return const SizedBox.shrink();
+                                            }
+
                                             double particleX = particle['x'];
                                             double particleY = particle['y'];
-                                            double particleSize = particle['size'];
+                                            double particleSize =
+                                                particle['size'];
                                             bool falling = particle['falling'];
-                                            
+
                                             return AnimatedPositioned(
-                                              duration: const Duration(milliseconds: 300),
-                                              left: particleX - (particleSize / 2),
-                                              top: particleY - (particleSize / 2),
+                                              duration: const Duration(
+                                                milliseconds: 300,
+                                              ),
+                                              left:
+                                                  particleX -
+                                                  (particleSize / 2),
+                                              top:
+                                                  particleY -
+                                                  (particleSize / 2),
                                               child: AnimatedOpacity(
-                                                duration: const Duration(milliseconds: 200),
+                                                duration: const Duration(
+                                                  milliseconds: 200,
+                                                ),
                                                 opacity: falling ? 0.3 : 0.9,
                                                 child: Container(
                                                   width: particleSize,
                                                   height: particleSize,
                                                   decoration: BoxDecoration(
-                                                    color: Colors.brown.shade700,
+                                                    color:
+                                                        Colors.brown.shade700,
                                                     shape: BoxShape.circle,
                                                     border: Border.all(
-                                                      color: Colors.brown.shade900,
+                                                      color:
+                                                          Colors.brown.shade900,
                                                       width: 1,
                                                     ),
                                                     boxShadow: [
                                                       BoxShadow(
-                                                        color: Colors.black.withValues(alpha: 0.4),
+                                                        color: Colors.black
+                                                            .withValues(
+                                                              alpha: 0.4,
+                                                            ),
                                                         blurRadius: 3,
                                                       ),
                                                     ],
@@ -3138,30 +3355,37 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                               ),
                                             );
                                           }),
-                                          
+
                                           // Active filtering indicator
                                           if (isFiltering)
                                             Positioned.fill(
                                               child: Container(
                                                 decoration: BoxDecoration(
-                                                  borderRadius: BorderRadius.circular(8),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
                                                   border: Border.all(
-                                                    color: Colors.blue.withValues(alpha: 0.6),
+                                                    color: Colors.blue
+                                                        .withValues(alpha: 0.6),
                                                     width: 3,
                                                   ),
                                                 ),
                                               ),
                                             ),
-                                          
+
                                           // Swipe direction indicator
                                           if (filteringProgress < 20)
                                             Positioned(
                                               bottom: -40,
                                               child: AnimatedOpacity(
-                                                duration: const Duration(milliseconds: 500),
-                                                opacity: isFiltering ? 0.0 : 1.0,
+                                                duration: const Duration(
+                                                  milliseconds: 500,
+                                                ),
+                                                opacity: isFiltering
+                                                    ? 0.0
+                                                    : 1.0,
                                                 child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
                                                   children: [
                                                     Icon(
                                                       Icons.arrow_back,
@@ -3170,21 +3394,32 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                                     ),
                                                     const SizedBox(width: 8),
                                                     Container(
-                                                      padding: const EdgeInsets.symmetric(
-                                                        horizontal: 12,
-                                                        vertical: 6,
-                                                      ),
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 12,
+                                                            vertical: 6,
+                                                          ),
                                                       decoration: BoxDecoration(
-                                                        color: Colors.amber.withValues(alpha: 0.9),
-                                                        borderRadius: BorderRadius.circular(12),
+                                                        color: Colors.amber
+                                                            .withValues(
+                                                              alpha: 0.9,
+                                                            ),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              12,
+                                                            ),
                                                       ),
                                                       child: Text(
                                                         'SWIPE HERE',
-                                                        style: GoogleFonts.vt323(
-                                                          fontSize: 16,
-                                                          color: Colors.black,
-                                                          fontWeight: FontWeight.bold,
-                                                        ),
+                                                        style:
+                                                            GoogleFonts.vt323(
+                                                              fontSize: 16,
+                                                              color:
+                                                                  Colors.black,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                            ),
                                                       ),
                                                     ),
                                                     const SizedBox(width: 8),
@@ -3202,16 +3437,20 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                     ),
                                   ),
                                 ),
-                                
+
                                 // Filtered droplets falling
                                 if (swipeCount > 0)
                                   ...List.generate(3, (index) {
-                                    double offset = (index * 40.0) + (swipeCount % 3) * 15.0;
+                                    double offset =
+                                        (index * 40.0) +
+                                        (swipeCount % 3) * 15.0;
                                     return Positioned(
                                       top: 160 + offset,
                                       left: 130 + (index * 15.0),
                                       child: AnimatedOpacity(
-                                        duration: const Duration(milliseconds: 800),
+                                        duration: const Duration(
+                                          milliseconds: 800,
+                                        ),
                                         opacity: offset < 80 ? 0.8 : 0.0,
                                         child: Icon(
                                           Icons.water_drop,
@@ -3304,7 +3543,8 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                             children: [
                               AnimatedContainer(
                                 duration: const Duration(milliseconds: 300),
-                                width: (MediaQuery.of(context).size.width - 88) *
+                                width:
+                                    (MediaQuery.of(context).size.width - 88) *
                                     (filteringProgress / 100),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(13),
@@ -3317,7 +3557,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: qualityColor.withValues(alpha: 0.6),
+                                      color: qualityColor.withValues(
+                                        alpha: 0.6,
+                                      ),
                                       blurRadius: 10,
                                     ),
                                   ],
@@ -3349,7 +3591,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                               icon: Icons.timer,
                               label: 'Time',
                               value: '${filteringTimeLeft}s',
-                              color: filteringTimeLeft > 15 ? Colors.amber : Colors.red,
+                              color: filteringTimeLeft > 15
+                                  ? Colors.amber
+                                  : Colors.red,
                             ),
                           ],
                         ),
@@ -3573,186 +3817,429 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
 
   Widget _buildCompletionScreen() {
     return Container(
-      padding: const EdgeInsets.all(24),
-      child: SingleChildScrollView(
-        child: Column(
-          children: [
-            const SizedBox(height: 40),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [const Color(0xFF1B3A1B), const Color(0xFF0D1F0D)],
+        ),
+      ),
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Responsive sizing
+            bool isPortrait = constraints.maxHeight > constraints.maxWidth;
+            bool isTablet = constraints.maxWidth >= 600;
 
-            Text(
-              'DYE EXTRACTION COMPLETE!',
-              style: GoogleFonts.vt323(
-                fontSize: 32,
-                color: Colors.amber,
-                fontWeight: FontWeight.bold,
-              ),
-              textAlign: TextAlign.center,
-            ),
-
-            const SizedBox(height: 40),
-
-            // Dye Bottle
-            Container(
-              width: 150,
-              height: 200,
-              decoration: BoxDecoration(
-                color: dyeColor.withValues(alpha: 0.8),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(20),
-                  topRight: Radius.circular(20),
-                  bottomLeft: Radius.circular(75),
-                  bottomRight: Radius.circular(75),
-                ),
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: dyeColor.withValues(alpha: 0.5),
-                    blurRadius: 30,
-                    spreadRadius: 10,
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  '$dyeProduced ml',
-                  style: GoogleFonts.vt323(
-                    fontSize: 32,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 40),
-
-            // Results Summary
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.green.shade900.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.green, width: 2),
-              ),
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.all(constraints.maxWidth * 0.04),
               child: Column(
                 children: [
-                  _buildResultRow(
-                    'Dye Type:',
-                    selectedRecipe ?? 'N/A',
-                    Colors.amber,
-                  ),
-                  _buildResultRow(
-                    'Material Quality:',
-                    materialQuality,
-                    materialQuality == 'Fresh'
-                        ? Colors.greenAccent
-                        : materialQuality == 'Good'
-                        ? Colors.amber
-                        : Colors.orange,
-                  ),
-                  _buildResultRow(
-                    'Quality Bonus:',
-                    '+${((qualityMultiplier - 1) * 100).toInt()}%',
-                    Colors.green,
-                  ),
-                  const Divider(color: Colors.white30),
-                  _buildResultRow(
-                    'Crushing:',
-                    '${(crushingEfficiency * 100).toInt()}%',
-                    crushingEfficiency >= 1.1
-                        ? Colors.greenAccent
-                        : Colors.white,
-                  ),
-                  _buildResultRow(
-                    'Temperature:',
-                    'Perfect!',
-                    Colors.greenAccent,
-                  ),
-                  _buildResultRow(
-                    'Filtering:',
-                    '${(filteringPurity * 100).toInt()}%',
-                    filteringPurity >= 0.9 ? Colors.greenAccent : Colors.white,
-                  ),
-                  const Divider(color: Colors.white30),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.monetization_on,
-                        color: Colors.amber,
-                        size: 32,
+                  // Success Header
+                  _buildSuccessHeader(constraints),
+
+                  SizedBox(height: constraints.maxHeight * 0.03),
+
+                  // Extraction Summary Card
+                  _buildExtractionSummary(constraints),
+
+                  SizedBox(height: constraints.maxHeight * 0.04),
+
+                  // 3D Shelf Display
+                  _build3DShelfDisplay(constraints, isPortrait, isTablet),
+
+                  SizedBox(height: constraints.maxHeight * 0.03),
+
+                  // Storage Success Message
+                  if (_showStorageSuccess)
+                    _buildStorageSuccessMessage(constraints),
+
+                  SizedBox(height: constraints.maxHeight * 0.03),
+
+                  // Action Buttons
+                  _buildActionButtons(constraints),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuccessHeader(BoxConstraints constraints) {
+    double iconSize = (constraints.maxWidth * 0.15).clamp(60.0, 120.0);
+    double titleSize = (constraints.maxWidth * 0.06).clamp(24.0, 40.0);
+
+    return TweenAnimationBuilder(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 800),
+      builder: (context, double value, child) {
+        return Transform.scale(
+          scale: value,
+          child: Opacity(
+            opacity: value,
+            child: Column(
+              children: [
+                // Animated success icon
+                Container(
+                  padding: EdgeInsets.all(constraints.maxWidth * 0.04),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        Colors.green.withValues(alpha: 0.3),
+                        Colors.transparent,
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.green.withValues(alpha: 0.4),
+                        blurRadius: 30,
+                        spreadRadius: 10,
                       ),
-                      const SizedBox(width: 12),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.science,
+                    size: iconSize,
+                    color: Colors.greenAccent,
+                  ),
+                ),
+
+                SizedBox(height: constraints.maxHeight * 0.02),
+
+                ShaderMask(
+                  shaderCallback: (bounds) => LinearGradient(
+                    colors: [
+                      const Color(0xFF86EFAC),
+                      const Color(0xFFA7F3D0),
+                      const Color(0xFF86EFAC),
+                    ],
+                  ).createShader(bounds),
+                  child: Text(
+                    'DYE EXTRACTION COMPLETE!',
+                    style: GoogleFonts.exo2(
+                      fontSize: titleSize,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: 1.5,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildExtractionSummary(BoxConstraints constraints) {
+    double cardPadding = constraints.maxWidth * 0.04;
+    double fontSize = (constraints.maxWidth * 0.028).clamp(12.0, 18.0);
+
+    return Container(
+      padding: EdgeInsets.all(cardPadding),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.black.withValues(alpha: 0.6),
+            Colors.black.withValues(alpha: 0.8),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: dyeColor, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: dyeColor.withValues(alpha: 0.3),
+            blurRadius: 20,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Title
+          Row(
+            children: [
+              Icon(Icons.assessment, color: dyeColor, size: fontSize * 1.5),
+              SizedBox(width: cardPadding * 0.5),
+              Text(
+                'EXTRACTION REPORT',
+                style: GoogleFonts.exo2(
+                  fontSize: fontSize * 1.2,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+
+          SizedBox(height: cardPadding * 0.6),
+          Divider(color: dyeColor.withValues(alpha: 0.3)),
+          SizedBox(height: cardPadding * 0.6),
+
+          // Stats Grid
+          _buildStatRow(
+            'Dye Type:',
+            selectedRecipe ?? 'Unknown',
+            Icons.palette,
+            fontSize,
+          ),
+          _buildStatRow(
+            'Volume Produced:',
+            '$dyeProduced ml',
+            Icons.water_drop,
+            fontSize,
+          ),
+          _buildStatRow(
+            'Quality:',
+            materialQuality,
+            Icons.workspace_premium,
+            fontSize,
+          ),
+          _buildStatRow(
+            'Efficiency:',
+            '${(crushingEfficiency * 100).toInt()}%',
+            Icons.trending_up,
+            fontSize,
+          ),
+          _buildStatRow(
+            'Purity:',
+            '${(filteringPurity * 100).toInt()}%',
+            Icons.science,
+            fontSize,
+          ),
+
+          SizedBox(height: cardPadding * 0.6),
+          Divider(color: dyeColor.withValues(alpha: 0.3)),
+          SizedBox(height: cardPadding * 0.6),
+
+          // Rewards
+          Container(
+            padding: EdgeInsets.all(cardPadding * 0.8),
+            decoration: BoxDecoration(
+              color: Colors.amber.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.amber.withValues(alpha: 0.3),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.monetization_on,
+                  color: Colors.amber,
+                  size: fontSize * 2,
+                ),
+                SizedBox(width: cardPadding * 0.5),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ECOCOINS EARNED',
+                      style: GoogleFonts.exo2(
+                        fontSize: fontSize * 0.8,
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '$ecoCoinsEarned',
+                      style: GoogleFonts.exo2(
+                        fontSize: fontSize * 2,
+                        color: Colors.amber,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatRow(
+    String label,
+    String value,
+    IconData icon,
+    double fontSize,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: fontSize * 1.2,
+            color: dyeColor.withValues(alpha: 0.7),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.exo2(
+                fontSize: fontSize,
+                color: Colors.white70,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: GoogleFonts.exo2(
+              fontSize: fontSize,
+              color: dyeColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _build3DShelfDisplay(
+    BoxConstraints constraints,
+    bool isPortrait,
+    bool isTablet,
+  ) {
+    // Calculate responsive dimensions
+    double shelfWidth = constraints.maxWidth * (isPortrait ? 0.92 : 0.85);
+    shelfWidth = shelfWidth.clamp(300.0, 800.0);
+
+    double shelfHeight = isPortrait
+        ? constraints.maxHeight * 0.45
+        : constraints.maxHeight * 0.6;
+    shelfHeight = shelfHeight.clamp(300.0, 600.0);
+
+    // FIXED: Schedule the dye storage addition for after the build completes
+    // instead of calling it during build
+    if (!_showStorageSuccess && currentPhase == 5) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _addDyeToStorage();
+        }
+      });
+    }
+
+    return Container(
+      width: shelfWidth,
+      height: shelfHeight,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.brown.shade800.withValues(alpha: 0.3),
+            Colors.brown.shade900.withValues(alpha: 0.5),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFD4AF37), width: 3),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(17),
+        child: Stack(
+          children: [
+            // Background wood texture
+            Positioned.fill(child: CustomPaint(painter: WoodTexturePainter())),
+
+            // Shelf structure
+            Positioned.fill(
+              child: CustomPaint(
+                painter: ShelfPainter(
+                  shelfCount: _calculateShelfCount(shelfHeight),
+                ),
+              ),
+            ),
+
+            // Dye bottles
+            Positioned.fill(
+              child: _buildDyeBottlesGrid(
+                shelfWidth,
+                shelfHeight,
+                isPortrait,
+                isTablet,
+              ),
+            ),
+
+            // Shine effect
+            Positioned.fill(
+              child: AnimatedBuilder(
+                animation: _shelfShineController,
+                builder: (context, child) {
+                  return CustomPaint(
+                    painter: ShelfShinePainter(
+                      progress: _shelfShineController.value,
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            // Storage label
+            Positioned(
+              top: 12,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: const Color(0xFFD4AF37),
+                      width: 2,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.inventory_2,
+                        color: const Color(0xFFD4AF37),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
                       Text(
-                        '$ecoCoinsEarned EcoCoins',
-                        style: GoogleFonts.vt323(
-                          fontSize: 32,
-                          color: Colors.amber,
-                          fontWeight: FontWeight.bold,
+                        'DYE STORAGE CABINET',
+                        style: GoogleFonts.exo2(
+                          fontSize: (constraints.maxWidth * 0.025).clamp(
+                            12.0,
+                            16.0,
+                          ),
+                          color: const Color(0xFFD4AF37),
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
                         ),
                       ),
                     ],
                   ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 30),
-
-            // Unlocked Items
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.purple.shade900.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.purple, width: 2),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    '🎨 UNLOCKED CUSTOMIZATION',
-                    style: GoogleFonts.vt323(
-                      fontSize: 22,
-                      color: Colors.purple.shade200,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    '✓ ${dyeType.split(' ')[0]} Face Paint\n'
-                    '✓ ${dyeType.split(' ')[0]} Body Paint',
-                    style: GoogleFonts.vt323(fontSize: 18, color: Colors.white),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 30),
-
-            // Action Buttons
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildActionButton(
-                  icon: Icons.replay,
-                  label: 'CRAFT\nANOTHER',
-                  color: Colors.orange,
-                  onPressed: () {
-                    setState(() {
-                      currentPhase = 1;
-                      selectedRecipe = null;
-                    });
-                  },
                 ),
-                _buildActionButton(
-                  icon: Icons.check_circle,
-                  label: 'FINISH',
-                  color: Colors.green,
-                  onPressed: () => _showFinalCompletionDialog(),
-                ),
-              ],
+              ),
             ),
           ],
         ),
@@ -3760,56 +4247,326 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     );
   }
 
-  Widget _buildResultRow(String label, String value, Color valueColor) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: GoogleFonts.vt323(fontSize: 18, color: Colors.white70),
+  int _calculateShelfCount(double height) {
+    if (height < 350) return 2;
+    if (height < 450) return 3;
+    return 4;
+  }
+
+  Widget _buildDyeBottlesGrid(
+    double width,
+    double height,
+    bool isPortrait,
+    bool isTablet,
+  ) {
+    int shelfCount = _calculateShelfCount(height);
+    double bottleSpacing = width * 0.02;
+    double shelfSpacing = height / (shelfCount + 1);
+
+    // Calculate bottles per shelf based on width
+    int bottlesPerShelf = isPortrait ? (isTablet ? 5 : 4) : (isTablet ? 7 : 6);
+
+    double bottleWidth =
+        (width - (bottleSpacing * (bottlesPerShelf + 1))) / bottlesPerShelf;
+    bottleWidth = bottleWidth.clamp(40.0, 80.0);
+
+    return Stack(
+      children: storedDyes.asMap().entries.map((entry) {
+        int index = entry.key;
+        StoredDye dye = entry.value;
+
+        int shelfIndex = index ~/ bottlesPerShelf;
+        int positionOnShelf = index % bottlesPerShelf;
+
+        // Skip if exceeds shelf count
+        if (shelfIndex >= shelfCount) return const SizedBox.shrink();
+
+        double left =
+            bottleSpacing + (positionOnShelf * (bottleWidth + bottleSpacing));
+        double top = shelfSpacing * (shelfIndex + 1) - (bottleWidth * 1.5);
+
+        return Positioned(
+          left: left,
+          top: top,
+          child: _buildDyeBottle(
+            dye: dye,
+            width: bottleWidth,
+            delay: index * 0.15,
           ),
-          Text(
-            value,
-            style: GoogleFonts.vt323(
-              fontSize: 18,
-              color: valueColor,
-              fontWeight: FontWeight.bold,
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildDyeBottle({
+    required StoredDye dye,
+    required double width,
+    required double delay,
+  }) {
+    double height = width * 1.8;
+
+    return TweenAnimationBuilder(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: Duration(milliseconds: 800 + (delay * 1000).toInt()),
+      curve: Curves.elasticOut,
+      builder: (context, double value, child) {
+        return Transform.translate(
+          offset: Offset(0, -50 * (1 - value)),
+          child: Opacity(
+            opacity: value,
+            child: SizedBox(
+              width: width,
+              height: height,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Bottle body
+                  CustomPaint(
+                    size: Size(width, height),
+                    painter: BottlePainter(color: dye.color),
+                  ),
+
+                  // Label
+                  Positioned(
+                    bottom: height * 0.15,
+                    child: Container(
+                      width: width * 0.8,
+                      padding: EdgeInsets.symmetric(
+                        vertical: height * 0.02,
+                        horizontal: width * 0.05,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: dye.color, width: 1),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              dye.name,
+                              style: GoogleFonts.exo2(
+                                fontSize: width * 0.16,
+                                color: Colors.black87,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          SizedBox(height: height * 0.01),
+                          Text(
+                            '${dye.volume}ml',
+                            style: GoogleFonts.exo2(
+                              fontSize: width * 0.14,
+                              color: dye.color,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Sparkle effect on new bottle
+                  if (dye.isNew)
+                    Positioned.fill(
+                      child: AnimatedBuilder(
+                        animation: _shelfShineController,
+                        builder: (context, child) {
+                          return CustomPaint(
+                            painter: SparkleEffectPainter(
+                              progress: _shelfShineController.value,
+                              color: dye.color,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
-        ],
-      ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStorageSuccessMessage(BoxConstraints constraints) {
+    return TweenAnimationBuilder(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 600),
+      builder: (context, double value, child) {
+        return Transform.scale(
+          scale: value,
+          child: Opacity(
+            opacity: value,
+            child: Container(
+              padding: EdgeInsets.all(constraints.maxWidth * 0.04),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.green.withValues(alpha: 0.2),
+                    Colors.green.withValues(alpha: 0.3),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.greenAccent, width: 2),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.check_circle,
+                    color: Colors.greenAccent,
+                    size: constraints.maxWidth * 0.08,
+                  ),
+                  SizedBox(width: constraints.maxWidth * 0.03),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Successfully Stored!',
+                          style: GoogleFonts.exo2(
+                            fontSize: (constraints.maxWidth * 0.032).clamp(
+                              14.0,
+                              20.0,
+                            ),
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        Text(
+                          '${dyeProduced}ml of $dyeType added to your collection',
+                          style: GoogleFonts.exo2(
+                            fontSize: (constraints.maxWidth * 0.024).clamp(
+                              12.0,
+                              16.0,
+                            ),
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActionButtons(BoxConstraints constraints) {
+    double fontSize = (constraints.maxWidth * 0.028).clamp(14.0, 18.0);
+
+    bool canCraftMore = _hasEnoughMaterialsForAnyCraft();
+
+    return Row(
+      children: [
+        // Craft Another Button
+        Expanded(
+          child: Opacity(
+            opacity: canCraftMore ? 1.0 : 0.5,
+            child: _buildActionButton(
+              icon: Icons.replay,
+              label: 'CRAFT ANOTHER',
+              gradient: canCraftMore
+                  ? const LinearGradient(
+                      colors: [Color(0xFFD97706), Color(0xFFF59E0B)],
+                    )
+                  : const LinearGradient(colors: [Colors.grey, Colors.grey]),
+              onPressed: canCraftMore
+                  ? () {
+                      setState(() {
+                        currentPhase = 1;
+                        selectedRecipe = null;
+                        _showStorageSuccess = false;
+                      });
+                    }
+                  : () => _showInsufficientMaterialsDialog(),
+              constraints: constraints,
+              fontSize: fontSize,
+            ),
+          ),
+        ),
+
+        SizedBox(width: constraints.maxWidth * 0.03),
+
+        // Finish Button
+        Expanded(
+          child: _buildActionButton(
+            icon: Icons.check_circle,
+            label: 'FINISH LEVEL',
+            gradient: const LinearGradient(
+              colors: [Color(0xFF2E7D32), Color(0xFF4CAF50)],
+            ),
+            onPressed: () => _showFinalCompletionDialog(),
+            constraints: constraints,
+            fontSize: fontSize,
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildActionButton({
     required IconData icon,
     required String label,
-    required Color color,
+    required LinearGradient gradient,
     required VoidCallback onPressed,
+    required BoxConstraints constraints,
+    required double fontSize,
   }) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 32),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: GoogleFonts.vt323(fontSize: 16, fontWeight: FontWeight.bold),
-            textAlign: TextAlign.center,
-          ),
-        ],
+    double buttonHeight = (constraints.maxHeight * 0.08).clamp(50.0, 70.0);
+
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(15),
+      child: Container(
+        height: buttonHeight,
+        decoration: BoxDecoration(
+          gradient: gradient,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [
+            BoxShadow(
+              color: gradient.colors.first.withValues(alpha: 0.4),
+              blurRadius: 10,
+              spreadRadius: 1,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.white, size: fontSize * 1.5),
+            SizedBox(width: fontSize * 0.5),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: GoogleFonts.exo2(
+                    fontSize: fontSize,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+
 
   void _showFinalCompletionDialog() {
     showDialog(
@@ -3949,15 +4706,345 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   }
 }
 
+class WoodTexturePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    // Wood grain lines
+    final random = math.Random(42);
+    for (int i = 0; i < 30; i++) {
+      final y = random.nextDouble() * size.height;
+      final path = Path();
+      path.moveTo(0, y);
+
+      double x = 0;
+      while (x < size.width) {
+        x += 20 + random.nextDouble() * 40;
+        final controlY = y + (random.nextDouble() - 0.5) * 10;
+        path.quadraticBezierTo(x - 20, controlY, x, y);
+      }
+
+      paint.color = Colors.brown.shade700.withValues(
+        alpha: 0.1 + random.nextDouble() * 0.1,
+      );
+      paint.strokeWidth = 0.5 + random.nextDouble();
+      paint.style = PaintingStyle.stroke;
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class ShelfPainter extends CustomPainter {
+  final int shelfCount;
+
+  ShelfPainter({required this.shelfCount});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final shelfPaint = Paint()..style = PaintingStyle.fill;
+
+    final shelfSpacing = size.height / (shelfCount + 1);
+
+    for (int i = 1; i <= shelfCount; i++) {
+      final y = shelfSpacing * i;
+
+      // Shelf board
+      final shelfRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, y - 8, size.width, 16),
+        const Radius.circular(4),
+      );
+
+      // Gradient for 3D effect
+      shelfPaint.shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Colors.brown.shade600,
+          Colors.brown.shade800,
+          Colors.brown.shade900,
+        ],
+      ).createShader(shelfRect.outerRect);
+
+      canvas.drawRRect(shelfRect, shelfPaint);
+
+      // Shadow under shelf
+      final shadowPaint = Paint()
+        ..color = Colors.black.withValues(alpha: 0.3)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+
+      canvas.drawRect(Rect.fromLTWH(0, y + 8, size.width, 4), shadowPaint);
+    }
+
+    // Side supports
+    _drawSupport;
+  }
+
+  void _drawSupport(Canvas canvas, double x, Size size, Paint paint) {
+    final supportRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(x, 0, 12, size.height),
+      const Radius.circular(6),
+    );
+
+    paint.shader = LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [
+        Colors.brown.shade700,
+        Colors.brown.shade800,
+        Colors.brown.shade700,
+      ],
+    ).createShader(supportRect.outerRect);
+
+    canvas.drawRRect(supportRect, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class BottlePainter extends CustomPainter {
+  final Color color;
+  
+  BottlePainter({required this.color});
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bottlePaint = Paint()
+      ..style = PaintingStyle.fill;
+    
+    // Glass bottle outline
+    final bottlePath = Path();
+    
+    // Neck
+    bottlePath.moveTo(size.width * 0.35, 0);
+    bottlePath.lineTo(size.width * 0.35, size.height * 0.15);
+    
+    // Shoulder
+    bottlePath.quadraticBezierTo(
+      size.width * 0.35, size.height * 0.2,
+      size.width * 0.2, size.height * 0.25,
+    );
+    
+    // Body
+    bottlePath.lineTo(size.width * 0.15, size.height * 0.85);
+    
+    // Bottom curve
+    bottlePath.quadraticBezierTo(
+      size.width * 0.15, size.height * 0.95,
+      size.width * 0.5, size.height,
+    );
+    bottlePath.quadraticBezierTo(
+      size.width * 0.85, size.height * 0.95,
+      size.width * 0.85, size.height * 0.85,
+    );
+    
+    // Right side body
+    bottlePath.lineTo(size.width * 0.8, size.height * 0.25);
+    
+    // Right shoulder
+    bottlePath.quadraticBezierTo(
+      size.width * 0.65, size.height * 0.2,
+      size.width * 0.65, size.height * 0.15,
+    );
+    
+    // Right neck
+    bottlePath.lineTo(size.width * 0.65, 0);
+    bottlePath.close();
+    
+    // Draw glass with transparency
+    bottlePaint.color = Colors.white.withValues(alpha: 0.3);
+    canvas.drawPath(bottlePath, bottlePaint);
+    
+    // Draw liquid inside (75% full)
+    final liquidPath = Path();
+    final liquidLevel = size.height * 0.3; // Start of liquid
+    
+    liquidPath.moveTo(size.width * 0.2, liquidLevel);
+    liquidPath.lineTo(size.width * 0.15, size.height * 0.85);
+    liquidPath.quadraticBezierTo(
+      size.width * 0.15, size.height * 0.95,
+      size.width * 0.5, size.height * 0.98,
+    );
+    liquidPath.quadraticBezierTo(
+      size.width * 0.85, size.height * 0.95,
+      size.width * 0.85, size.height * 0.85,
+    );
+    liquidPath.lineTo(size.width * 0.8, liquidLevel);
+    liquidPath.close();
+    
+    // Gradient for liquid
+    bottlePaint.shader = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        color.withValues(alpha: 0.7),
+        color,
+      ],
+    ).createShader(Rect.fromLTWH(0, liquidLevel, size.width, size.height));
+    
+    canvas.drawPath(liquidPath, bottlePaint);
+    
+    // Glass shine effect
+    final shinePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
+    
+    final shinePath = Path();
+    shinePath.moveTo(size.width * 0.25, size.height * 0.3);
+    shinePath.lineTo(size.width * 0.22, size.height * 0.7);
+    
+    canvas.drawPath(shinePath, shinePaint);
+    
+    // Cork/cap
+    final capRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        size.width * 0.32,
+        0,
+        size.width * 0.36,
+        size.height * 0.08,
+      ),
+      Radius.circular(size.width * 0.04),
+    );
+    
+    bottlePaint.shader = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.brown.shade400,
+        Colors.brown.shade600,
+      ],
+    ).createShader(capRect.outerRect);
+    
+    canvas.drawRRect(capRect, bottlePaint);
+  }
+  
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class ShelfShinePainter extends CustomPainter {
+  final double progress;
+  
+  ShelfShinePainter({required this.progress});
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final shinePaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.white.withValues(alpha: 0.0),
+          Colors.white.withValues(alpha: 0.1 * progress),
+          Colors.white.withValues(alpha: 0.0),
+        ],
+        stops: const [0.0, 0.5, 1.0],
+      ).createShader(Rect.fromLTWH(
+        size.width * progress - size.width * 0.3,
+        0,
+        size.width * 0.6,
+        size.height,
+      ));
+    
+    canvas.drawRect(
+      Rect.fromLTWH(
+        size.width * progress - size.width * 0.3,
+        0,
+        size.width * 0.6,
+        size.height,
+      ),
+      shinePaint,
+    );
+  }
+  
+  @override
+  bool shouldRepaint(ShelfShinePainter oldDelegate) => 
+      oldDelegate.progress != progress;
+}
+
+class SparkleEffectPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  
+  SparkleEffectPainter({required this.progress, required this.color});
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sparklePaint = Paint()
+      ..color = color.withValues(alpha: 0.6 * (1 - progress))
+      ..style = PaintingStyle.fill;
+    
+    // Draw sparkles at corners
+    final sparklePositions = [
+      Offset(size.width * 0.2, size.height * 0.2),
+      Offset(size.width * 0.8, size.height * 0.2),
+      Offset(size.width * 0.2, size.height * 0.8),
+      Offset(size.width * 0.8, size.height * 0.8),
+    ];
+    
+    for (final pos in sparklePositions) {
+      _drawSparkle(canvas, pos, 8 + (progress * 12), sparklePaint);
+    }
+  }
+  
+  void _drawSparkle(Canvas canvas, Offset center, double size, Paint paint) {
+    final path = Path();
+    
+    // 4-pointed star
+    for (int i = 0; i < 4; i++) {
+      final angle = (i * math.pi / 2) - math.pi / 4;
+      final outerX = center.dx + math.cos(angle) * size;
+      final outerY = center.dy + math.sin(angle) * size;
+      
+      final innerAngle = angle + math.pi / 4;
+      final innerX = center.dx + math.cos(innerAngle) * (size * 0.4);
+      final innerY = center.dy + math.sin(innerAngle) * (size * 0.4);
+      
+      if (i == 0) {
+        path.moveTo(outerX, outerY);
+      } else {
+        path.lineTo(outerX, outerY);
+      }
+      path.lineTo(innerX, innerY);
+    }
+    path.close();
+    
+    canvas.drawPath(path, paint);
+  }
+  
+  @override
+  bool shouldRepaint(SparkleEffectPainter oldDelegate) => 
+      oldDelegate.progress != progress;
+}
+
+class StoredDye {
+  final String id;
+  final String name;
+  final Color color;
+  final int volume;
+  bool isNew; // For sparkle animation
+  
+  StoredDye({
+    required this.id,
+    required this.name,
+    required this.color,
+    required this.volume,
+    this.isNew = false,
+  });
+}
+
 // Custom painter for the funnel shape
 class FunnelPainter extends CustomPainter {
   final Color rimColor;
   final Color bodyColor;
 
-  FunnelPainter({
-    required this.rimColor,
-    required this.bodyColor,
-  });
+  FunnelPainter({required this.rimColor, required this.bodyColor});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -3966,27 +5053,23 @@ class FunnelPainter extends CustomPainter {
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [
-          rimColor,
-          bodyColor,
-          bodyColor.withValues(alpha: 0.7),
-        ],
+        colors: [rimColor, bodyColor, bodyColor.withValues(alpha: 0.7)],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     final path = Path();
-    
+
     // Funnel top rim (wide opening)
     path.moveTo(size.width * 0.1, size.height * 0.15);
     path.lineTo(size.width * 0.9, size.height * 0.15);
-    
+
     // Right side slope down to narrow spout
     path.lineTo(size.width * 0.6, size.height * 0.85);
     path.lineTo(size.width * 0.55, size.height);
-    
+
     // Bottom spout
     path.lineTo(size.width * 0.45, size.height);
     path.lineTo(size.width * 0.4, size.height * 0.85);
-    
+
     // Left side slope back up
     path.lineTo(size.width * 0.1, size.height * 0.15);
     path.close();
@@ -4028,20 +5111,12 @@ class ClothMeshPainter extends CustomPainter {
 
     // Draw horizontal lines
     for (double i = 0; i < size.height; i += 6) {
-      canvas.drawLine(
-        Offset(0, i),
-        Offset(size.width, i),
-        paint,
-      );
+      canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
     }
 
     // Draw vertical lines
     for (double i = 0; i < size.width; i += 6) {
-      canvas.drawLine(
-        Offset(i, 0),
-        Offset(i, size.height),
-        paint,
-      );
+      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
     }
   }
 
