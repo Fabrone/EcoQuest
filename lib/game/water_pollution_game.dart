@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:ecoquest/game/water_components.dart';
 import 'package:flame/effects.dart';
@@ -264,92 +265,338 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     currentPhase = 2;
     _setupSortingPhase();
   }
-  
-  void _setupSortingPhase() {
-    removeAll(children.where((c) => c is WasteItemComponent || c is SpeedboatComponent));
-   
-    // Spawn bins
+
+  void _setupSortingPhase() async {
+    // Pause engine first
+    pauseEngine();
+    
+    // Remove old phase components
+    final toRemove = children.where((c) => 
+      c is WasteItemComponent || 
+      c is SpeedboatComponent || 
+      c is RiverBackgroundComponent ||
+      c is RiverParticleComponent
+    ).toList();
+    
+    for (var child in toRemove) {
+      child.removeFromParent();
+    }
+    
+    // Small delay to ensure cleanup
+    await Future.delayed(const Duration(milliseconds: 100));
+    
+    // Verify size is ready
+    if (size.x == 0 || size.y == 0) {
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    
+    // Add sorting facility background
+    final bgComponent = SortingFacilityBackground(size: size);
+    await add(bgComponent);
+    
+    // Create conveyor belt
+    final conveyor = ConveyorBeltComponent(
+      position: Vector2(0, size.y * 0.2),
+      size: Vector2(size.x, size.y * 0.4),
+    );
+    await add(conveyor);
+    
+    // Spawn bins with better positioning
     final binTypes = ['plastic', 'metal', 'hazardous', 'organic'];
-    bins = [];
+    bins.clear();
+    
+    final screenWidth = size.x;
+    final binSpacing = screenWidth / (binTypes.length + 1);
+    final binSize = Vector2(screenWidth * 0.18, screenWidth * 0.25);
+    
     for (int i = 0; i < binTypes.length; i++) {
-      bins.add(BinComponent(
+      final bin = BinComponent(
         binType: binTypes[i],
-        position: Vector2((size.x / (binTypes.length + 1)) * (i + 1), size.y - 150),
-      ));
-    }
-    addAll(bins);
-   
-    // Spawn draggable waste from collected
-    final random = Random();
-    for (var waste in collectedWaste) {
-      waste.position = Vector2(
-        random.nextDouble() * (size.x - waste.size.x) + waste.size.x / 2,
-        random.nextDouble() * (size.y / 2 - waste.size.y) + waste.size.y / 2,
+        position: Vector2(
+          binSpacing * (i + 1) - binSize.x / 2,
+          size.y - binSize.y - 40,
+        ),
+        size: binSize,
       );
-      add(waste);
+      bins.add(bin);
+      await add(bin);
     }
+    
+    // Important: Ensure collected waste is available
+    if (collectedWaste.isEmpty) {
+      // If no waste collected, create sample waste for testing
+      final wasteTypes = ['plastic_bottle', 'can', 'bag', 'oil_slick', 'wood'];
+      for (int i = 0; i < 10; i++) {
+        collectedWaste.add(
+          WasteItemComponent(
+            type: wasteTypes[i % wasteTypes.length],
+            position: Vector2.zero(),
+            size: Vector2.all(40),
+          ),
+        );
+      }
+    }
+    
+    // Spawn waste items on conveyor
+    _spawnWasteOnConveyor();
+    
+    // Resume engine to start rendering
+    resumeEngine();
+  }
+
+  void _spawnWasteOnConveyor() {
+    final random = Random();
+    int spawnedCount = 0;
+    const spawnInterval = 2.5; // Slower for better gameplay
+    
+    // Spawn first item immediately for visual feedback
+    if (collectedWaste.isNotEmpty) {
+      final firstWaste = collectedWaste[0];
+      firstWaste.position = Vector2(
+        50, // Start visible on screen
+        size.y * 0.35,
+      );
+      firstWaste.priority = 150;
+      add(firstWaste);
+      
+      // Add conveyor movement
+      firstWaste.add(
+        MoveEffect.to(
+          Vector2(size.x + 100, firstWaste.position.y),
+          EffectController(duration: 10.0),
+          onComplete: () {
+            if (firstWaste.parent != null) {
+              firstWaste.removeFromParent();
+              sortedIncorrectly++;
+              _updateSortingStats();
+            }
+          },
+        ),
+      );
+      
+      spawnedCount = 1;
+    }
+    
+    // Continue spawning remaining items
+    Timer.periodic(Duration(milliseconds: (spawnInterval * 1000).toInt()), (timer) {
+      if (spawnedCount >= collectedWaste.length || currentPhase != 2) {
+        timer.cancel();
+        return;
+      }
+      
+      if (spawnedCount < collectedWaste.length) {
+        final waste = collectedWaste[spawnedCount];
+        
+        // Position on conveyor entrance (start from left edge)
+        waste.position = Vector2(
+          -waste.size.x - 20,
+          size.y * 0.3 + (random.nextDouble() - 0.5) * 60,
+        );
+        
+        // Make draggable with higher priority
+        waste.priority = 150;
+        
+        // Add to game
+        add(waste);
+        
+        // Conveyor movement with slower speed
+        waste.add(
+          MoveEffect.to(
+            Vector2(size.x + 100, waste.position.y),
+            EffectController(duration: 10.0),
+            onComplete: () {
+              if (waste.parent != null) {
+                waste.removeFromParent();
+                sortedIncorrectly++;
+                _updateSortingStats();
+              }
+            },
+          ),
+        );
+        
+        spawnedCount++;
+      }
+    });
   }
 
   @override
   bool onDragStart(DragStartEvent event) {
     super.onDragStart(event);
-    final hit = children.query<WasteItemComponent>().firstWhere(
-      (comp) => comp.containsPoint(event.localPosition),
-      orElse: () => WasteItemComponent(type: '', position: Vector2.zero(), size: Vector2.zero()),
-    );
-    if (hit.type.isNotEmpty) {
-      currentDragged = hit;
-      return true;
+    
+    if (currentPhase != 2) return false;
+    
+    // Find waste item at touch position
+    final wasteItems = children.whereType<WasteItemComponent>().toList();
+    
+    for (final waste in wasteItems.reversed) {
+      if (waste.containsPoint(event.localPosition)) {
+        currentDragged = waste;
+        
+        // Remove movement effects while dragging
+        waste.removeAll(waste.children.whereType<MoveEffect>());
+        
+        // Enhanced lift effect with rotation
+        waste.add(
+          SequenceEffect([
+            CombinedEffect([
+              ScaleEffect.to(
+                Vector2.all(1.3),
+                EffectController(duration: 0.15),
+              ),
+              RotateEffect.by(
+                0.1,
+                EffectController(duration: 0.15),
+              ),
+            ]),
+          ]),
+        );
+        
+        // Add glow effect
+        waste.add(
+          OpacityEffect.to(
+            0.9,
+            EffectController(duration: 0.15),
+          ),
+        );
+        
+        // Bring to front
+        waste.priority = 200;
+        
+        // Haptic feedback (optional - requires vibration permission)
+        // HapticFeedback.lightImpact();
+        
+        return true;
+      }
     }
+    
     return false;
   }
-  
+
+  @override
+  bool onDragUpdate(DragUpdateEvent event) {
+    super.onDragUpdate(event);
+    
+    if (currentDragged != null) {
+      currentDragged!.position += event.localDelta;
+      return true;
+    }
+    
+    return false;
+  }
+
   @override
   bool onDragEnd(DragEndEvent event) {
     super.onDragEnd(event);
+    
     if (currentDragged != null) {
+      // Check if dropped on a bin
+      bool droppedOnBin = false;
+      
       for (var bin in bins) {
         if (bin.containsDrop(currentDragged!)) {
           submitSort(currentDragged!, bin);
+          droppedOnBin = true;
           break;
         }
       }
-      if (currentDragged?.parent != null) {
-        // Reset position if not dropped
-        currentDragged!.position = currentDragged!.position;
+      
+      if (!droppedOnBin) {
+        // Return to conveyor with animation
+        currentDragged!.add(
+          SequenceEffect([
+            ScaleEffect.to(
+              Vector2.all(1.0),
+              EffectController(duration: 0.2),
+            ),
+          ]),
+        );
+        
+        // Reset priority
+        currentDragged!.priority = 150;
+        
+        // Resume conveyor movement
+        currentDragged!.add(
+          MoveEffect.to(
+            Vector2(size.x + 100, currentDragged!.position.y),
+            EffectController(duration: 5.0),
+            onComplete: () {
+              if (currentDragged?.parent != null) {
+                currentDragged!.removeFromParent();
+                sortedIncorrectly++;
+                _updateSortingStats();
+              }
+            },
+          ),
+        );
       }
+      
       currentDragged = null;
+      return true;
     }
-    return true;
+    
+    return false;
   }
 
   void submitSort(WasteItemComponent waste, BinComponent bin) {
     bool correct = _isCorrectBin(waste.type, bin.binType);
     
+    // Animate waste disappearing into bin
+    waste.add(
+      SequenceEffect([
+        CombinedEffect([
+          MoveEffect.to(
+            bin.position + Vector2(bin.size.x / 2, bin.size.y * 0.3),
+            EffectController(duration: 0.3, curve: Curves.easeInOut),
+          ),
+          ScaleEffect.to(
+            Vector2.all(0.3),
+            EffectController(duration: 0.3),
+          ),
+          OpacityEffect.fadeOut(
+            EffectController(duration: 0.3, startDelay: 0.2),
+          ),
+        ]),
+      ], onComplete: () {
+        waste.removeFromParent();
+      }),
+    );
+    
     if (correct) {
       sortedCorrectly++;
-      // Remove waste, add effect
-      waste.removeFromParent();
-      bin.add(ScaleEffect.to(Vector2(1.1, 1.1), EffectController(duration: 0.2, alternate: true)));
+      bin.triggerSuccessAnimation();
+      
+      // Play success sound effect (placeholder - implement audio later)
+      // AudioManager.playSound('success');
     } else {
       sortedIncorrectly++;
-      // Feedback shake
-      waste.add(MoveEffect.by(Vector2(10, 0), EffectController(duration: 0.1, alternate: true)));
+      bin.triggerErrorAnimation();
+      
+      // Play error sound effect
+      // AudioManager.playSound('error');
     }
     
+    _updateSortingStats();
+  }
+    
+  void _updateSortingStats() {
     int total = sortedCorrectly + sortedIncorrectly;
     int accuracy = total > 0 ? ((sortedCorrectly / total) * 100).round() : 0;
     
     onSortingUpdate?.call(accuracy, total);
     
     // Check if sorting complete
-    if (total >= wasteCollectedCount) {
-      if (accuracy >= 85) {
-        _completePhase2();
-      }
+    if (total >= collectedWaste.length) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (accuracy >= 70) {
+          _completePhase2();
+        } else {
+          // Show retry message
+          onSortingUpdate?.call(accuracy, total);
+        }
+      });
     }
   }
-  
+
   bool _isCorrectBin(String wasteType, String binType) {
     final correctMappings = {
       'plastic_bottle': 'plastic',

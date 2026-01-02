@@ -6,6 +6,7 @@ import 'package:flame/events.dart';
 import 'package:flame/particles.dart';
 import 'package:flutter/material.dart' hide Matrix4;
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 // Color extension for lighten/darken methods
 extension ColorExtension on Color {
@@ -1583,26 +1584,289 @@ class BinComponent extends PositionComponent {
     }
   }
 
+  // Enhanced BinComponent with 3D visualization
   @override
   void render(Canvas canvas) {
-    final paint = Paint()..color = binColor;
-    canvas.drawRect(size.toRect(), paint);
+    canvas.save();
+    
+    // 3D bin body with depth
+    final binGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        binColor.lighten(0.3),
+        binColor,
+        binColor.darken(0.2),
+        binColor.darken(0.4),
+      ],
+      stops: [0.0, 0.4, 0.7, 1.0],
+    );
+    
+    // Shadow for depth
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.4)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
+    
+    canvas.save();
+    canvas.translate(4, 6);
+    _drawBinShape(canvas, shadowPaint);
+    canvas.restore();
+    
+    // Main bin body
+    final binPaint = Paint()
+      ..shader = binGradient.createShader(size.toRect());
+    
+    _drawBinShape(canvas, binPaint);
+    
+    // 3D lid with highlights
+    _draw3DLid(canvas);
+    
+    // Recycling symbol with 3D effect
+    _draw3DRecyclingSymbol(canvas);
+    
+    // Bin label with perspective
+    _draw3DBinLabel(canvas);
+    
+    // Glow effect when correct item is sorted
+    if (_showSuccessGlow) {
+      _drawSuccessGlow(canvas);
+    }
+    
+    canvas.restore();
+  }
 
+  void _drawBinShape(Canvas canvas, Paint paint) {
+    final path = Path();
+    
+    // Trapezoidal bin shape for 3D effect
+    path.moveTo(size.x * 0.2, 0);
+    path.lineTo(size.x * 0.8, 0);
+    path.lineTo(size.x * 0.9, size.y * 0.85);
+    path.lineTo(size.x * 0.1, size.y * 0.85);
+    path.close();
+    
+    canvas.drawPath(path, paint);
+  }
+
+  void _draw3DLid(Canvas canvas) {
+    final lidGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        binColor.lighten(0.4),
+        binColor.lighten(0.2),
+      ],
+    );
+    
+    final lidPaint = Paint()
+      ..shader = lidGradient.createShader(
+        Rect.fromLTWH(size.x * 0.15, -size.y * 0.08, size.x * 0.7, size.y * 0.1),
+      );
+    
+    // Lid shape with perspective
+    final lidPath = Path();
+    lidPath.moveTo(size.x * 0.15, -size.y * 0.08);
+    lidPath.lineTo(size.x * 0.85, -size.y * 0.08);
+    lidPath.lineTo(size.x * 0.82, size.y * 0.02);
+    lidPath.lineTo(size.x * 0.18, size.y * 0.02);
+    lidPath.close();
+    
+    canvas.drawPath(lidPath, lidPaint);
+    
+    // Lid handle
+    final handlePaint = Paint()
+      ..color = binColor.darken(0.3)
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.42, -size.y * 0.12, size.x * 0.16, size.y * 0.06),
+        const Radius.circular(4),
+      ),
+      handlePaint,
+    );
+  }
+
+  void _draw3DRecyclingSymbol(Canvas canvas) {
+    final symbolPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    
+    final symbolSize = size.x * 0.3;
+    final centerX = size.x * 0.5;
+    final centerY = size.y * 0.4;
+    
+    // Draw 3 arrows in recycling symbol
+    for (int i = 0; i < 3; i++) {
+      canvas.save();
+      canvas.translate(centerX, centerY);
+      canvas.rotate(i * (2 * pi / 3));
+      
+      final arrowPath = Path();
+      arrowPath.moveTo(0, -symbolSize * 0.4);
+      arrowPath.lineTo(symbolSize * 0.15, -symbolSize * 0.25);
+      arrowPath.lineTo(symbolSize * 0.08, -symbolSize * 0.25);
+      arrowPath.quadraticBezierTo(
+        symbolSize * 0.1,
+        0,
+        0,
+        symbolSize * 0.1,
+      );
+      arrowPath.lineTo(-symbolSize * 0.1, symbolSize * 0.05);
+      arrowPath.quadraticBezierTo(
+        0,
+        -symbolSize * 0.15,
+        -symbolSize * 0.08,
+        -symbolSize * 0.25,
+      );
+      arrowPath.lineTo(-symbolSize * 0.15, -symbolSize * 0.25);
+      arrowPath.close();
+      
+      canvas.drawPath(arrowPath, symbolPaint);
+      canvas.restore();
+    }
+    
+    // Add shine effect
+    final shinePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.4)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    
+    canvas.drawCircle(
+      Offset(centerX - symbolSize * 0.15, centerY - symbolSize * 0.15),
+      symbolSize * 0.2,
+      shinePaint,
+    );
+  }
+
+  void _draw3DBinLabel(Canvas canvas) {
     final textPainter = TextPainter(
       text: TextSpan(
         text: binType.toUpperCase(),
-        style: const TextStyle(color: Colors.white, fontSize: 12),
+        style: GoogleFonts.exo2(
+          color: Colors.white,
+          fontSize: size.x * 0.12,
+          fontWeight: FontWeight.w900,
+          shadows: [
+            Shadow(
+              color: Colors.black.withValues(alpha: 0.7),
+              blurRadius: 4,
+              offset: const Offset(2, 2),
+            ),
+          ],
+        ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    textPainter.paint(
-      canvas,
-      Offset((size.x - textPainter.width) / 2, size.y - 20),
+    
+    // Draw with perspective
+    canvas.save();
+    canvas.translate(
+      (size.x - textPainter.width) / 2,
+      size.y * 0.65,
+    );
+    
+    // Slight perspective skew
+    final transform = Matrix4.identity()
+      ..setEntry(3, 2, 0.001)
+      ..rotateX(-0.1);
+    
+    canvas.transform(transform.storage);
+    textPainter.paint(canvas, Offset.zero);
+    canvas.restore();
+  }
+
+  bool _showSuccessGlow = false;
+
+  void _drawSuccessGlow(Canvas canvas) {
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.green.withValues(alpha: 0.6),
+          Colors.green.withValues(alpha: 0.3),
+          Colors.green.withValues(alpha: 0),
+        ],
+      ).createShader(
+        Rect.fromCenter(
+          center: Offset(size.x / 2, size.y / 2),
+          width: size.x * 1.5,
+          height: size.y * 1.5,
+        ),
+      );
+    
+    canvas.drawCircle(
+      Offset(size.x / 2, size.y / 2),
+      size.x * 0.75,
+      glowPaint,
+    );
+  }
+
+  void triggerSuccessAnimation() {
+    _showSuccessGlow = true;
+    add(
+      ScaleEffect.to(
+        Vector2.all(1.15),
+        EffectController(duration: 0.3, alternate: true),
+        onComplete: () => _showSuccessGlow = false,
+      ),
+    );
+    
+    // Particle burst
+    add(
+      ParticleSystemComponent(
+        particle: Particle.generate(
+          count: 15,
+          lifespan: 1.0,
+          generator: (i) => AcceleratedParticle(
+            acceleration: Vector2(
+              (Random().nextDouble() - 0.5) * 200,
+              -100 - Random().nextDouble() * 50,
+            ),
+            child: CircleParticle(
+              radius: 3 + Random().nextDouble() * 3,
+              paint: Paint()..color = Colors.green.withValues(alpha: 0.8),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void triggerErrorAnimation() {
+    add(
+      SequenceEffect([
+        MoveEffect.by(
+          Vector2(15, 0),
+          EffectController(duration: 0.08),
+        ),
+        MoveEffect.by(
+          Vector2(-30, 0),
+          EffectController(duration: 0.08),
+        ),
+        MoveEffect.by(
+          Vector2(15, 0),
+          EffectController(duration: 0.08),
+        ),
+      ]),
     );
   }
 
   bool containsDrop(PositionComponent item) {
-    return containsPoint(item.absoluteCenter);
+    // Expanded hit area for easier dropping (50% larger)
+    final expandedRect = Rect.fromCenter(
+      center: Offset(
+        position.x + size.x / 2,
+        position.y + size.y / 2,
+      ),
+      width: size.x * 1.5,
+      height: size.y * 1.5,
+    );
+    
+    final itemCenter = Offset(
+      item.position.x,
+      item.position.y,
+    );
+    
+    return expandedRect.contains(itemCenter);
   }
 }
 
@@ -1933,5 +2197,192 @@ class RiverParticleComponent extends PositionComponent {
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
     
     canvas.drawCircle(Offset.zero, particleSize * 1.5, glowPaint);
+  }
+}
+
+class SortingFacilityBackground extends PositionComponent {
+  SortingFacilityBackground({required Vector2 size}) : super(size: size) {
+    priority = -10;
+  }
+  
+  @override
+  void render(Canvas canvas) {
+    // Industrial floor
+    final floorGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        const Color(0xFF4A4A4A),
+        const Color(0xFF2A2A2A),
+      ],
+    );
+    
+    canvas.drawRect(
+      size.toRect(),
+      Paint()..shader = floorGradient.createShader(size.toRect()),
+    );
+    
+    // Floor tiles
+    final tilePaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.1)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    
+    for (double i = 0; i < size.x; i += 60) {
+      canvas.drawLine(
+        Offset(i, 0),
+        Offset(i, size.y),
+        tilePaint,
+      );
+    }
+    
+    for (double i = 0; i < size.y; i += 60) {
+      canvas.drawLine(
+        Offset(0, i),
+        Offset(size.x, i),
+        tilePaint,
+      );
+    }
+    
+    // Facility walls with industrial look
+    _drawWalls(canvas);
+    
+    // Lighting effects
+    _drawLighting(canvas);
+  }
+  
+  void _drawWalls(Canvas canvas) {
+    final wallPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          const Color(0xFF6A6A6A),
+          const Color(0xFF4A4A4A),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.x, size.y * 0.15));
+    
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.x, size.y * 0.15),
+      wallPaint,
+    );
+  }
+  
+  void _drawLighting(Canvas canvas) {
+    final lightPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.15),
+          Colors.white.withValues(alpha: 0),
+        ],
+      ).createShader(
+        Rect.fromCenter(
+          center: Offset(size.x / 2, size.y * 0.1),
+          width: size.x * 0.6,
+          height: size.y * 0.4,
+        ),
+      );
+    
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(size.x / 2, size.y * 0.1),
+        width: size.x * 0.6,
+        height: size.y * 0.4,
+      ),
+      lightPaint,
+    );
+  }
+}
+
+class ConveyorBeltComponent extends PositionComponent {
+  double animationOffset = 0.0;
+  
+  ConveyorBeltComponent({required super.position, required super.size}) {
+    priority = 0;
+  }
+  
+  @override
+  void update(double dt) {
+    super.update(dt);
+    animationOffset += dt * 30; // Belt speed
+    if (animationOffset > 40) animationOffset = 0;
+  }
+  
+  @override
+  void render(Canvas canvas) {
+    // Belt body with metallic look
+    final beltGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        const Color(0xFF3A3A3A),
+        const Color(0xFF2A2A2A),
+        const Color(0xFF3A3A3A),
+      ],
+      stops: [0.0, 0.5, 1.0],
+    );
+    
+    final beltPaint = Paint()
+      ..shader = beltGradient.createShader(size.toRect());
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        size.toRect(),
+        const Radius.circular(8),
+      ),
+      beltPaint,
+    );
+    
+    // Animated belt lines
+    final linePaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.3)
+      ..strokeWidth = 3;
+    
+    for (double i = -animationOffset; i < size.x + 40; i += 40) {
+      canvas.drawLine(
+        Offset(i, 0),
+        Offset(i, size.y),
+        linePaint,
+      );
+    }
+    
+    // Belt edges with highlights
+    final edgePaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Colors.white.withValues(alpha: 0.2),
+          Colors.black.withValues(alpha: 0.3),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.x, 10));
+    
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.x, 10), edgePaint);
+    canvas.drawRect(Rect.fromLTWH(0, size.y - 10, size.x, 10), edgePaint);
+    
+    // Rollers at edges
+    _drawRoller(canvas, 20, size.y / 2);
+    _drawRoller(canvas, size.x - 20, size.y / 2);
+  }
+  
+  void _drawRoller(Canvas canvas, double x, double y) {
+    final rollerPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFF5A5A5A),
+          const Color(0xFF2A2A2A),
+        ],
+      ).createShader(
+        Rect.fromCenter(center: Offset(x, y), width: 40, height: 40),
+      );
+    
+    canvas.drawCircle(Offset(x, y), 20, rollerPaint);
+    
+    // Roller shine
+    canvas.drawCircle(
+      Offset(x - 5, y - 5),
+      8,
+      Paint()..color = Colors.white.withValues(alpha: 0.3),
+    );
   }
 }

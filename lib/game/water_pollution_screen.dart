@@ -32,6 +32,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   // Phase 2 stats
   int sortingAccuracy = 0;
   int itemsSorted = 0;
+  int sortedCorrectly = 0;   
+  int sortedIncorrectly = 0;
   
   // Phase 3 stats
   int zonesTreated = 0;
@@ -75,6 +77,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
       setState(() {
         sortingAccuracy = accuracy;
         itemsSorted = sorted;
+        sortedCorrectly = game.sortedCorrectly;
+        sortedIncorrectly = game.sortedIncorrectly;
       });
     };
     
@@ -101,7 +105,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         body: Stack(
           children: [
             // Main game view
-            if (currentPhase == 1 || currentPhase == 3)
+            if (currentPhase == 1 || currentPhase == 2 || currentPhase == 3)
               GameWidget(game: game),
             
             // UI Overlays
@@ -712,95 +716,256 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   }
 
   Widget _buildSortingInterface() {
-    return Container(
-      color: const Color(0xFF1E3A5F),
-      child: SafeArea(
-        child: Column(
-          children: [
-            _buildSortingHeader(),
-            Expanded(
-              child: Stack(
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    final isTablet = size.width >= 600 && size.width < 1024;
+    
+    return Stack(
+      children: [
+        // Top header with stats
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            child: Container(
+              margin: EdgeInsets.all(isMobile ? 12 : 16),
+              padding: EdgeInsets.all(isMobile ? 14 : 18),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.black.withValues(alpha: 0.85),
+                    Colors.black.withValues(alpha: 0.7),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.green, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.green.withValues(alpha: 0.3),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
                 children: [
-                  // Conveyor background
-                  Positioned.fill(child: Container(color: Colors.grey.shade800)),
-                  // Draggable waste and bins rendered by game, but overlay stats
-                  Positioned(
-                    bottom: 20,
-                    left: 20,
-                    child: Text(
-                      'Accuracy: $sortingAccuracy% | Sorted: $itemsSorted / $wasteCollected',
-                      style: GoogleFonts.exo2(
-                        fontSize: 16,
-                        color: Colors.white,
+                  Text(
+                    'WASTE SORTING FACILITY',
+                    style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 16 : isTablet ? 18 : 20,
+                      color: Colors.green,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  SizedBox(height: isMobile ? 10 : 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildSortingStat(
+                        'Accuracy',
+                        '$sortingAccuracy%',
+                        sortingAccuracy >= 70 ? Colors.green : Colors.orange,
+                        isMobile,
                       ),
+                      Container(
+                        width: 2,
+                        height: 40,
+                        color: Colors.white24,
+                      ),
+                      _buildSortingStat(
+                        'Sorted',
+                        '$itemsSorted / ${game.collectedWaste.length}',
+                        Colors.cyan,
+                        isMobile,
+                      ),
+                      Container(
+                        width: 2,
+                        height: 40,
+                        color: Colors.white24,
+                      ),
+                      _buildSortingStat(
+                        'Correct',
+                        '$sortedCorrectly',
+                        Colors.green,
+                        isMobile,
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: isMobile ? 10 : 12),
+                  // Progress bar
+                  Container(
+                    height: isMobile ? 12 : 16,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade900,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.5)),
+                    ),
+                    child: Stack(
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          width: game.collectedWaste.isEmpty 
+                            ? 0 
+                            : (size.width - (isMobile ? 48 : 64)) * 
+                              (itemsSorted / game.collectedWaste.length),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Colors.green, Colors.green.shade700],
+                            ),
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-            _buildRecyclingBins(), // Buttons or visuals for bins
-          ],
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildSortingHeader() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: Colors.black.withValues(alpha: 0.7),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            'WASTE SORTING',
-            style: GoogleFonts.exo2(
-              fontSize: 18,
-              color: Colors.green,
-              fontWeight: FontWeight.w900,
+        
+        // Instructions overlay
+        Positioned(
+          top: size.height * 0.3,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Container(
+              margin: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 40),
+              padding: EdgeInsets.all(isMobile ? 12 : 16),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.75),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber, width: 2),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.touch_app,
+                    color: Colors.amber,
+                    size: isMobile ? 28 : 36,
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    isMobile 
+                      ? 'TAP & DRAG waste to correct bins'
+                      : 'CLICK & DRAG waste items to correct bins',
+                    style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 13 : 15,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Watch for items on the conveyor belt!',
+                    style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 11 : 13,
+                      color: Colors.white70,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
             ),
           ),
-          Text(
-            'Accuracy: $sortingAccuracy%',
-            style: GoogleFonts.exo2(
-              fontSize: 18,
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
+        ),
+        
+        // Bin labels at bottom
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            child: Container(
+              height: isMobile ? 110 : 130,
+              padding: EdgeInsets.symmetric(
+                horizontal: isMobile ? 8 : 16,
+                vertical: isMobile ? 8 : 12,
+              ),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.6),
+                    Colors.black.withValues(alpha: 0.85),
+                  ],
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _buildBinLabel('PLASTIC', Colors.blue, Icons.recycling, isMobile),
+                  _buildBinLabel('METAL', Colors.grey, Icons.recycling, isMobile),
+                  _buildBinLabel('HAZARDOUS', Colors.red, Icons.warning, isMobile),
+                  _buildBinLabel('ORGANIC', Colors.green, Icons.eco, isMobile),
+                ],
+              ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _buildRecyclingBins() {
-    return SizedBox(
-      height: 120,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildBinIcon('Plastic', Colors.blue),
-          _buildBinIcon('Metal', Colors.grey),
-          _buildBinIcon('Hazardous', Colors.red),
-          _buildBinIcon('Organic', Colors.green),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBinIcon(String label, Color color) {
+  Widget _buildSortingStat(String label, String value, Color color, bool isMobile) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.exo2(
+            fontSize: isMobile ? 11 : 13,
+            color: Colors.white70,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        SizedBox(height: 4),
+        Text(
+          value,
+          style: GoogleFonts.exo2(
+            fontSize: isMobile ? 18 : 22,
+            color: color,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBinLabel(String label, Color color, IconData icon, bool isMobile) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 60,
-          height: 80,
+          padding: EdgeInsets.all(isMobile ? 8 : 10),
           decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(8),
+            color: color.withValues(alpha: 0.3),
+            shape: BoxShape.circle,
+            border: Border.all(color: color, width: 2),
           ),
-          child: Icon(Icons.recycling, color: Colors.white, size: 40),
+          child: Icon(
+            icon,
+            color: color,
+            size: isMobile ? 22 : 28,
+          ),
         ),
-        Text(label, style: GoogleFonts.exo2(color: Colors.white, fontSize: 12)),
+        SizedBox(height: 6),
+        Text(
+          label,
+          style: GoogleFonts.exo2(
+            fontSize: isMobile ? 11 : 13,
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ],
     );
   }
