@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:ecoquest/game/eco_quest_game.dart';
+import 'package:ecoquest/game/water_pollution_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -4567,7 +4568,6 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     );
   }
 
-
   void _showFinalCompletionDialog() {
     showDialog(
       context: context,
@@ -4617,7 +4617,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
               const SizedBox(height: 20),
 
               Text(
-                'This dye will be carried forward to future levels!',
+                'Ready for the next challenge: Water Pollution Mission!',
                 style: GoogleFonts.vt323(color: Colors.white70, fontSize: 16),
                 textAlign: TextAlign.center,
               ),
@@ -4631,19 +4631,45 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                     label: 'Replay',
                     color: Colors.orange,
                     onPressed: () {
-                      Navigator.of(context).pop();
-                      Navigator.of(context).pop();
+                      Navigator.of(context).pop(); // Close dialog
+                      Navigator.of(context).pop(); // Go back to previous screen
                       widget.game.restartGame();
                     },
                   ),
                   _buildDialogButton(
                     icon: Icons.play_arrow,
-                    label: 'Next Level',
+                    label: 'Next Mission',
                     color: Colors.green,
                     onPressed: () {
-                      Navigator.of(context).pop();
-                      Navigator.of(context).pop();
-                      widget.game.startNextLevel();
+                      Navigator.of(context).pop(); // Close dialog
+                      Navigator.of(context).pop(); // Go back from DyeExtractionScreen
+                      
+                      // Calculate bacteria cultures from dye production
+                      // Higher quality dye = more bacteria cultures
+                      int bacteriaCultures = (dyeProduced / 2).floor();
+                      if (crushingEfficiency > 1.1 && filteringPurity > 0.9) {
+                        bacteriaCultures = (bacteriaCultures * 1.5).floor();
+                      }
+                      bacteriaCultures = bacteriaCultures.clamp(5, 30);
+                      
+                      // Prepare materials to carry forward
+                      Map<String, int> materialsToCarry = {
+                        'dye_produced': dyeProduced,
+                        'eco_coins': ecoCoinsEarned,
+                        'quality_bonus': (qualityMultiplier * 100).toInt(),
+                        'crushing_efficiency': (crushingEfficiency * 100).toInt(),
+                        'filtering_purity': (filteringPurity * 100).toInt(),
+                      };
+                      
+                      // Navigate to Water Pollution Screen
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => WaterPollutionScreen(
+                            bacteriaCulturesAvailable: bacteriaCultures,
+                            materialsFromPreviousLevel: materialsToCarry,
+                          ),
+                        ),
+                      );
                     },
                   ),
                   _buildDialogButton(

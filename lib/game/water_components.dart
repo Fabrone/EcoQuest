@@ -1,0 +1,1937 @@
+import 'dart:math';
+import 'package:ecoquest/game/water_pollution_game.dart';
+import 'package:flame/components.dart' hide Matrix4;
+import 'package:flame/effects.dart';
+import 'package:flame/events.dart';
+import 'package:flame/particles.dart';
+import 'package:flutter/material.dart' hide Matrix4;
+import 'package:flutter/services.dart';
+
+// Color extension for lighten/darken methods
+extension ColorExtension on Color {
+  Color lighten([double amount = 0.1]) {
+    assert(amount >= 0 && amount <= 1);
+    final hsl = HSLColor.fromColor(this);
+    final hslLight = hsl.withLightness(
+      (hsl.lightness + amount).clamp(0.0, 1.0),
+    );
+    return hslLight.toColor();
+  }
+
+  Color darken([double amount = 0.1]) {
+    assert(amount >= 0 && amount <= 1);
+    final hsl = HSLColor.fromColor(this);
+    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
+    return hslDark.toColor();
+  }
+}
+
+class SpeedboatComponent extends PositionComponent
+    with
+        HasGameReference<WaterPollutionGame>,
+        KeyboardHandler,
+        DragCallbacks,
+        TapCallbacks {
+  Vector2 velocity = Vector2.zero();
+  double speed = 250.0;
+  bool netDeployed = false;
+  double rotation = 0.0;
+  double targetRotation = 0.0;
+  Vector2 targetPosition = Vector2.zero();
+
+  // Enhanced 3D properties
+  double tiltAngle = 0.0;
+  double bobOffset = 0.0;
+  List<Vector2> wakeTrail = [];
+  bool isMoving = false;
+
+  // Touch controls
+  Vector2? joystickCenter;
+  Vector2? joystickPosition;
+  bool showJoystick = false;
+
+  SpeedboatComponent({required super.position, required super.size}) {
+    anchor = Anchor.center;
+    targetPosition = position.clone();
+  }
+
+  @override
+  Future<void> onLoad() async {
+    super.onLoad();
+    priority = 100;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+
+    canvas.save();
+
+    // Apply 3D transformations
+    final centerX = size.x / 2;
+    final centerY = size.y / 2;
+
+    canvas.translate(centerX, centerY);
+
+    // Apply rotation and tilt for 3D effect
+    canvas.rotate(rotation);
+
+    // Pseudo-3D tilt based on movement
+    if (tiltAngle.abs() > 0.01) {
+      final transform = Matrix4.identity()
+        ..setEntry(3, 2, 0.001) // perspective
+        ..rotateY(tiltAngle * 0.3)
+        ..rotateX(sin(bobOffset) * 0.1);
+      
+      canvas.transform(transform.storage);
+    }
+
+    canvas.translate(-centerX, -centerY);
+
+    // Enhanced 3D boat body with multiple layers
+    _draw3DBoatBody(canvas);
+
+    // Windshield with realistic reflection
+    _draw3DWindshield(canvas);
+
+    // Add propeller wake effect when moving
+    if (isMoving) {
+      _drawPropellerWake(canvas);
+    }
+
+    // Enhanced net with 3D depth
+    if (netDeployed) {
+      _draw3DNet(canvas);
+    }
+
+    canvas.restore();
+
+    // Draw wake trail behind boat
+    _drawWakeTrail(canvas);
+  }
+
+  void _draw3DBoatBody(Canvas canvas) {
+    // Main hull with gradient for depth
+    final hullGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.white,
+        Colors.grey.shade100,
+        Colors.grey.shade300,
+        Colors.grey.shade400,
+      ],
+      stops: [0.0, 0.3, 0.7, 1.0],
+    );
+
+    final hullPaint = Paint()
+      ..shader = hullGradient.createShader(Rect.fromLTWH(0, 0, size.x, size.y))
+      ..style = PaintingStyle.fill;
+
+    // Draw hull with 3D depth layers
+    final hullPath = Path();
+
+    // Bottom layer (darkest - underwater)
+    hullPath.moveTo(size.x * 0.5, size.y * 0.1);
+    hullPath.cubicTo(
+      size.x * 0.2,
+      size.y * 0.2,
+      size.x * 0.1,
+      size.y * 0.4,
+      size.x * 0.15,
+      size.y * 0.85,
+    );
+    hullPath.lineTo(size.x * 0.85, size.y * 0.85);
+    hullPath.cubicTo(
+      size.x * 0.9,
+      size.y * 0.4,
+      size.x * 0.8,
+      size.y * 0.2,
+      size.x * 0.5,
+      size.y * 0.1,
+    );
+    hullPath.close();
+
+    // Shadow for 3D depth
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.4)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+    canvas.save();
+    canvas.translate(3, 5);
+    canvas.drawPath(hullPath, shadowPaint);
+    canvas.restore();
+
+    canvas.drawPath(hullPath, hullPaint);
+
+    // Middle deck layer (lighter)
+    final deckPaint = Paint()
+      ..shader =
+          LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.white, Colors.grey.shade200],
+          ).createShader(
+            Rect.fromLTWH(
+              size.x * 0.2,
+              size.y * 0.3,
+              size.x * 0.6,
+              size.y * 0.4,
+            ),
+          );
+
+    final deckPath = Path();
+    deckPath.moveTo(size.x * 0.5, size.y * 0.25);
+    deckPath.lineTo(size.x * 0.75, size.y * 0.35);
+    deckPath.lineTo(size.x * 0.7, size.y * 0.65);
+    deckPath.lineTo(size.x * 0.3, size.y * 0.65);
+    deckPath.lineTo(size.x * 0.25, size.y * 0.35);
+    deckPath.close();
+    canvas.drawPath(deckPath, deckPaint);
+
+    // Cabin structure
+    final cabinPaint = Paint()
+      ..shader =
+          LinearGradient(
+            colors: [Colors.grey.shade100, Colors.grey.shade300],
+          ).createShader(
+            Rect.fromLTWH(
+              size.x * 0.3,
+              size.y * 0.2,
+              size.x * 0.4,
+              size.y * 0.3,
+            ),
+          );
+
+    final cabinPath = Path();
+    cabinPath.moveTo(size.x * 0.35, size.y * 0.35);
+    cabinPath.lineTo(size.x * 0.65, size.y * 0.35);
+    cabinPath.lineTo(size.x * 0.6, size.y * 0.5);
+    cabinPath.lineTo(size.x * 0.4, size.y * 0.5);
+    cabinPath.close();
+    canvas.drawPath(cabinPath, cabinPaint);
+
+    // Racing stripes for detail
+    final stripePaint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+
+    canvas.drawLine(
+      Offset(size.x * 0.25, size.y * 0.45),
+      Offset(size.x * 0.75, size.y * 0.45),
+      stripePaint,
+    );
+
+    canvas.drawLine(
+      Offset(size.x * 0.25, size.y * 0.55),
+      Offset(size.x * 0.75, size.y * 0.55),
+      stripePaint..color = Colors.blue,
+    );
+
+    // Railings for realism
+    final railingPaint = Paint()
+      ..color = Colors.grey.shade700
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    for (double i = 0.3; i <= 0.7; i += 0.1) {
+      canvas.drawLine(
+        Offset(size.x * i, size.y * 0.65),
+        Offset(size.x * i, size.y * 0.7),
+        railingPaint,
+      );
+    }
+  }
+
+  void _draw3DWindshield(Canvas canvas) {
+    final windshieldPaint = Paint()
+      ..shader =
+          LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.lightBlue.withValues(alpha: 0.7),
+              Colors.white.withValues(alpha: 0.4),
+              Colors.lightBlue.withValues(alpha: 0.5),
+            ],
+            stops: [0.0, 0.5, 1.0],
+          ).createShader(
+            Rect.fromLTWH(
+              size.x * 0.35,
+              size.y * 0.2,
+              size.x * 0.3,
+              size.y * 0.25,
+            ),
+          );
+
+    // Main windshield
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.35, size.y * 0.2, size.x * 0.3, size.y * 0.25),
+        const Radius.circular(8),
+      ),
+      windshieldPaint,
+    );
+
+    // Reflection highlight
+    final highlightPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.6)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawOval(
+      Rect.fromLTWH(size.x * 0.4, size.y * 0.22, size.x * 0.15, size.y * 0.08),
+      highlightPaint,
+    );
+
+    // Windshield frame
+    final framePaint = Paint()
+      ..color = Colors.grey.shade800
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.35, size.y * 0.2, size.x * 0.3, size.y * 0.25),
+        const Radius.circular(8),
+      ),
+      framePaint,
+    );
+  }
+
+  void _drawPropellerWake(Canvas canvas) {
+    final wakePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.5)
+      ..style = PaintingStyle.fill;
+
+    // Animated bubbles from propeller
+    for (int i = 0; i < 5; i++) {
+      final offset = sin(bobOffset * 3 + i) * 5;
+      final bubbleSize = 3 + (i % 3) * 2.0;
+
+      canvas.drawCircle(
+        Offset(size.x * 0.5 + offset, size.y * 0.9 + i * 8),
+        bubbleSize,
+        wakePaint..color = Colors.white.withValues(alpha: 0.3 - (i * 0.05)),
+      );
+    }
+  }
+
+  void _draw3DNet(Canvas canvas) {
+    final netGradient = RadialGradient(
+      colors: [
+        Colors.amber.withValues(alpha: 0.6),
+        Colors.orange.withValues(alpha: 0.3),
+      ],
+    );
+
+    final netPaint = Paint()
+      ..shader = netGradient.createShader(
+        Rect.fromLTWH(-20, size.y, size.x + 40, 60),
+      );
+
+    // 3D net with perspective
+    final netPath = Path();
+    netPath.moveTo(-20, size.y + 5);
+    netPath.quadraticBezierTo(
+      size.x * 0.5,
+      size.y + 15,
+      size.x + 20,
+      size.y + 5,
+    );
+    netPath.lineTo(size.x + 15, size.y + 55);
+    netPath.quadraticBezierTo(size.x * 0.5, size.y + 70, -15, size.y + 55);
+    netPath.close();
+
+    canvas.drawPath(netPath, netPaint);
+
+    // Net mesh with 3D effect
+    final meshPaint = Paint()
+      ..color = Colors.orange.shade700
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    // Vertical lines with perspective
+    for (double i = 0; i <= 1; i += 0.15) {
+      final topX = -20 + (size.x + 40) * i;
+      final topY = size.y + 5 + sin(i * pi) * 10;
+      final bottomX = -15 + (size.x + 30) * i;
+      final bottomY = size.y + 55 + sin(i * pi) * 15;
+
+      canvas.drawLine(Offset(topX, topY), Offset(bottomX, bottomY), meshPaint);
+    }
+
+    // Horizontal lines
+    for (double i = 0; i <= 1; i += 0.2) {
+      final y = size.y + 5 + (50 * i);
+      final curve = sin(i * pi) * 10;
+
+      final linePath = Path();
+      linePath.moveTo(-20 + curve, y);
+      linePath.quadraticBezierTo(
+        size.x * 0.5,
+        y + curve * 0.5,
+        size.x + 20 - curve,
+        y,
+      );
+      canvas.drawPath(linePath, meshPaint);
+    }
+
+    // Net floats
+    final floatPaint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.fill;
+
+    for (double i = 0.2; i <= 0.8; i += 0.2) {
+      canvas.drawCircle(
+        Offset(-20 + (size.x + 40) * i, size.y + 5),
+        4,
+        floatPaint,
+      );
+    }
+  }
+
+  void _drawWakeTrail(Canvas canvas) {
+    if (wakeTrail.isEmpty) return;
+
+    final wakePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8
+      ..strokeCap = StrokeCap.round;
+
+    for (int i = 0; i < wakeTrail.length - 1; i++) {
+      final alpha = (1.0 - (i / wakeTrail.length)) * 0.3;
+      wakePaint.color = Colors.white.withValues(alpha: alpha);
+
+      canvas.drawLine(
+        Offset(wakeTrail[i].x, wakeTrail[i].y),
+        Offset(wakeTrail[i + 1].x, wakeTrail[i + 1].y),
+        wakePaint,
+      );
+    }
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+
+    // Update bob animation
+    bobOffset += dt * 2;
+
+    // Smooth movement to target
+    final direction = targetPosition - position;
+    isMoving = direction.length > 5;
+
+    if (direction.length > 1) {
+      velocity = direction.normalized() * speed;
+      position += velocity * dt;
+
+      // Smooth rotation
+      targetRotation = direction.angleTo(Vector2(0, -1));
+      final rotationDiff = targetRotation - rotation;
+      rotation += rotationDiff * 0.15;
+
+      // Tilt based on turning
+      tiltAngle += (rotationDiff * 0.5 - tiltAngle) * 0.1;
+
+      // Update wake trail
+      wakeTrail.add(position.clone());
+      if (wakeTrail.length > 15) {
+        wakeTrail.removeAt(0);
+      }
+    } else {
+      velocity = Vector2.zero();
+      tiltAngle *= 0.9; // Return to neutral
+      isMoving = false;
+    }
+
+    // Bounds clamping with margins
+    position.x = position.x.clamp(size.x, game.size.x - size.x);
+    position.y = position.y.clamp(size.y, game.size.y - size.y);
+
+    if (netDeployed) {
+      _checkWasteCollision();
+    }
+  }
+
+  void _checkWasteCollision() {
+    final netCenter = position + Vector2(0, size.y / 2 + 35);
+    final netArea = Rect.fromCenter(
+      center: Offset(netCenter.x, netCenter.y),
+      width: size.x + 50,
+      height: 70,
+    );
+
+    final wasteCopy = List<WasteItemComponent>.from(game.wasteItems);
+
+    for (var waste in wasteCopy) {
+      final wasteRect = Rect.fromCenter(
+        center: Offset(waste.position.x, waste.position.y),
+        width: waste.size.x,
+        height: waste.size.y,
+      );
+
+      if (netArea.overlaps(wasteRect)) {
+        game.collectWaste(waste);
+      }
+    }
+  }
+
+  @override
+  bool onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
+    if (keysPressed.isEmpty) {
+      targetPosition = position.clone();
+      return false;
+    }
+
+    final moveDirection = Vector2.zero();
+
+    if (keysPressed.contains(LogicalKeyboardKey.arrowUp) ||
+        keysPressed.contains(LogicalKeyboardKey.keyW)) {
+      moveDirection.y = -1;
+    }
+    if (keysPressed.contains(LogicalKeyboardKey.arrowDown) ||
+        keysPressed.contains(LogicalKeyboardKey.keyS)) {
+      moveDirection.y = 1;
+    }
+    if (keysPressed.contains(LogicalKeyboardKey.arrowLeft) ||
+        keysPressed.contains(LogicalKeyboardKey.keyA)) {
+      moveDirection.x = -1;
+    }
+    if (keysPressed.contains(LogicalKeyboardKey.arrowRight) ||
+        keysPressed.contains(LogicalKeyboardKey.keyD)) {
+      moveDirection.x = 1;
+    }
+
+    if (moveDirection.length > 0) {
+      targetPosition = position + (moveDirection.normalized() * 150);
+    }
+
+    if (keysPressed.contains(LogicalKeyboardKey.space)) {
+      deployNet();
+    }
+
+    return true;
+  }
+
+  @override
+  void onDragStart(DragStartEvent event) {
+    super.onDragStart(event);
+    // Mobile joystick
+    joystickCenter = event.localPosition;
+    joystickPosition = event.localPosition;
+    showJoystick = true;
+  }
+
+  @override
+  void onDragUpdate(DragUpdateEvent event) {
+    super.onDragUpdate(event);
+    if (joystickCenter != null) {
+      joystickPosition = event.localEndPosition;
+
+      // Calculate direction from joystick
+      final direction = joystickPosition! - joystickCenter!;
+      final distance = direction.length.clamp(0.0, 60.0);
+
+      if (distance > 10) {
+        targetPosition = position + direction.normalized() * (distance * 3);
+      }
+    }
+  }
+
+  @override
+  void onDragEnd(DragEndEvent event) {
+    super.onDragEnd(event);
+    showJoystick = false;
+    joystickCenter = null;
+    joystickPosition = null;
+    targetPosition = position.clone();
+  }
+
+  @override
+  void onTapUp(TapUpEvent event) {
+    deployNet();
+  }
+
+  void deployNet() {
+    if (!netDeployed) {
+      netDeployed = true;
+      game.camera.viewfinder.add(
+        ScaleEffect.by(
+          Vector2.all(1.05),
+          EffectController(duration: 0.3, alternate: true),
+        ),
+      );
+      Future.delayed(
+        const Duration(milliseconds: 1500),
+        () => netDeployed = false,
+      );
+    }
+  }
+}
+
+class WasteItemComponent extends PositionComponent {
+  final String type;
+  late Color color;
+  late Color accentColor;
+  double bobOffset = 0;
+  double bobSpeed = 1.0 + Random().nextDouble() * 0.5;
+  double bobAmount = 2.0 + Random().nextDouble() * 3.0;
+  double rotation = 0.0;
+  double rotationSpeed = (Random().nextDouble() - 0.5) * 0.2;
+
+  WasteItemComponent({
+    required this.type,
+    required super.position,
+    required super.size,
+  }) {
+    color = _getColorForType(type);
+    accentColor = _getAccentColorForType(type);
+    priority = 50;
+    anchor = Anchor.center;
+  }
+
+  Color _getColorForType(String type) {
+    switch (type) {
+      case 'plastic_bottle':
+        return Colors.blue.shade700;
+      case 'can':
+        return Colors.grey.shade400;
+      case 'bag':
+        return Colors.white.withValues(alpha: 0.9);
+      case 'oil_slick':
+        return Colors.black87;
+      case 'wood':
+        return Colors.brown.shade600;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Color _getAccentColorForType(String type) {
+    switch (type) {
+      case 'plastic_bottle':
+        return Colors.lightBlue.shade300;
+      case 'can':
+        return Colors.grey.shade200;
+      case 'bag':
+        return Colors.grey.shade300;
+      case 'oil_slick':
+        return Colors.brown.shade900;
+      case 'wood':
+        return Colors.brown.shade300;
+      default:
+        return Colors.white;
+    }
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    bobOffset += dt * bobSpeed;
+    position.y += sin(bobOffset) * bobAmount * dt;
+    rotation += rotationSpeed * dt;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    canvas.save();
+
+    final centerX = size.x / 2;
+    final centerY = size.y / 2;
+
+    canvas.translate(centerX, centerY);
+    canvas.rotate(rotation);
+
+    // Apply 3D perspective transform
+    final transform = Matrix4.identity()
+      ..setEntry(3, 2, 0.002) // perspective
+      ..rotateX(sin(bobOffset) * 0.2)
+      ..rotateY(cos(bobOffset * 0.7) * 0.15);
+
+    canvas.transform(transform.storage);
+    canvas.translate(-centerX, -centerY);
+
+    // Multi-layer shadow for depth
+    _draw3DShadow(canvas);
+
+    // Main object with enhanced 3D shading
+    final paint = Paint()
+      ..shader = _create3DGradient().createShader(size.toRect());
+
+    canvas.drawPath(_getPathForType(), paint);
+
+    // Specular highlights
+    _drawSpecularHighlights(canvas);
+
+    // Type-specific 3D details
+    _draw3DTypeDetails(canvas);
+
+    canvas.restore();
+  }
+
+  void _draw3DShadow(Canvas canvas) {
+    // Multiple shadow layers for realistic depth
+    final shadowLayers = [
+      (offset: Offset(4, 6), blur: 8.0, alpha: 0.4),
+      (offset: Offset(2, 3), blur: 4.0, alpha: 0.3),
+      (offset: Offset(1, 1.5), blur: 2.0, alpha: 0.2),
+    ];
+
+    for (final layer in shadowLayers) {
+      final shadowPaint = Paint()
+        ..color = Colors.black.withValues(alpha: layer.alpha)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, layer.blur);
+
+      canvas.save();
+      canvas.translate(layer.offset.dx, layer.offset.dy);
+      canvas.drawPath(_getPathForType(), shadowPaint);
+      canvas.restore();
+    }
+  }
+
+  Path _getPathForType() {
+    final path = Path();
+    switch (type) {
+      case 'plastic_bottle':
+        path.moveTo(size.x * 0.4, 0);
+        path.lineTo(size.x * 0.6, 0);
+        path.lineTo(size.x * 0.7, size.y * 0.2);
+        path.lineTo(size.x * 0.8, size.y * 0.6);
+        path.lineTo(size.x * 0.7, size.y);
+        path.lineTo(size.x * 0.3, size.y);
+        path.lineTo(size.x * 0.2, size.y * 0.6);
+        path.lineTo(size.x * 0.3, size.y * 0.2);
+        path.close();
+        return path;
+      case 'can':
+        path.addRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(0, 0, size.x, size.y),
+            Radius.circular(size.x * 0.1),
+          ),
+        );
+        return path;
+      case 'bag':
+        path.moveTo(size.x * 0.2, size.y * 0.3);
+        path.quadraticBezierTo(size.x * 0.1, size.y * 0.5, size.x * 0.3, size.y * 0.7);
+        path.quadraticBezierTo(size.x * 0.5, size.y * 0.9, size.x * 0.7, size.y * 0.7);
+        path.quadraticBezierTo(size.x * 0.9, size.y * 0.5, size.x * 0.8, size.y * 0.3);
+        path.quadraticBezierTo(size.x * 0.7, size.y * 0.1, size.x * 0.5, size.y * 0.2);
+        path.quadraticBezierTo(size.x * 0.3, size.y * 0.1, size.x * 0.2, size.y * 0.3);
+        path.close();
+        return path;
+      case 'oil_slick':
+        path.moveTo(size.x * 0.3, size.y * 0.2);
+        path.quadraticBezierTo(size.x * 0.1, size.y * 0.3, size.x * 0.2, size.y * 0.5);
+        path.quadraticBezierTo(size.x * 0.1, size.y * 0.7, size.x * 0.4, size.y * 0.8);
+        path.quadraticBezierTo(size.x * 0.6, size.y * 0.9, size.x * 0.8, size.y * 0.7);
+        path.quadraticBezierTo(size.x * 0.9, size.y * 0.5, size.x * 0.7, size.y * 0.3);
+        path.quadraticBezierTo(size.x * 0.8, size.y * 0.1, size.x * 0.5, size.y * 0.15);
+        path.close();
+        return path;
+      case 'wood':
+        path.addRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(0, 0, size.x, size.y),
+            Radius.circular(size.y * 0.2),
+          ),
+        );
+        return path;
+      default:
+        path.addRect(Rect.fromLTWH(0, 0, size.x, size.y));
+        return path;
+    }
+  }
+
+  LinearGradient _create3DGradient() {
+    // Light source from top-left for 3D effect
+    return LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [color.lighten(0.3), color, color.darken(0.2), color.darken(0.4)],
+      stops: [0.0, 0.4, 0.7, 1.0],
+    );
+  }
+
+  void _drawSpecularHighlights(Canvas canvas) {
+    final highlightPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.6)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+
+    // Position highlight based on type
+    Offset highlightPos;
+    double highlightSize;
+
+    switch (type) {
+      case 'plastic_bottle':
+        highlightPos = Offset(size.x * 0.4, size.y * 0.2);
+        highlightSize = size.x * 0.2;
+        break;
+      case 'can':
+        highlightPos = Offset(size.x * 0.35, size.y * 0.15);
+        highlightSize = size.x * 0.25;
+        break;
+      default:
+        highlightPos = Offset(size.x * 0.4, size.y * 0.3);
+        highlightSize = size.x * 0.15;
+    }
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: highlightPos,
+        width: highlightSize,
+        height: highlightSize * 0.6,
+      ),
+      highlightPaint,
+    );
+  }
+
+  void _draw3DTypeDetails(Canvas canvas) {
+    switch (type) {
+      case 'plastic_bottle':
+        _draw3DPlasticBottle(canvas);
+        break;
+      case 'can':
+        _draw3DCan(canvas);
+        break;
+      case 'bag':
+        _draw3DBag(canvas);
+        break;
+      case 'oil_slick':
+        _draw3DOilSlick(canvas);
+        break;
+      case 'wood':
+        _draw3DWood(canvas);
+        break;
+    }
+  }
+
+  void _draw3DPlasticBottle(Canvas canvas) {
+    // Bottle body with cylindrical shading
+    final bodyGradient = LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [
+        color.darken(0.2),
+        color,
+        color.lighten(0.2),
+        color,
+        color.darken(0.2),
+      ],
+      stops: [0.0, 0.25, 0.5, 0.75, 1.0],
+    );
+
+    final bodyPaint = Paint()
+      ..shader = bodyGradient.createShader(
+        Rect.fromLTWH(size.x * 0.25, size.y * 0.15, size.x * 0.5, size.y * 0.7),
+      );
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.25, size.y * 0.15, size.x * 0.5, size.y * 0.7),
+        const Radius.circular(6),
+      ),
+      bodyPaint,
+    );
+
+    // Cap with 3D effect
+    final capGradient = RadialGradient(
+      colors: [accentColor.lighten(0.2), accentColor.darken(0.2)],
+    );
+
+    final capPaint = Paint()
+      ..shader = capGradient.createShader(
+        Rect.fromLTWH(size.x * 0.38, -2, size.x * 0.24, size.y * 0.18),
+      );
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.38, -2, size.x * 0.24, size.y * 0.18),
+        const Radius.circular(3),
+      ),
+      capPaint,
+    );
+
+    // Label with perspective
+    final labelPaint = Paint()
+      ..shader =
+          LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.white.withValues(alpha: 0.9),
+              Colors.white.withValues(alpha: 0.7),
+            ],
+          ).createShader(
+            Rect.fromLTWH(
+              size.x * 0.22,
+              size.y * 0.35,
+              size.x * 0.56,
+              size.y * 0.35,
+            ),
+          );
+
+    final labelPath = Path();
+    labelPath.moveTo(size.x * 0.22, size.y * 0.35);
+    labelPath.lineTo(size.x * 0.78, size.y * 0.35);
+    labelPath.lineTo(size.x * 0.76, size.y * 0.7);
+    labelPath.lineTo(size.x * 0.24, size.y * 0.7);
+    labelPath.close();
+
+    canvas.drawPath(labelPath, labelPaint);
+
+    // Brand text simulation
+    final textPaint = Paint()
+      ..color = Colors.blue.shade700
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+
+    for (int i = 0; i < 3; i++) {
+      canvas.drawLine(
+        Offset(size.x * 0.3, size.y * (0.45 + i * 0.05)),
+        Offset(size.x * 0.7, size.y * (0.45 + i * 0.05)),
+        textPaint,
+      );
+    }
+  }
+
+  void _draw3DCan(Canvas canvas) {
+    // Cylindrical can body with metallic sheen
+    final canGradient = LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [
+        Colors.grey.shade600,
+        Colors.grey.shade300,
+        Colors.grey.shade100,
+        Colors.grey.shade300,
+        Colors.grey.shade600,
+      ],
+      stops: [0.0, 0.2, 0.5, 0.8, 1.0],
+    );
+
+    final canPaint = Paint()..shader = canGradient.createShader(size.toRect());
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.15, size.y * 0.05, size.x * 0.7, size.y * 0.9),
+        Radius.circular(size.x * 0.12),
+      ),
+      canPaint,
+    );
+
+    // Top rim
+    final rimPaint = Paint()
+      ..shader = LinearGradient(colors: [accentColor.darken(0.2), accentColor])
+          .createShader(
+            Rect.fromLTWH(
+              size.x * 0.15,
+              size.y * 0.05,
+              size.x * 0.7,
+              size.y * 0.12,
+            ),
+          );
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          size.x * 0.15,
+          size.y * 0.05,
+          size.x * 0.7,
+          size.y * 0.12,
+        ),
+        const Radius.circular(4),
+      ),
+      rimPaint,
+    );
+
+    // Pull tab
+    final tabPaint = Paint()
+      ..color = Colors.grey.shade400
+      ..style = PaintingStyle.fill;
+
+    canvas.drawOval(
+      Rect.fromLTWH(size.x * 0.42, size.y * 0.08, size.x * 0.16, size.y * 0.08),
+      tabPaint,
+    );
+
+    // Label band with 3D curve
+    final bandPaint = Paint()
+      ..shader =
+          LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.red, Colors.red.shade700],
+          ).createShader(
+            Rect.fromLTWH(
+              size.x * 0.15,
+              size.y * 0.4,
+              size.x * 0.7,
+              size.y * 0.25,
+            ),
+          );
+
+    final bandPath = Path();
+    bandPath.moveTo(size.x * 0.15, size.y * 0.4);
+    bandPath.lineTo(size.x * 0.85, size.y * 0.4);
+    bandPath.cubicTo(
+      size.x * 0.88,
+      size.y * 0.525,
+      size.x * 0.88,
+      size.y * 0.525,
+      size.x * 0.85,
+      size.y * 0.65,
+    );
+    bandPath.lineTo(size.x * 0.15, size.y * 0.65);
+    bandPath.cubicTo(
+      size.x * 0.12,
+      size.y * 0.525,
+      size.x * 0.12,
+      size.y * 0.525,
+      size.x * 0.15,
+      size.y * 0.4,
+    );
+    bandPath.close();
+
+    canvas.drawPath(bandPath, bandPaint);
+
+    // Metallic highlights
+    for (int i = 0; i < 5; i++) {
+      final highlightPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.15 - (i * 0.02))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1;
+
+      canvas.drawLine(
+        Offset(size.x * (0.2 + i * 0.12), size.y * 0.1),
+        Offset(size.x * (0.2 + i * 0.12), size.y * 0.9),
+        highlightPaint,
+      );
+    }
+  }
+
+  void _draw3DBag(Canvas canvas) {
+    // Wrinkled plastic bag with transparency layers
+    final bagGradient = RadialGradient(
+      center: Alignment.center,
+      colors: [
+        color.withValues(alpha: 0.9),
+        color.withValues(alpha: 0.7),
+        color.withValues(alpha: 0.5),
+      ],
+    );
+
+    final bagPaint = Paint()
+      ..shader = bagGradient.createShader(size.toRect())
+      ..style = PaintingStyle.fill;
+
+    final bagPath = Path();
+    bagPath.moveTo(size.x * 0.25, size.y * 0.2);
+
+    // Irregular organic shape for floating bag
+    bagPath.cubicTo(
+      size.x * 0.1,
+      size.y * 0.3,
+      size.x * 0.05,
+      size.y * 0.5,
+      size.x * 0.2,
+      size.y * 0.7,
+    );
+    bagPath.cubicTo(
+      size.x * 0.35,
+      size.y * 0.85,
+      size.x * 0.65,
+      size.y * 0.85,
+      size.x * 0.8,
+      size.y * 0.7,
+    );
+    bagPath.cubicTo(
+      size.x * 0.95,
+      size.y * 0.5,
+      size.x * 0.9,
+      size.y * 0.3,
+      size.x * 0.75,
+      size.y * 0.2,
+    );
+    bagPath.cubicTo(
+      size.x * 0.65,
+      size.y * 0.1,
+      size.x * 0.35,
+      size.y * 0.1,
+      size.x * 0.25,
+      size.y * 0.2,
+    );
+    bagPath.close();
+
+    canvas.drawPath(bagPath, bagPaint);
+
+    // Wrinkle lines for realism
+    final wrinklePaint = Paint()
+      ..color = accentColor.withValues(alpha: 0.4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    for (int i = 0; i < 4; i++) {
+      final wrinklePath = Path();
+      final startY = size.y * (0.25 + i * 0.15);
+
+      wrinklePath.moveTo(size.x * 0.2, startY);
+      wrinklePath.quadraticBezierTo(
+        size.x * 0.35,
+        startY + sin(i * 1.5) * 8,
+        size.x * 0.5,
+        startY,
+      );
+      wrinklePath.quadraticBezierTo(
+        size.x * 0.65,
+        startY - sin(i * 1.5) * 8,
+        size.x * 0.8,
+        startY,
+      );
+
+      canvas.drawPath(wrinklePath, wrinklePaint);
+    }
+
+    // Handles
+    final handlePaint = Paint()
+      ..color = color.darken(0.3)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+
+    final leftHandle = Path();
+    leftHandle.moveTo(size.x * 0.3, size.y * 0.15);
+    leftHandle.quadraticBezierTo(
+      size.x * 0.25,
+      size.y * 0.05,
+      size.x * 0.35,
+      size.y * 0.15,
+    );
+    canvas.drawPath(leftHandle, handlePaint);
+
+    final rightHandle = Path();
+    rightHandle.moveTo(size.x * 0.65, size.y * 0.15);
+    rightHandle.quadraticBezierTo(
+      size.x * 0.75,
+      size.y * 0.05,
+      size.x * 0.7,
+      size.y * 0.15,
+    );
+    canvas.drawPath(rightHandle, handlePaint);
+  }
+
+  void _draw3DOilSlick(Canvas canvas) {
+    // Multi-layer oil slick with iridescent effect
+    final slickGradient = RadialGradient(
+      center: Alignment.center,
+      colors: [
+        Colors.black87,
+        Colors.brown.shade900,
+        Colors.brown.shade700,
+        Colors.brown.shade900.withValues(alpha: 0.8),
+      ],
+      stops: [0.0, 0.3, 0.6, 1.0],
+    );
+
+    final slickPaint = Paint()
+      ..shader = slickGradient.createShader(size.toRect())
+      ..style = PaintingStyle.fill;
+
+    final slickPath = Path();
+    slickPath.moveTo(size.x * 0.3, size.y * 0.15);
+    slickPath.cubicTo(
+      size.x * 0.05,
+      size.y * 0.25,
+      size.x * 0.1,
+      size.y * 0.5,
+      size.x * 0.2,
+      size.y * 0.65,
+    );
+    slickPath.cubicTo(
+      size.x * 0.15,
+      size.y * 0.8,
+      size.x * 0.4,
+      size.y * 0.9,
+      size.x * 0.6,
+      size.y * 0.85,
+    );
+    slickPath.cubicTo(
+      size.x * 0.85,
+      size.y * 0.75,
+      size.x * 0.92,
+      size.y * 0.5,
+      size.x * 0.8,
+      size.y * 0.3,
+    );
+    slickPath.cubicTo(
+      size.x * 0.85,
+      size.y * 0.12,
+      size.x * 0.6,
+      size.y * 0.08,
+      size.x * 0.3,
+      size.y * 0.15,
+    );
+    slickPath.close();
+
+    canvas.drawPath(slickPath, slickPaint);
+
+    // Iridescent rainbow sheen layers
+    final sheenColors = [
+      (color: Colors.purple.withValues(alpha: 0.3), scale: 0.7),
+      (color: Colors.blue.withValues(alpha: 0.25), scale: 0.5),
+      (color: Colors.green.withValues(alpha: 0.2), scale: 0.4),
+      (color: Colors.yellow.withValues(alpha: 0.15), scale: 0.3),
+    ];
+
+    for (final sheen in sheenColors) {
+      final sheenPaint = Paint()
+        ..color = sheen.color
+        ..style = PaintingStyle.fill;
+
+      final sheenPath = Path();
+      final offsetX = sin(bobOffset * 2) * 5;
+      final offsetY = cos(bobOffset * 2) * 5;
+
+      sheenPath.moveTo(
+        size.x * (0.35 + offsetX / 100),
+        size.y * (0.25 + offsetY / 100),
+      );
+      sheenPath.cubicTo(
+        size.x * (0.25 + offsetX / 100),
+        size.y * (0.35 + offsetY / 100),
+        size.x * (0.3 + offsetX / 100),
+        size.y * (0.55 + offsetY / 100),
+        size.x * (0.45 + offsetX / 100),
+        size.y * (0.65 + offsetY / 100),
+      );
+      sheenPath.cubicTo(
+        size.x * (0.6 + offsetX / 100),
+        size.y * (0.7 + offsetY / 100),
+        size.x * (0.7 + offsetX / 100),
+        size.y * (0.5 + offsetY / 100),
+        size.x * (0.65 + offsetX / 100),
+        size.y * (0.35 + offsetY / 100),
+      );
+      sheenPath.close();
+
+      canvas.save();
+      canvas.scale(sheen.scale, sheen.scale);
+      canvas.translate(
+        size.x * (1 - sheen.scale) / 2,
+        size.y * (1 - sheen.scale) / 2,
+      );
+      canvas.drawPath(sheenPath, sheenPaint);
+      canvas.restore();
+    }
+
+    // Bubbles on surface
+    final bubblePaint = Paint()
+      ..color = Colors.brown.shade800.withValues(alpha: 0.6)
+      ..style = PaintingStyle.fill;
+
+    for (int i = 0; i < 6; i++) {
+      final x = size.x * (0.2 + (i % 3) * 0.25 + sin(bobOffset + i) * 0.05);
+      final y = size.y * (0.3 + (i ~/ 3) * 0.3 + cos(bobOffset + i) * 0.05);
+      final radius = 2 + (i % 3) * 1.5;
+
+      canvas.drawCircle(Offset(x, y), radius, bubblePaint);
+    }
+  }
+
+  void _draw3DWood(Canvas canvas) {
+    // Wooden log with bark texture
+    final woodGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.brown.shade400,
+        Colors.brown.shade600,
+        Colors.brown.shade700,
+        Colors.brown.shade600,
+      ],
+      stops: [0.0, 0.3, 0.7, 1.0],
+    );
+
+    final woodPaint = Paint()
+      ..shader = woodGradient.createShader(size.toRect());
+
+    final logPath = Path();
+    logPath.addRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.05, size.y * 0.25, size.x * 0.9, size.y * 0.5),
+        Radius.circular(size.y * 0.25),
+      ),
+    );
+
+    canvas.drawPath(logPath, woodPaint);
+
+    // Bark texture with vertical lines
+    final barkPaint = Paint()
+      ..color = Colors.brown.shade800
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    for (int i = 0; i < 8; i++) {
+      final x = size.x * (0.15 + i * 0.1);
+      final lineHeight = size.y * 0.45;
+      final yStart = size.y * 0.275;
+
+      // Irregular bark lines
+      final barkPath = Path();
+      barkPath.moveTo(x, yStart);
+
+      for (double j = 0; j <= 1; j += 0.2) {
+        final offset = sin((i + j) * 3) * 2;
+        barkPath.lineTo(x + offset, yStart + lineHeight * j);
+      }
+
+      canvas.drawPath(barkPath, barkPaint);
+    }
+
+    // Wood grain details
+    final grainPaint = Paint()
+      ..color = accentColor.withValues(alpha: 0.4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    for (int i = 0; i < 3; i++) {
+      final grainPath = Path();
+      final y = size.y * (0.35 + i * 0.15);
+
+      grainPath.moveTo(size.x * 0.1, y);
+      grainPath.cubicTo(
+        size.x * 0.3,
+        y + sin(i * 2) * 4,
+        size.x * 0.7,
+        y - sin(i * 2) * 4,
+        size.x * 0.95,
+        y,
+      );
+
+      canvas.drawPath(grainPath, grainPaint);
+    }
+
+    // End caps showing cut wood
+    final endCapPaint = Paint()
+      ..shader =
+          RadialGradient(
+            colors: [
+              Colors.brown.shade300,
+              Colors.brown.shade600,
+              Colors.brown.shade800,
+            ],
+          ).createShader(
+            Rect.fromLTWH(0, size.y * 0.25, size.x * 0.12, size.y * 0.5),
+          );
+
+    canvas.drawOval(
+      Rect.fromLTWH(size.x * 0.02, size.y * 0.28, size.x * 0.12, size.y * 0.44),
+      endCapPaint,
+    );
+
+    canvas.drawOval(
+      Rect.fromLTWH(size.x * 0.86, size.y * 0.28, size.x * 0.12, size.y * 0.44),
+      endCapPaint,
+    );
+
+    // Growth rings on end caps
+    final ringPaint = Paint()
+      ..color = Colors.brown.shade900
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+
+    for (int i = 1; i <= 3; i++) {
+      canvas.drawOval(
+        Rect.fromLTWH(
+          size.x * 0.02 + i * 2,
+          size.y * 0.28 + i * 3,
+          size.x * 0.12 - i * 4,
+          size.y * 0.44 - i * 6,
+        ),
+        ringPaint,
+      );
+    }
+  }
+}
+
+class WaterTileComponent extends PositionComponent
+    with HasGameReference<WaterPollutionGame>, TapCallbacks {
+  final int row;
+  final int col;
+  bool isPolluted;
+  bool isTreating = false;
+  bool isClear = false;
+
+  WaterTileComponent({
+    required this.row,
+    required this.col,
+    required super.position,
+    required super.size,
+    required this.isPolluted,
+  });
+
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+
+    Color waterColor;
+    if (isClear) {
+      waterColor = const Color(0xFF00BCD4);
+    } else if (isTreating) {
+      waterColor = const Color(0xFF808080);
+    } else if (isPolluted) {
+      waterColor = const Color(0xFF8B4513);
+    } else {
+      waterColor = const Color(0xFF64B5F6);
+    }
+
+    final paint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [waterColor.lighten(0.2), waterColor.darken(0.2)],
+      ).createShader(size.toRect());
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(4)),
+      paint,
+    );
+
+    final borderPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.3)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(4)),
+      borderPaint,
+    );
+
+    if (isTreating) {
+      _drawBubbles(canvas);
+    }
+
+    if (isClear) {
+      _drawSparkles(canvas);
+    }
+  }
+
+  void _drawBubbles(Canvas canvas) {
+    final bubblePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.6)
+      ..style = PaintingStyle.fill;
+
+    final random = Random(row * 10 + col);
+    for (int i = 0; i < 5; i++) {
+      final x = random.nextDouble() * size.x;
+      final y = random.nextDouble() * size.y;
+      final radius = 2 + random.nextDouble() * 3;
+
+      canvas.drawCircle(Offset(x, y), radius, bubblePaint);
+    }
+  }
+
+  void _drawSparkles(Canvas canvas) {
+    final sparklePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.8)
+      ..style = PaintingStyle.fill;
+
+    final random = Random(row * 5 + col);
+    for (int i = 0; i < 3; i++) {
+      final x = random.nextDouble() * size.x;
+      final y = random.nextDouble() * size.y;
+
+      canvas.drawCircle(Offset(x, y), 2, sparklePaint);
+    }
+  }
+
+  void startTreatment() {
+    isTreating = true;
+    add(
+      ParticleSystemComponent(
+        particle: Particle.generate(
+          count: 20,
+          lifespan: 2.0,
+          generator: (i) => AcceleratedParticle(
+            acceleration: Vector2(0, -50),
+            child: CircleParticle(
+              radius: 2 + Random().nextDouble() * 2,
+              paint: Paint()..color = Colors.blueAccent.withValues(alpha: 0.7),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void completeTreatment() {
+    isTreating = false;
+    isPolluted = false;
+    isClear = true;
+  }
+
+  @override
+  void onTapUp(TapUpEvent event) {
+    if (isPolluted && !isTreating) {
+      game.treatTile(this);
+    }
+  }
+}
+
+class FarmZoneComponent extends PositionComponent {
+  bool isIrrigated = false;
+  bool cropsMature = false;
+  String method = '';
+  double growthProgress = 0.0;
+
+  FarmZoneComponent({required super.position, required super.size});
+
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+
+    final plotPaint = Paint()
+      ..color = isIrrigated ? const Color(0xFF8D6E63) : const Color(0xFFBCAAA4);
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(8)),
+      plotPaint,
+    );
+
+    if (isIrrigated) {
+      _drawCrops(canvas);
+    }
+
+    final borderPaint = Paint()
+      ..color = Colors.brown
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(8)),
+      borderPaint,
+    );
+  }
+
+  void _drawCrops(Canvas canvas) {
+    final cropColor = Color.lerp(
+      const Color(0xFF81C784).withValues(alpha: 0.5),
+      const Color(0xFF81C784),
+      growthProgress,
+    );
+
+    final cropPaint = Paint()
+      ..color = cropsMature
+          ? const Color(0xFF4CAF50)
+          : cropColor ?? const Color(0xFF81C784);
+
+    for (int i = 0; i < 6; i++) {
+      for (int j = 0; j < 4; j++) {
+        final x = (size.x / 7) * (i + 1);
+        final y = (size.y / 5) * (j + 1);
+        final height = 10 * growthProgress;
+
+        canvas.drawLine(
+          Offset(x, y),
+          Offset(x, y - height),
+          cropPaint..strokeWidth = 2,
+        );
+      }
+    }
+  }
+
+  void irrigate(String irrigationMethod) {
+    method = irrigationMethod;
+    isIrrigated = true;
+    _startGrowth();
+  }
+
+  void _startGrowth() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (growthProgress < 1.0) {
+        growthProgress += 0.017;
+        if (growthProgress >= 1.0) {
+          growthProgress = 1.0;
+          cropsMature = true;
+        }
+        _startGrowth();
+      }
+    });
+  }
+}
+
+class BinComponent extends PositionComponent {
+  final String binType;
+  late Color binColor;
+
+  BinComponent({required this.binType, required super.position, super.size}) {
+    size = size;
+    binColor = _getBinColor(binType);
+  }
+
+  Color _getBinColor(String type) {
+    switch (type) {
+      case 'plastic':
+        return Colors.blue;
+      case 'metal':
+        return Colors.grey;
+      case 'hazardous':
+        return Colors.red;
+      case 'organic':
+        return Colors.green;
+      default:
+        return Colors.black;
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final paint = Paint()..color = binColor;
+    canvas.drawRect(size.toRect(), paint);
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: binType.toUpperCase(),
+        style: const TextStyle(color: Colors.white, fontSize: 12),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainter.paint(
+      canvas,
+      Offset((size.x - textPainter.width) / 2, size.y - 20),
+    );
+  }
+
+  bool containsDrop(PositionComponent item) {
+    return containsPoint(item.absoluteCenter);
+  }
+}
+
+class PipeComponent extends PositionComponent
+    with HasGameReference<WaterPollutionGame>, TapCallbacks {
+  int rotationState = 0; // 0-3 for 90 deg rotations
+  String pipeType; // 'straight', 'corner', 't', etc.
+
+  PipeComponent({
+    required super.position,
+    required this.pipeType,
+    required super.size,
+  }) {
+    angle = rotationState * pi / 2;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final paint = Paint()..color = Colors.blueGrey;
+    // Draw based on pipeType
+    switch (pipeType) {
+      case 'straight':
+        canvas.drawRect(
+          Rect.fromLTWH(0, size.y * 0.4, size.x, size.y * 0.2),
+          paint,
+        );
+        break;
+      case 'corner':
+        final path = Path()
+          ..moveTo(0, size.y / 2)
+          ..lineTo(size.x / 2, size.y / 2)
+          ..lineTo(size.x / 2, size.y);
+        canvas.drawPath(
+          path,
+          paint
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = size.y * 0.2,
+        );
+        break;
+    }
+  }
+
+  @override
+  void onTapUp(TapUpEvent event) {
+    rotationState = (rotationState + 1) % 4;
+    angle = rotationState * pi / 2;
+    game.checkPipelineConnection();
+  }
+}
+
+class WildlifeComponent extends SpriteAnimationComponent
+    with HasGameReference<WaterPollutionGame> {
+  WildlifeComponent({required super.position, required super.size});
+
+  @override
+  Future<void> onLoad() async {
+    super.onLoad();
+    try {
+      final image = await game.images.load('wildlife.png');
+      animation = SpriteAnimation.fromFrameData(
+        image,
+        SpriteAnimationData.sequenced(
+          amount: 4,
+          stepTime: 0.1,
+          textureSize: Vector2(32, 32),
+        ),
+      );
+    } catch (e) {
+      // If image not found, create a simple placeholder
+      debugPrint('Wildlife image not found: $e');
+    }
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    position.x += 50 * dt;
+    if (position.x > game.size.x) removeFromParent();
+  }
+}
+
+class RiverBackgroundComponent extends PositionComponent {
+  double animationOffset = 0.0;
+  late List<WaveLayer> waveLayers;
+  
+  RiverBackgroundComponent({required Vector2 size}) : super(size: size) {
+    priority = -10;
+    
+    // Create multiple wave layers for depth
+    waveLayers = [
+      WaveLayer(
+        color: const Color(0xFF4A7C8F),
+        amplitude: 8,
+        frequency: 0.8,
+        speed: 0.3,
+        yOffset: 0,
+      ),
+      WaveLayer(
+        color: const Color(0xFF5A8C9F),
+        amplitude: 12,
+        frequency: 1.2,
+        speed: 0.5,
+        yOffset: 20,
+      ),
+      WaveLayer(
+        color: const Color(0xFF6A9CAF),
+        amplitude: 6,
+        frequency: 1.5,
+        speed: 0.7,
+        yOffset: 40,
+      ),
+    ];
+  }
+  
+  @override
+  void update(double dt) {
+    super.update(dt);
+    animationOffset += dt;
+  }
+  
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+    
+    // Base polluted water color gradient
+    final baseGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        const Color(0xFF2E4A5A), // Darker polluted top
+        const Color(0xFF4A6A7A), // Mid tone
+        const Color(0xFF5A7A8A), // Lighter polluted bottom
+      ],
+    );
+    
+    final basePaint = Paint()
+      ..shader = baseGradient.createShader(size.toRect());
+    
+    canvas.drawRect(size.toRect(), basePaint);
+    
+    // Draw animated wave layers
+    for (final layer in waveLayers) {
+      _drawWaveLayer(canvas, layer);
+    }
+    
+    // Add foam patches for realism
+    _drawFoamPatches(canvas);
+    
+    // Add pollution discoloration patches
+    _drawPollutionPatches(canvas);
+  }
+  
+  void _drawWaveLayer(Canvas canvas, WaveLayer layer) {
+    final wavePaint = Paint()
+      ..color = layer.color.withValues(alpha: 0.6)
+      ..style = PaintingStyle.fill;
+    
+    final wavePath = Path();
+    wavePath.moveTo(0, size.y);
+    
+    final segments = 50;
+    for (int i = 0; i <= segments; i++) {
+      final x = (size.x / segments) * i;
+      final phase = (animationOffset * layer.speed) + (i / segments) * layer.frequency * 2 * pi;
+      final y = layer.yOffset + sin(phase) * layer.amplitude;
+      
+      if (i == 0) {
+        wavePath.lineTo(x, y);
+      } else {
+        wavePath.lineTo(x, y);
+      }
+    }
+    
+    wavePath.lineTo(size.x, size.y);
+    wavePath.close();
+    
+    canvas.drawPath(wavePath, wavePaint);
+  }
+  
+  void _drawFoamPatches(Canvas canvas) {
+    final foamPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.25)
+      ..style = PaintingStyle.fill;
+    
+    final random = Random(42); // Fixed seed for consistent placement
+    
+    for (int i = 0; i < 15; i++) {
+      final x = random.nextDouble() * size.x;
+      final y = random.nextDouble() * size.y;
+      final baseRadius = 15 + random.nextDouble() * 20;
+      
+      // Animated foam movement
+      final animX = x + sin(animationOffset * 0.5 + i) * 10;
+      final animY = y + cos(animationOffset * 0.3 + i) * 8;
+      
+      // Draw irregular foam patch
+      for (int j = 0; j < 5; j++) {
+        final offsetX = (random.nextDouble() - 0.5) * baseRadius;
+        final offsetY = (random.nextDouble() - 0.5) * baseRadius * 0.6;
+        final radius = baseRadius * (0.3 + random.nextDouble() * 0.4);
+        
+        canvas.drawCircle(
+          Offset(animX + offsetX, animY + offsetY),
+          radius,
+          foamPaint..color = Colors.white.withValues(
+            alpha: 0.15 + random.nextDouble() * 0.15,
+          ),
+        );
+      }
+    }
+  }
+  
+  void _drawPollutionPatches(Canvas canvas) {
+    final pollutionPaint = Paint()
+      ..style = PaintingStyle.fill;
+    
+    final random = Random(123); // Fixed seed
+    
+    for (int i = 0; i < 10; i++) {
+      final x = random.nextDouble() * size.x;
+      final y = random.nextDouble() * size.y;
+      
+      final colors = [
+        Colors.brown.shade700.withValues(alpha: 0.3),
+        Colors.grey.shade700.withValues(alpha: 0.25),
+        Colors.green.shade900.withValues(alpha: 0.2),
+      ];
+      
+      final gradient = RadialGradient(
+        colors: [
+          colors[i % colors.length],
+          colors[i % colors.length].withValues(alpha: 0),
+        ],
+      );
+      
+      pollutionPaint.shader = gradient.createShader(
+        Rect.fromCenter(
+          center: Offset(x, y),
+          width: 80 + random.nextDouble() * 60,
+          height: 60 + random.nextDouble() * 40,
+        ),
+      );
+      
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(x, y),
+          width: 80 + random.nextDouble() * 60,
+          height: 60 + random.nextDouble() * 40,
+        ),
+        pollutionPaint,
+      );
+    }
+  }
+}
+
+class WaveLayer {
+  final Color color;
+  final double amplitude;
+  final double frequency;
+  final double speed;
+  final double yOffset;
+  
+  WaveLayer({
+    required this.color,
+    required this.amplitude,
+    required this.frequency,
+    required this.speed,
+    required this.yOffset,
+  });
+}
+
+class RiverParticleComponent extends PositionComponent {
+  double lifetime = 0;
+  final double maxLifetime = 8 + Random().nextDouble() * 4;
+  final Color particleColor;
+  final double particleSize;
+  double opacity = 0.6;
+  
+  RiverParticleComponent({required super.position})
+      : particleColor = [
+          Colors.white.withValues(alpha: 0.4),
+          Colors.blue.shade200.withValues(alpha: 0.3),
+          Colors.grey.shade300.withValues(alpha: 0.35),
+        ][Random().nextInt(3)],
+        particleSize = 2 + Random().nextDouble() * 4 {
+    priority = 5;
+  }
+    
+  @override
+  void update(double dt) {
+    super.update(dt);
+    
+    lifetime += dt;
+    
+    // Gentle float movement
+    position.y += 15 * dt;
+    position.x += sin(lifetime * 2) * 20 * dt;
+    
+    // Fade in and out
+    if (lifetime < 1) {
+      opacity = lifetime * 0.6;
+    } else if (lifetime > maxLifetime - 1) {
+      opacity = (maxLifetime - lifetime) * 0.6;
+    }
+    
+    // Reset when off screen or lifetime exceeded
+    final parentComponent = parent;
+    if (parentComponent != null && parentComponent is PositionComponent) {
+      if (position.y > parentComponent.size.y || lifetime > maxLifetime) {
+        position.y = -10;
+        position.x = Random().nextDouble() * parentComponent.size.x;
+        lifetime = 0;
+      }
+    }
+  }
+  
+  @override
+  void render(Canvas canvas) {
+    final paint = Paint()
+      ..color = particleColor.withValues(alpha: opacity)
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawCircle(Offset.zero, particleSize, paint);
+    
+    // Add glow effect
+    final glowPaint = Paint()
+      ..color = particleColor.withValues(alpha: opacity * 0.3)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
+    
+    canvas.drawCircle(Offset.zero, particleSize * 1.5, glowPaint);
+  }
+}
