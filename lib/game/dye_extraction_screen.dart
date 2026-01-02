@@ -3816,26 +3816,32 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     );
   }
 
-  Widget _buildCompletionScreen() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [const Color(0xFF1B3A1B), const Color(0xFF0D1F0D)],
-        ),
+Widget _buildCompletionScreen() {
+  return Container(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [const Color(0xFF1B3A1B), const Color(0xFF0D1F0D)],
       ),
-      child: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // Responsive sizing
-            bool isPortrait = constraints.maxHeight > constraints.maxWidth;
-            bool isTablet = constraints.maxWidth >= 600;
+    ),
+    child: SafeArea(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Responsive sizing
+          bool isPortrait = constraints.maxHeight > constraints.maxWidth;
+          bool isTablet = constraints.maxWidth >= 600;
 
-            return SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: EdgeInsets.all(constraints.maxWidth * 0.04),
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: EdgeInsets.all(constraints.maxWidth * 0.04),
+            child: ConstrainedBox(
+              // FIXED: Add minimum height constraint to prevent overflow
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - (constraints.maxWidth * 0.08),
+              ),
               child: Column(
+                mainAxisSize: MainAxisSize.min, // FIXED: Changed from max to min
                 children: [
                   // Success Header
                   _buildSuccessHeader(constraints),
@@ -3860,14 +3866,18 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
 
                   // Action Buttons
                   _buildActionButtons(constraints),
+                  
+                  // FIXED: Add bottom padding to ensure no overflow
+                  SizedBox(height: 20),
                 ],
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildSuccessHeader(BoxConstraints constraints) {
     double iconSize = (constraints.maxWidth * 0.15).clamp(60.0, 120.0);
@@ -4125,11 +4135,9 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
         : constraints.maxHeight * 0.6;
     shelfHeight = shelfHeight.clamp(300.0, 600.0);
 
-    // FIXED: Schedule the dye storage addition for after the build completes
-    // instead of calling it during build
-    if (!_showStorageSuccess && currentPhase == 5) {
+    if (!_showStorageSuccess && currentPhase == 5 && storedDyes.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        if (mounted && !_showStorageSuccess) {
           _addDyeToStorage();
         }
       });
@@ -4311,10 +4319,13 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
       duration: Duration(milliseconds: 800 + (delay * 1000).toInt()),
       curve: Curves.elasticOut,
       builder: (context, double value, child) {
+        // FIXED: Clamp animation value to prevent opacity issues
+        final clampedValue = value.clamp(0.0, 1.0);
+        
         return Transform.translate(
-          offset: Offset(0, -50 * (1 - value)),
+          offset: Offset(0, -50 * (1 - clampedValue)),
           child: Opacity(
-            opacity: value,
+            opacity: clampedValue, // Use clamped value
             child: SizedBox(
               width: width,
               height: height,
@@ -4337,7 +4348,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                         horizontal: width * 0.05,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.9),
+                        color: Colors.white.withValues(alpha:0.9),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(color: dye.color, width: 1),
                       ),
@@ -4380,7 +4391,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                         builder: (context, child) {
                           return CustomPaint(
                             painter: SparkleEffectPainter(
-                              progress: _shelfShineController.value,
+                              progress: _shelfShineController.value.clamp(0.0, 1.0),
                               color: dye.color,
                             ),
                           );
@@ -4401,17 +4412,20 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
       tween: Tween<double>(begin: 0, end: 1),
       duration: const Duration(milliseconds: 600),
       builder: (context, double value, child) {
+        // FIXED: Clamp opacity value to ensure it's always between 0.0 and 1.0
+        final clampedOpacity = value.clamp(0.0, 1.0);
+        
         return Transform.scale(
-          scale: value,
+          scale: value.clamp(0.0, 1.5), // Also clamp scale to prevent issues
           child: Opacity(
-            opacity: value,
+            opacity: clampedOpacity, // Use clamped value
             child: Container(
               padding: EdgeInsets.all(constraints.maxWidth * 0.04),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Colors.green.withValues(alpha: 0.2),
-                    Colors.green.withValues(alpha: 0.3),
+                    Colors.green.withValues(alpha:0.2),
+                    Colors.green.withValues(alpha:0.3),
                   ],
                 ),
                 borderRadius: BorderRadius.circular(16),

@@ -121,6 +121,11 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   }
 
   Widget _buildIntroScreen() {
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    final isTablet = size.width >= 600 && size.width < 1024;
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -133,32 +138,35 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         ),
       ),
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.all(isMobile ? 16 : isTablet ? 20 : 24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              SizedBox(height: isLandscape && isMobile ? 10 : 20),
+              
               Icon(
                 Icons.water_drop,
-                size: 80,
+                size: isMobile ? 60 : isTablet ? 70 : 80,
                 color: Colors.cyan,
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: isMobile ? 16 : 24),
               
               Text(
                 'THIKA RIVER RESTORATION',
                 style: GoogleFonts.exo2(
-                  fontSize: 32,
+                  fontSize: isMobile ? 24 : isTablet ? 28 : 32,
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
                 ),
                 textAlign: TextAlign.center,
               ),
               
-              const SizedBox(height: 16),
+              SizedBox(height: isMobile ? 12 : 16),
               
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: EdgeInsets.all(isMobile ? 16 : 20),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(16),
@@ -168,24 +176,28 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                   children: [
                     _buildMissionItem(
                       '🚤 Phase 1: Navigate speedboat and collect floating waste',
+                      isMobile,
                     ),
                     _buildMissionItem(
                       '♻️ Phase 2: Sort waste into recycling bins',
+                      isMobile,
                     ),
                     _buildMissionItem(
                       '🦠 Phase 3: Apply bacteria to purify water',
+                      isMobile,
                     ),
                     _buildMissionItem(
                       '🌾 Phase 4: Use clean water for sustainable irrigation',
+                      isMobile,
                     ),
                   ],
                 ),
               ),
               
-              const SizedBox(height: 24),
+              SizedBox(height: isMobile ? 16 : 24),
               
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(isMobile ? 12 : 16),
                 decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(12),
@@ -193,13 +205,17 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.science, color: Colors.green, size: 32),
-                    const SizedBox(width: 12),
+                    Icon(
+                      Icons.science,
+                      color: Colors.green,
+                      size: isMobile ? 24 : 32,
+                    ),
+                    SizedBox(width: isMobile ? 8 : 12),
                     Expanded(
                       child: Text(
                         'Bacteria cultures available: ${widget.bacteriaCulturesAvailable}',
                         style: GoogleFonts.exo2(
-                          fontSize: 16,
+                          fontSize: isMobile ? 14 : 16,
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
                         ),
@@ -209,7 +225,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 ),
               ),
               
-              const SizedBox(height: 32),
+              SizedBox(height: isMobile ? 20 : 32),
               
               ElevatedButton(
                 onPressed: () {
@@ -220,9 +236,9 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.cyan,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 48,
-                    vertical: 16,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 32 : 48,
+                    vertical: isMobile ? 12 : 16,
                   ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -231,12 +247,14 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 child: Text(
                   'START MISSION',
                   style: GoogleFonts.exo2(
-                    fontSize: 20,
+                    fontSize: isMobile ? 16 : 20,
                     fontWeight: FontWeight.w900,
                     color: Colors.black,
                   ),
                 ),
               ),
+              
+              SizedBox(height: isLandscape && isMobile ? 10 : 20),
             ],
           ),
         ),
@@ -244,18 +262,23 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  Widget _buildMissionItem(String text) {
+  Widget _buildMissionItem(String text, bool isMobile) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: EdgeInsets.symmetric(vertical: isMobile ? 6 : 8),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.check_circle, color: Colors.cyan, size: 20),
-          const SizedBox(width: 12),
+          Icon(
+            Icons.check_circle,
+            color: Colors.cyan,
+            size: isMobile ? 16 : 20,
+          ),
+          SizedBox(width: isMobile ? 8 : 12),
           Expanded(
             child: Text(
               text,
               style: GoogleFonts.exo2(
-                fontSize: 14,
+                fontSize: isMobile ? 12 : 14,
                 color: Colors.white,
                 fontWeight: FontWeight.w500,
               ),
@@ -884,6 +907,10 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   }
 
   Widget _buildAgricultureInterface() {
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    final isTablet = size.width >= 600 && size.width < 1024;
+    
     return Container(
       color: const Color(0xFF2D5016),
       child: SafeArea(
@@ -891,63 +918,82 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           children: [
             // Header
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(isMobile ? 12 : 16),
               color: Colors.black.withValues(alpha: 0.7),
               child: Column(
                 children: [
                   Text(
                     'SUSTAINABLE IRRIGATION',
                     style: GoogleFonts.exo2(
-                      fontSize: 20,
+                      fontSize: isMobile ? 16 : isTablet ? 18 : 20,
                       color: Colors.green,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: isMobile ? 8 : 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _buildAgriStat('Farms', '$farmsIrrigated/$totalFarms'),
-                      _buildAgriStat('Crops', '$cropsMature'),
-                      _buildAgriStat('Efficiency', '${game.waterEfficiency}%'),
+                      _buildAgriStat('Farms', '$farmsIrrigated/$totalFarms', isMobile),
+                      _buildAgriStat('Crops', '$cropsMature', isMobile),
+                      _buildAgriStat('Efficiency', '${game.waterEfficiency}%', isMobile),
                     ],
                   ),
                 ],
               ),
             ),
-            // Pipeline grid (game renders pipes, overlay instructions)
+            // Pipeline grid
             Expanded(
               child: Center(
-                child: Text(
-                  'Drag and tap pipes to connect river to farms',
-                  style: GoogleFonts.exo2(
-                    fontSize: 18,
-                    color: Colors.white,
+                child: Padding(
+                  padding: EdgeInsets.all(isMobile ? 16 : 24),
+                  child: Text(
+                    'Drag and tap pipes to connect river to farms',
+                    style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 14 : isTablet ? 16 : 18,
+                      color: Colors.white,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ),
             ),
-            _buildIrrigationMethods(), // Buttons to select after connection
+            _buildIrrigationMethods(isMobile, isTablet),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildAgriStat(String label, String value) {
+  Widget _buildAgriStat(String label, String value, bool isMobile) {
     return Column(
       children: [
-        Text(label, style: GoogleFonts.exo2(fontSize: 12, color: Colors.white70)),
-        Text(value, style: GoogleFonts.exo2(fontSize: 24, color: Colors.green, fontWeight: FontWeight.w900)),
+        Text(
+          label,
+          style: GoogleFonts.exo2(
+            fontSize: isMobile ? 10 : 12,
+            color: Colors.white70,
+          ),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.exo2(
+            fontSize: isMobile ? 18 : 24,
+            color: Colors.green,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildIrrigationMethods() {
+  Widget _buildIrrigationMethods(bool isMobile, bool isTablet) {
     return Container(
-      height: 150,
-      color: Colors.black.withValues(alpha: .8),
-      padding: const EdgeInsets.all(16),
+      constraints: BoxConstraints(
+        maxHeight: isMobile ? 140 : 150,
+      ),
+      color: Colors.black.withValues(alpha: 0.8),
+      padding: EdgeInsets.all(isMobile ? 12 : 16),
       child: Row(
         children: [
           Expanded(
@@ -957,8 +1003,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
               Icons.water_drop,
               Colors.blue,
               50,
+              isMobile,
               () {
-                // Call irrigate with 'drip'
                 for (var farm in game.farmZones) {
                   if (!farm.isIrrigated) {
                     game.irrigateFarm(farm, 'drip');
@@ -968,7 +1014,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
               },
             ),
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: isMobile ? 8 : 12),
           Expanded(
             child: _buildIrrigationOption(
               'Contour Farming',
@@ -976,8 +1022,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
               Icons.landscape,
               Colors.green,
               75,
+              isMobile,
               () {
-                // Call irrigate with 'contour'
                 for (var farm in game.farmZones) {
                   if (!farm.isIrrigated) {
                     game.irrigateFarm(farm, 'contour');
@@ -992,11 +1038,19 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  Widget _buildIrrigationOption(String name, String benefit, IconData icon, Color color, int cost, VoidCallback onTap) {
+  Widget _buildIrrigationOption(
+    String name,
+    String benefit,
+    IconData icon,
+    Color color,
+    int cost,
+    bool isMobile,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: game.pipelineConnected ? onTap : null,
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(isMobile ? 8 : 12),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(12),
@@ -1004,31 +1058,36 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 32),
-            const SizedBox(height: 8),
+            Icon(icon, color: color, size: isMobile ? 24 : 32),
+            SizedBox(height: isMobile ? 4 : 8),
             Text(
               name,
               style: GoogleFonts.exo2(
-                fontSize: 14,
+                fontSize: isMobile ? 11 : 14,
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
               ),
               textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
             Text(
               benefit,
               style: GoogleFonts.exo2(
-                fontSize: 11,
+                fontSize: isMobile ? 9 : 11,
                 color: Colors.white70,
               ),
               textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: isMobile ? 2 : 4),
             Text(
               '$cost points',
               style: GoogleFonts.exo2(
-                fontSize: 12,
+                fontSize: isMobile ? 10 : 12,
                 color: Colors.amber,
                 fontWeight: FontWeight.w600,
               ),
@@ -1044,6 +1103,11 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     final purifiedWater = game.purifiedWaterAmount;
     final bacteriaMultiplied = game.bacteriaMultiplied;
     
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    final isTablet = size.width >= 600 && size.width < 1024;
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -1056,27 +1120,34 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         ),
       ),
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.all(isMobile ? 16 : isTablet ? 20 : 24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.check_circle, size: 100, color: Colors.green),
-              const SizedBox(height: 24),
+              SizedBox(height: isLandscape && isMobile ? 10 : 20),
+              
+              Icon(
+                Icons.check_circle,
+                size: isMobile ? 70 : isTablet ? 85 : 100,
+                color: Colors.green,
+              ),
+              SizedBox(height: isMobile ? 16 : 24),
               
               Text(
                 'RIVER RESTORED!',
                 style: GoogleFonts.exo2(
-                  fontSize: 36,
+                  fontSize: isMobile ? 28 : isTablet ? 32 : 36,
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
                 ),
               ),
               
-              const SizedBox(height: 32),
+              SizedBox(height: isMobile ? 20 : 32),
               
               Container(
-                padding: const EdgeInsets.all(24),
+                padding: EdgeInsets.all(isMobile ? 16 : 24),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(16),
@@ -1084,47 +1155,70 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 ),
                 child: Column(
                   children: [
-                    _buildCompletionStat('Total Points', '$totalPoints', Colors.amber),
-                    const SizedBox(height: 16),
-                    _buildCompletionStat('Purified Water', '${purifiedWater}L', Colors.cyan),
-                    const SizedBox(height: 16),
-                    _buildCompletionStat('Bacteria Cultures', '$bacteriaMultiplied', Colors.green),
-                    const SizedBox(height: 16),
-                    _buildCompletionStat('Recycled Materials', '${game.recycledMaterials}kg', Colors.purple),
+                    _buildCompletionStat(
+                      'Total Points',
+                      '$totalPoints',
+                      Colors.amber,
+                      isMobile,
+                    ),
+                    SizedBox(height: isMobile ? 12 : 16),
+                    _buildCompletionStat(
+                      'Purified Water',
+                      '${purifiedWater}L',
+                      Colors.cyan,
+                      isMobile,
+                    ),
+                    SizedBox(height: isMobile ? 12 : 16),
+                    _buildCompletionStat(
+                      'Bacteria Cultures',
+                      '$bacteriaMultiplied',
+                      Colors.green,
+                      isMobile,
+                    ),
+                    SizedBox(height: isMobile ? 12 : 16),
+                    _buildCompletionStat(
+                      'Recycled Materials',
+                      '${game.recycledMaterials}kg',
+                      Colors.purple,
+                      isMobile,
+                    ),
                   ],
                 ),
               ),
               
-              const SizedBox(height: 32),
+              SizedBox(height: isMobile ? 20 : 32),
               
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        // Return to level map with resources
-                        Navigator.pop(context, {
-                          'purifiedWater': purifiedWater,
-                          'bacteria': bacteriaMultiplied,
-                          'recycledMaterials': game.recycledMaterials,
-                          'ecoPoints': totalPoints,
-                        });
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: Text(
-                        'CONTINUE',
-                        style: GoogleFonts.exo2(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context, {
+                      'purifiedWater': purifiedWater,
+                      'bacteria': bacteriaMultiplied,
+                      'recycledMaterials': game.recycledMaterials,
+                      'ecoPoints': totalPoints,
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    padding: EdgeInsets.symmetric(
+                      vertical: isMobile ? 12 : 16,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                ],
+                  child: Text(
+                    'CONTINUE',
+                    style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 16 : 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
               ),
+              
+              SizedBox(height: isLandscape && isMobile ? 10 : 20),
             ],
           ),
         ),
@@ -1132,21 +1226,23 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  Widget _buildCompletionStat(String label, String value, Color color) {
+  Widget _buildCompletionStat(String label, String value, Color color, bool isMobile) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: GoogleFonts.exo2(
-            fontSize: 16,
-            color: Colors.white70,
+        Flexible(
+          child: Text(
+            label,
+            style: GoogleFonts.exo2(
+              fontSize: isMobile ? 14 : 16,
+              color: Colors.white70,
+            ),
           ),
         ),
         Text(
           value,
           style: GoogleFonts.exo2(
-            fontSize: 24,
+            fontSize: isMobile ? 20 : 24,
             color: color,
             fontWeight: FontWeight.w900,
           ),
