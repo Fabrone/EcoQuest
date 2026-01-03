@@ -104,7 +104,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
       child: Scaffold(
         body: Stack(
           children: [
-            // Main game view
+            // Main game view - SHOW FOR PHASE 2 AS WELL
             if (currentPhase == 1 || currentPhase == 2 || currentPhase == 3)
               GameWidget(game: game),
             
@@ -718,74 +718,62 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   Widget _buildSortingInterface() {
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
-    final isTablet = size.width >= 600 && size.width < 1024;
     
     return Stack(
       children: [
-        // Top header with stats
+        // Top header with stats - COMPACT VERSION
         Positioned(
           top: 0,
           left: 0,
           right: 0,
           child: SafeArea(
             child: Container(
-              margin: EdgeInsets.all(isMobile ? 12 : 16),
-              padding: EdgeInsets.all(isMobile ? 14 : 18),
+              margin: EdgeInsets.all(isMobile ? 8 : 12),
+              padding: EdgeInsets.symmetric(
+                horizontal: isMobile ? 12 : 16,
+                vertical: isMobile ? 10 : 12,
+              ),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Colors.black.withValues(alpha: 0.85),
-                    Colors.black.withValues(alpha: 0.7),
+                    Colors.black.withValues(alpha: 0.75),
+                    Colors.black.withValues(alpha: 0.6),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.green, width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.green.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                    spreadRadius: 2,
-                  ),
-                ],
               ),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'WASTE SORTING FACILITY',
+                    'WASTE SORTING',
                     style: GoogleFonts.exo2(
-                      fontSize: isMobile ? 16 : isTablet ? 18 : 20,
+                      fontSize: isMobile ? 14 : 16,
                       color: Colors.green,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: 1.5,
+                      letterSpacing: 1.2,
                     ),
                   ),
-                  SizedBox(height: isMobile ? 10 : 14),
+                  SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _buildSortingStat(
+                      _buildCompactStat(
                         'Accuracy',
                         '$sortingAccuracy%',
                         sortingAccuracy >= 70 ? Colors.green : Colors.orange,
                         isMobile,
                       ),
-                      Container(
-                        width: 2,
-                        height: 40,
-                        color: Colors.white24,
-                      ),
-                      _buildSortingStat(
-                        'Sorted',
-                        '$itemsSorted / ${game.collectedWaste.length}',
+                      Container(width: 1, height: 30, color: Colors.white24),
+                      _buildCompactStat(
+                        'Progress',
+                        '$itemsSorted/${game.collectedWaste.length}',
                         Colors.cyan,
                         isMobile,
                       ),
-                      Container(
-                        width: 2,
-                        height: 40,
-                        color: Colors.white24,
-                      ),
-                      _buildSortingStat(
+                      Container(width: 1, height: 30, color: Colors.white24),
+                      _buildCompactStat(
                         'Correct',
                         '$sortedCorrectly',
                         Colors.green,
@@ -793,81 +781,44 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                       ),
                     ],
                   ),
-                  SizedBox(height: isMobile ? 10 : 12),
-                  // Progress bar
-                  Container(
-                    height: isMobile ? 12 : 16,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade900,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green.withValues(alpha: 0.5)),
-                    ),
-                    child: Stack(
-                      children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          width: game.collectedWaste.isEmpty 
-                            ? 0 
-                            : (size.width - (isMobile ? 48 : 64)) * 
-                              (itemsSorted / game.collectedWaste.length),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Colors.green, Colors.green.shade700],
-                            ),
-                            borderRadius: BorderRadius.circular(7),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
           ),
         ),
         
-        // Instructions overlay
+        // Instructions - Floating hint
         Positioned(
-          top: size.height * 0.3,
+          top: size.height * 0.25,
           left: 0,
           right: 0,
           child: Center(
             child: Container(
-              margin: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 40),
-              padding: EdgeInsets.all(isMobile ? 12 : 16),
+              margin: EdgeInsets.symmetric(horizontal: 20),
+              padding: EdgeInsets.all(isMobile ? 10 : 12),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.75),
-                borderRadius: BorderRadius.circular(12),
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.amber, width: 2),
               ),
-              child: Column(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     Icons.touch_app,
                     color: Colors.amber,
-                    size: isMobile ? 28 : 36,
+                    size: isMobile ? 20 : 24,
                   ),
-                  SizedBox(height: 8),
-                  Text(
-                    isMobile 
-                      ? 'TAP & DRAG waste to correct bins'
-                      : 'CLICK & DRAG waste items to correct bins',
-                    style: GoogleFonts.exo2(
-                      fontSize: isMobile ? 13 : 15,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
+                  SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'TAP & DRAG items to bins',
+                      style: GoogleFonts.exo2(
+                        fontSize: isMobile ? 12 : 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Watch for items on the conveyor belt!',
-                    style: GoogleFonts.exo2(
-                      fontSize: isMobile ? 11 : 13,
-                      color: Colors.white70,
-                    ),
-                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
@@ -875,37 +826,25 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           ),
         ),
         
-        // Bin labels at bottom
+        // Bin labels at bottom - MINIMAL TRANSPARENT VERSION
         Positioned(
           bottom: 0,
           left: 0,
           right: 0,
           child: SafeArea(
             child: Container(
-              height: isMobile ? 110 : 130,
-              padding: EdgeInsets.symmetric(
-                horizontal: isMobile ? 8 : 16,
-                vertical: isMobile ? 8 : 12,
-              ),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.6),
-                    Colors.black.withValues(alpha: 0.85),
-                  ],
-                ),
+              padding: EdgeInsets.only(
+                left: isMobile ? 8 : 16,
+                right: isMobile ? 8 : 16,
+                bottom: isMobile ? 8 : 12,
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  _buildBinLabel('PLASTIC', Colors.blue, Icons.recycling, isMobile),
-                  _buildBinLabel('METAL', Colors.grey, Icons.recycling, isMobile),
-                  _buildBinLabel('HAZARDOUS', Colors.red, Icons.warning, isMobile),
-                  _buildBinLabel('ORGANIC', Colors.green, Icons.eco, isMobile),
+                  _buildMinimalBinLabel('PLASTIC', Colors.blue, isMobile),
+                  _buildMinimalBinLabel('METAL', Colors.grey, isMobile),
+                  _buildMinimalBinLabel('HAZARD', Colors.red, isMobile),
+                  _buildMinimalBinLabel('ORGANIC', Colors.green, isMobile),
                 ],
               ),
             ),
@@ -915,58 +854,49 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  Widget _buildSortingStat(String label, String value, Color color, bool isMobile) {
+  Widget _buildCompactStat(String label, String value, Color color, bool isMobile) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          label,
-          style: GoogleFonts.exo2(
-            fontSize: isMobile ? 11 : 13,
-            color: Colors.white70,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        SizedBox(height: 4),
-        Text(
           value,
           style: GoogleFonts.exo2(
-            fontSize: isMobile ? 18 : 22,
+            fontSize: isMobile ? 16 : 18,
             color: color,
             fontWeight: FontWeight.w900,
+          ),
+        ),
+        Text(
+          label,
+          style: GoogleFonts.exo2(
+            fontSize: isMobile ? 9 : 10,
+            color: Colors.white70,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildBinLabel(String label, Color color, IconData icon, bool isMobile) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: EdgeInsets.all(isMobile ? 8 : 10),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.3),
-            shape: BoxShape.circle,
-            border: Border.all(color: color, width: 2),
-          ),
-          child: Icon(
-            icon,
-            color: color,
-            size: isMobile ? 22 : 28,
-          ),
+  Widget _buildMinimalBinLabel(String label, Color color, bool isMobile) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 6 : 8,
+        vertical: isMobile ? 4 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color, width: 1.5),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.exo2(
+          fontSize: isMobile ? 9 : 11,
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
         ),
-        SizedBox(height: 6),
-        Text(
-          label,
-          style: GoogleFonts.exo2(
-            fontSize: isMobile ? 11 : 13,
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
+      ),
     );
   }
 

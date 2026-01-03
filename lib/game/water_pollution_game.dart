@@ -296,8 +296,8 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     
     // Create conveyor belt
     final conveyor = ConveyorBeltComponent(
-      position: Vector2(0, size.y * 0.2),
-      size: Vector2(size.x, size.y * 0.4),
+      position: Vector2(0, size.y * 0.35),
+      size: Vector2(size.x, size.y * 0.3),
     );
     await add(conveyor);
     
@@ -307,14 +307,14 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     
     final screenWidth = size.x;
     final binSpacing = screenWidth / (binTypes.length + 1);
-    final binSize = Vector2(screenWidth * 0.18, screenWidth * 0.25);
+    final binSize = Vector2(screenWidth * 0.15, screenWidth * 0.22);
     
     for (int i = 0; i < binTypes.length; i++) {
       final bin = BinComponent(
         binType: binTypes[i],
         position: Vector2(
           binSpacing * (i + 1) - binSize.x / 2,
-          size.y - binSize.y - 40,
+          size.y - binSize.y - 30,
         ),
         size: binSize,
       );
@@ -322,16 +322,16 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
       await add(bin);
     }
     
-    // Important: Ensure collected waste is available
+    // Ensure collected waste is available
     if (collectedWaste.isEmpty) {
-      // If no waste collected, create sample waste for testing
+      // Create sample waste for testing
       final wasteTypes = ['plastic_bottle', 'can', 'bag', 'oil_slick', 'wood'];
-      for (int i = 0; i < 10; i++) {
+      for (int i = 0; i < 15; i++) {
         collectedWaste.add(
           WasteItemComponent(
             type: wasteTypes[i % wasteTypes.length],
             position: Vector2.zero(),
-            size: Vector2.all(40),
+            size: Vector2.all(45),
           ),
         );
       }
@@ -347,32 +347,47 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
   void _spawnWasteOnConveyor() {
     final random = Random();
     int spawnedCount = 0;
-    const spawnInterval = 2.5; // Slower for better gameplay
+    const spawnInterval = 3.0; // 3 seconds between items
     
-    // Spawn first item immediately for visual feedback
+    // Spawn first item immediately
     if (collectedWaste.isNotEmpty) {
       final firstWaste = collectedWaste[0];
+      
+      // Position on conveyor - START FROM LEFT EDGE (visible)
       firstWaste.position = Vector2(
-        50, // Start visible on screen
-        size.y * 0.35,
+        20, // Start from left side, visible
+        size.y * 0.45, // Center of conveyor
       );
       firstWaste.priority = 150;
+      
+      // Reset any existing effects
+      firstWaste.removeAll(firstWaste.children.whereType<Effect>());
+      
       add(firstWaste);
       
-      // Add conveyor movement
+      // Add pulsing effect to show it's draggable
       firstWaste.add(
-        MoveEffect.to(
-          Vector2(size.x + 100, firstWaste.position.y),
-          EffectController(duration: 10.0),
-          onComplete: () {
-            if (firstWaste.parent != null) {
-              firstWaste.removeFromParent();
-              sortedIncorrectly++;
-              _updateSortingStats();
-            }
-          },
-        ),
+        SequenceEffect([
+          ScaleEffect.to(
+            Vector2.all(1.1),
+            EffectController(duration: 0.5, alternate: true, infinite: true),
+          ),
+        ]),
       );
+      
+      // Conveyor movement - slower for better gameplay
+      final moveEffect = MoveEffect.to(
+        Vector2(size.x + 100, firstWaste.position.y),
+        EffectController(duration: 12.0), // Slower = more time to grab
+        onComplete: () {
+          if (firstWaste.parent != null) {
+            firstWaste.removeFromParent();
+            sortedIncorrectly++;
+            _updateSortingStats();
+          }
+        },
+      );
+      firstWaste.add(moveEffect);
       
       spawnedCount = 1;
     }
@@ -387,32 +402,42 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
       if (spawnedCount < collectedWaste.length) {
         final waste = collectedWaste[spawnedCount];
         
-        // Position on conveyor entrance (start from left edge)
+        // Position on conveyor entrance - START VISIBLE
         waste.position = Vector2(
-          -waste.size.x - 20,
-          size.y * 0.3 + (random.nextDouble() - 0.5) * 60,
+          20, // Start from left side, visible
+          size.y * 0.40 + (random.nextDouble() - 0.5) * 40,
         );
         
-        // Make draggable with higher priority
         waste.priority = 150;
         
-        // Add to game
+        // Reset any existing effects
+        waste.removeAll(waste.children.whereType<Effect>());
+        
         add(waste);
         
-        // Conveyor movement with slower speed
+        // Add pulsing effect to show it's draggable
         waste.add(
-          MoveEffect.to(
-            Vector2(size.x + 100, waste.position.y),
-            EffectController(duration: 10.0),
-            onComplete: () {
-              if (waste.parent != null) {
-                waste.removeFromParent();
-                sortedIncorrectly++;
-                _updateSortingStats();
-              }
-            },
-          ),
+          SequenceEffect([
+            ScaleEffect.to(
+              Vector2.all(1.1),
+              EffectController(duration: 0.5, alternate: true, infinite: true),
+            ),
+          ]),
         );
+        
+        // Conveyor movement
+        final moveEffect = MoveEffect.to(
+          Vector2(size.x + 100, waste.position.y),
+          EffectController(duration: 12.0),
+          onComplete: () {
+            if (waste.parent != null) {
+              waste.removeFromParent();
+              sortedIncorrectly++;
+              _updateSortingStats();
+            }
+          },
+        );
+        waste.add(moveEffect);
         
         spawnedCount++;
       }
@@ -429,41 +454,35 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     final wasteItems = children.whereType<WasteItemComponent>().toList();
     
     for (final waste in wasteItems.reversed) {
-      if (waste.containsPoint(event.localPosition)) {
+      // Check if touch point is within waste bounds
+      final wasteRect = Rect.fromCenter(
+        center: Offset(waste.position.x, waste.position.y),
+        width: waste.size.x * 1.2, // Slightly larger hit area
+        height: waste.size.y * 1.2,
+      );
+      
+      if (wasteRect.contains(event.localPosition.toOffset())) {
         currentDragged = waste;
         
-        // Remove movement effects while dragging
-        waste.removeAll(waste.children.whereType<MoveEffect>());
+        // Remove ALL movement effects while dragging
+        waste.removeAll(waste.children.whereType<Effect>());
         
         // Enhanced lift effect with rotation
         waste.add(
-          SequenceEffect([
-            CombinedEffect([
-              ScaleEffect.to(
-                Vector2.all(1.3),
-                EffectController(duration: 0.15),
-              ),
-              RotateEffect.by(
-                0.1,
-                EffectController(duration: 0.15),
-              ),
-            ]),
+          CombinedEffect([
+            ScaleEffect.to(
+              Vector2.all(1.4),
+              EffectController(duration: 0.2),
+            ),
+            OpacityEffect.to(
+              1.0,
+              EffectController(duration: 0.2),
+            ),
           ]),
         );
         
-        // Add glow effect
-        waste.add(
-          OpacityEffect.to(
-            0.9,
-            EffectController(duration: 0.15),
-          ),
-        );
-        
         // Bring to front
-        waste.priority = 200;
-        
-        // Haptic feedback (optional - requires vibration permission)
-        // HapticFeedback.lightImpact();
+        waste.priority = 250;
         
         return true;
       }
@@ -477,6 +496,7 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     super.onDragUpdate(event);
     
     if (currentDragged != null) {
+      // Update position directly with drag delta
       currentDragged!.position += event.localDelta;
       return true;
     }
@@ -489,11 +509,22 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     super.onDragEnd(event);
     
     if (currentDragged != null) {
-      // Check if dropped on a bin
       bool droppedOnBin = false;
       
+      // Check each bin for drop
       for (var bin in bins) {
-        if (bin.containsDrop(currentDragged!)) {
+        // Create bin drop zone
+        final binRect = Rect.fromCenter(
+          center: Offset(
+            bin.position.x + bin.size.x / 2,
+            bin.position.y + bin.size.y / 2,
+          ),
+          width: bin.size.x * 1.3,
+          height: bin.size.y * 1.3,
+        );
+        
+        // Check if waste center is in bin zone
+        if (binRect.contains(Offset(currentDragged!.position.x, currentDragged!.position.y))) {
           submitSort(currentDragged!, bin);
           droppedOnBin = true;
           break;
@@ -502,11 +533,13 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
       
       if (!droppedOnBin) {
         // Return to conveyor with animation
+        currentDragged!.removeAll(currentDragged!.children.whereType<Effect>());
+        
         currentDragged!.add(
           SequenceEffect([
             ScaleEffect.to(
               Vector2.all(1.0),
-              EffectController(duration: 0.2),
+              EffectController(duration: 0.3),
             ),
           ]),
         );
@@ -514,11 +547,25 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
         // Reset priority
         currentDragged!.priority = 150;
         
-        // Resume conveyor movement
+        // Add pulsing effect back
+        currentDragged!.add(
+          SequenceEffect([
+            ScaleEffect.to(
+              Vector2.all(1.1),
+              EffectController(duration: 0.5, alternate: true, infinite: true),
+            ),
+          ]),
+        );
+        
+        // Resume conveyor movement from current position
+        final remainingDistance = size.x + 100 - currentDragged!.position.x;
+        final speed = 12.0; // Same as original
+        final duration = (remainingDistance / ((size.x + 100) / speed)).clamp(1.0, speed);
+        
         currentDragged!.add(
           MoveEffect.to(
             Vector2(size.x + 100, currentDragged!.position.y),
-            EffectController(duration: 5.0),
+            EffectController(duration: duration),
             onComplete: () {
               if (currentDragged?.parent != null) {
                 currentDragged!.removeFromParent();
@@ -540,44 +587,41 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
   void submitSort(WasteItemComponent waste, BinComponent bin) {
     bool correct = _isCorrectBin(waste.type, bin.binType);
     
+    // Remove all effects before animating
+    waste.removeAll(waste.children.whereType<Effect>());
+    
     // Animate waste disappearing into bin
     waste.add(
       SequenceEffect([
         CombinedEffect([
           MoveEffect.to(
-            bin.position + Vector2(bin.size.x / 2, bin.size.y * 0.3),
-            EffectController(duration: 0.3, curve: Curves.easeInOut),
+            bin.position + Vector2(bin.size.x / 2, bin.size.y * 0.4),
+            EffectController(duration: 0.4, curve: Curves.easeInOut),
           ),
           ScaleEffect.to(
-            Vector2.all(0.3),
-            EffectController(duration: 0.3),
+            Vector2.all(0.2),
+            EffectController(duration: 0.4),
           ),
-          OpacityEffect.fadeOut(
-            EffectController(duration: 0.3, startDelay: 0.2),
+          RotateEffect.by(
+            pi * 2,
+            EffectController(duration: 0.4),
           ),
         ]),
-      ], onComplete: () {
-        waste.removeFromParent();
-      }),
+        RemoveEffect(delay: 0.1),
+      ]),
     );
     
     if (correct) {
       sortedCorrectly++;
       bin.triggerSuccessAnimation();
-      
-      // Play success sound effect (placeholder - implement audio later)
-      // AudioManager.playSound('success');
     } else {
       sortedIncorrectly++;
       bin.triggerErrorAnimation();
-      
-      // Play error sound effect
-      // AudioManager.playSound('error');
     }
     
     _updateSortingStats();
   }
-    
+      
   void _updateSortingStats() {
     int total = sortedCorrectly + sortedIncorrectly;
     int accuracy = total > 0 ? ((sortedCorrectly / total) * 100).round() : 0;
@@ -587,10 +631,10 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     // Check if sorting complete
     if (total >= collectedWaste.length) {
       Future.delayed(const Duration(seconds: 2), () {
-        if (accuracy >= 70) {
+        if (accuracy >= 60) { // More forgiving threshold
           _completePhase2();
         } else {
-          // Show retry message
+          // Can add retry logic here
           onSortingUpdate?.call(accuracy, total);
         }
       });
