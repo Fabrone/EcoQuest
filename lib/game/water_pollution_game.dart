@@ -252,10 +252,16 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
       }
     }
   }
-  
+    
   void _completePhase1() {
     // Calculate recycled materials based on collection
     recycledMaterials = (wasteCollectedCount * 0.5).round();
+    
+    // Store collected waste for sorting phase
+    if (collectedWaste.isEmpty) {
+      // Transfer remaining waste items to collected waste
+      collectedWaste.addAll(wasteItems);
+    }
     
     onPhaseComplete?.call(1);
     pauseEngine();
@@ -267,181 +273,109 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
   }
 
   void _setupSortingPhase() async {
-    // Pause engine first
+    print('=== SORTING PHASE DEBUG ===');
+    print('Starting sorting phase setup');
+    print('Current phase: $currentPhase');
+    print('Collected waste count: ${collectedWaste.length}');
+    
     pauseEngine();
     
-    // Remove old phase components
-    final toRemove = children.where((c) => 
-      c is WasteItemComponent || 
-      c is SpeedboatComponent || 
-      c is RiverBackgroundComponent ||
-      c is RiverParticleComponent
-    ).toList();
-    
+    // Clear all previous components
+    final toRemove = children.toList();
+    print('Removing ${toRemove.length} previous components');
     for (var child in toRemove) {
       child.removeFromParent();
     }
     
-    // Small delay to ensure cleanup
-    await Future.delayed(const Duration(milliseconds: 100));
-    
-    // Verify size is ready
-    if (size.x == 0 || size.y == 0) {
-      await Future.delayed(const Duration(milliseconds: 200));
-    }
+    await Future.delayed(const Duration(milliseconds: 150));
     
     // Add sorting facility background
     final bgComponent = SortingFacilityBackground(size: size);
     await add(bgComponent);
+    print('Added background component');
     
-    // Create conveyor belt
-    final conveyor = ConveyorBeltComponent(
-      position: Vector2(0, size.y * 0.35),
-      size: Vector2(size.x, size.y * 0.3),
-    );
-    await add(conveyor);
-    
-    // Spawn bins with better positioning
-    final binTypes = ['plastic', 'metal', 'hazardous', 'organic'];
+    // Setup bins with better spacing and sizing
     bins.clear();
+    final binTypes = ['plastic', 'metal', 'hazardous', 'organic'];
+    final binWidth = size.x * 0.18;
+    final binHeight = binWidth * 1.3;
+    final totalBinWidth = binWidth * binTypes.length;
+    final spacing = (size.x - totalBinWidth) / (binTypes.length + 1);
     
-    final screenWidth = size.x;
-    final binSpacing = screenWidth / (binTypes.length + 1);
-    final binSize = Vector2(screenWidth * 0.15, screenWidth * 0.22);
-    
+    print('Creating ${binTypes.length} bins');
     for (int i = 0; i < binTypes.length; i++) {
       final bin = BinComponent(
         binType: binTypes[i],
         position: Vector2(
-          binSpacing * (i + 1) - binSize.x / 2,
-          size.y - binSize.y - 30,
+          spacing + (binWidth + spacing) * i,
+          size.y - binHeight - 40,
         ),
-        size: binSize,
+        size: Vector2(binWidth, binHeight),
       );
       bins.add(bin);
       await add(bin);
     }
+    print('Bins added: ${bins.length}');
     
-    // Ensure collected waste is available
+    // Ensure we have waste to sort
     if (collectedWaste.isEmpty) {
-      // Create sample waste for testing
+      print('WARNING: No collected waste found, generating default waste');
       final wasteTypes = ['plastic_bottle', 'can', 'bag', 'oil_slick', 'wood'];
-      for (int i = 0; i < 15; i++) {
+      for (int i = 0; i < 20; i++) {
         collectedWaste.add(
           WasteItemComponent(
             type: wasteTypes[i % wasteTypes.length],
             position: Vector2.zero(),
-            size: Vector2.all(45),
+            size: Vector2.all(50),
           ),
         );
       }
     }
     
-    // Spawn waste items on conveyor
-    _spawnWasteOnConveyor();
+    print('Total waste items to sort: ${collectedWaste.length}');
     
-    // Resume engine to start rendering
+    // Start spawning items in a grid layout
+    _spawnWasteInGrid();
+    
+    print('Resuming engine');
     resumeEngine();
+    print('=== SORTING PHASE SETUP COMPLETE ===');
   }
 
-  void _spawnWasteOnConveyor() {
-    final random = Random();
-    int spawnedCount = 0;
-    const spawnInterval = 3.0; // 3 seconds between items
+  void _spawnWasteInGrid() {
+    // Place items in a visible grid for easy dragging
+    final itemsPerRow = 4;
+    final itemSize = size.x * 0.15;
+    final spacing = (size.x - (itemsPerRow * itemSize)) / (itemsPerRow + 1);
+    final startY = size.y * 0.15;
     
-    // Spawn first item immediately
-    if (collectedWaste.isNotEmpty) {
-      final firstWaste = collectedWaste[0];
+    for (int i = 0; i < collectedWaste.length && i < 12; i++) {
+      final waste = collectedWaste[i];
+      final row = i ~/ itemsPerRow;
+      final col = i % itemsPerRow;
       
-      // Position on conveyor - START FROM LEFT EDGE (visible)
-      firstWaste.position = Vector2(
-        20, // Start from left side, visible
-        size.y * 0.45, // Center of conveyor
+      waste.position = Vector2(
+        spacing + (itemSize + spacing) * col + itemSize / 2,
+        startY + row * (itemSize + spacing * 1.5) + itemSize / 2,
       );
-      firstWaste.priority = 150;
+      waste.size = Vector2.all(itemSize * 0.8);
+      waste.priority = 150;
       
-      // Reset any existing effects
-      firstWaste.removeAll(firstWaste.children.whereType<Effect>());
+      // Remove any existing effects
+      waste.removeAll(waste.children.whereType<Effect>());
       
-      add(firstWaste);
-      
-      // Add pulsing effect to show it's draggable
-      firstWaste.add(
+      // Add idle pulse to show it's draggable
+      waste.add(
         SequenceEffect([
-          ScaleEffect.to(
-            Vector2.all(1.1),
-            EffectController(duration: 0.5, alternate: true, infinite: true),
+          ScaleEffect.by(
+            Vector2.all(0.1),
+            EffectController(duration: 0.8, alternate: true, infinite: true),
           ),
         ]),
       );
       
-      // Conveyor movement - slower for better gameplay
-      final moveEffect = MoveEffect.to(
-        Vector2(size.x + 100, firstWaste.position.y),
-        EffectController(duration: 12.0), // Slower = more time to grab
-        onComplete: () {
-          if (firstWaste.parent != null) {
-            firstWaste.removeFromParent();
-            sortedIncorrectly++;
-            _updateSortingStats();
-          }
-        },
-      );
-      firstWaste.add(moveEffect);
-      
-      spawnedCount = 1;
+      add(waste);
     }
-    
-    // Continue spawning remaining items
-    Timer.periodic(Duration(milliseconds: (spawnInterval * 1000).toInt()), (timer) {
-      if (spawnedCount >= collectedWaste.length || currentPhase != 2) {
-        timer.cancel();
-        return;
-      }
-      
-      if (spawnedCount < collectedWaste.length) {
-        final waste = collectedWaste[spawnedCount];
-        
-        // Position on conveyor entrance - START VISIBLE
-        waste.position = Vector2(
-          20, // Start from left side, visible
-          size.y * 0.40 + (random.nextDouble() - 0.5) * 40,
-        );
-        
-        waste.priority = 150;
-        
-        // Reset any existing effects
-        waste.removeAll(waste.children.whereType<Effect>());
-        
-        add(waste);
-        
-        // Add pulsing effect to show it's draggable
-        waste.add(
-          SequenceEffect([
-            ScaleEffect.to(
-              Vector2.all(1.1),
-              EffectController(duration: 0.5, alternate: true, infinite: true),
-            ),
-          ]),
-        );
-        
-        // Conveyor movement
-        final moveEffect = MoveEffect.to(
-          Vector2(size.x + 100, waste.position.y),
-          EffectController(duration: 12.0),
-          onComplete: () {
-            if (waste.parent != null) {
-              waste.removeFromParent();
-              sortedIncorrectly++;
-              _updateSortingStats();
-            }
-          },
-        );
-        waste.add(moveEffect);
-        
-        spawnedCount++;
-      }
-    });
   }
 
   @override
@@ -450,40 +384,29 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     
     if (currentPhase != 2) return false;
     
-    // Find waste item at touch position
+    // Find waste items currently visible
     final wasteItems = children.whereType<WasteItemComponent>().toList();
     
+    // Check from top priority (front) to back
     for (final waste in wasteItems.reversed) {
-      // Check if touch point is within waste bounds
-      final wasteRect = Rect.fromCenter(
-        center: Offset(waste.position.x, waste.position.y),
-        width: waste.size.x * 1.2, // Slightly larger hit area
-        height: waste.size.y * 1.2,
-      );
+      final distanceToCenter = (waste.position - event.localPosition).length;
       
-      if (wasteRect.contains(event.localPosition.toOffset())) {
+      // Check if touch is within waste bounds (using radius check for better UX)
+      if (distanceToCenter < waste.size.x * 0.8) {
         currentDragged = waste;
         
-        // Remove ALL movement effects while dragging
+        // Stop all animations
         waste.removeAll(waste.children.whereType<Effect>());
         
-        // Enhanced lift effect with rotation
+        // Lift effect
         waste.add(
-          CombinedEffect([
-            ScaleEffect.to(
-              Vector2.all(1.4),
-              EffectController(duration: 0.2),
-            ),
-            OpacityEffect.to(
-              1.0,
-              EffectController(duration: 0.2),
-            ),
-          ]),
+          ScaleEffect.to(
+            Vector2.all(1.3),
+            EffectController(duration: 0.15),
+          ),
         );
         
-        // Bring to front
-        waste.priority = 250;
-        
+        waste.priority = 300;
         return true;
       }
     }
@@ -496,8 +419,10 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     super.onDragUpdate(event);
     
     if (currentDragged != null) {
-      // Update position directly with drag delta
+      // Smooth position update using canvasPosition
       currentDragged!.position += event.localDelta;
+      
+      // Visual feedback - no opacity changes needed, just position tracking
       return true;
     }
     
@@ -509,72 +434,41 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     super.onDragEnd(event);
     
     if (currentDragged != null) {
-      bool droppedOnBin = false;
+      bool sortedSuccessfully = false;
       
-      // Check each bin for drop
+      // Check all bins for valid drop
       for (var bin in bins) {
-        // Create bin drop zone
-        final binRect = Rect.fromCenter(
-          center: Offset(
-            bin.position.x + bin.size.x / 2,
-            bin.position.y + bin.size.y / 2,
-          ),
-          width: bin.size.x * 1.3,
-          height: bin.size.y * 1.3,
-        );
-        
-        // Check if waste center is in bin zone
-        if (binRect.contains(Offset(currentDragged!.position.x, currentDragged!.position.y))) {
+        if (bin.containsDrop(currentDragged!)) {
           submitSort(currentDragged!, bin);
-          droppedOnBin = true;
+          sortedSuccessfully = true;
           break;
         }
       }
       
-      if (!droppedOnBin) {
-        // Return to conveyor with animation
+      if (!sortedSuccessfully) {
+        // Return to original position with bounce animation
         currentDragged!.removeAll(currentDragged!.children.whereType<Effect>());
         
         currentDragged!.add(
           SequenceEffect([
             ScaleEffect.to(
               Vector2.all(1.0),
-              EffectController(duration: 0.3),
+              EffectController(duration: 0.2, curve: Curves.elasticOut),
             ),
           ]),
         );
         
-        // Reset priority
-        currentDragged!.priority = 150;
-        
-        // Add pulsing effect back
+        // Restore idle animation
         currentDragged!.add(
           SequenceEffect([
-            ScaleEffect.to(
-              Vector2.all(1.1),
-              EffectController(duration: 0.5, alternate: true, infinite: true),
+            ScaleEffect.by(
+              Vector2.all(0.1),
+              EffectController(duration: 0.8, alternate: true, infinite: true),
             ),
           ]),
         );
         
-        // Resume conveyor movement from current position
-        final remainingDistance = size.x + 100 - currentDragged!.position.x;
-        final speed = 12.0; // Same as original
-        final duration = (remainingDistance / ((size.x + 100) / speed)).clamp(1.0, speed);
-        
-        currentDragged!.add(
-          MoveEffect.to(
-            Vector2(size.x + 100, currentDragged!.position.y),
-            EffectController(duration: duration),
-            onComplete: () {
-              if (currentDragged?.parent != null) {
-                currentDragged!.removeFromParent();
-                sortedIncorrectly++;
-                _updateSortingStats();
-              }
-            },
-          ),
-        );
+        currentDragged!.priority = 150;
       }
       
       currentDragged = null;
@@ -587,28 +481,34 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
   void submitSort(WasteItemComponent waste, BinComponent bin) {
     bool correct = _isCorrectBin(waste.type, bin.binType);
     
-    // Remove all effects before animating
+    // Remove all effects
     waste.removeAll(waste.children.whereType<Effect>());
     
-    // Animate waste disappearing into bin
+    // Animate into bin using SequenceEffect with MoveEffect, ScaleEffect, and RotateEffect
     waste.add(
       SequenceEffect([
-        CombinedEffect([
-          MoveEffect.to(
-            bin.position + Vector2(bin.size.x / 2, bin.size.y * 0.4),
-            EffectController(duration: 0.4, curve: Curves.easeInOut),
-          ),
-          ScaleEffect.to(
-            Vector2.all(0.2),
-            EffectController(duration: 0.4),
-          ),
-          RotateEffect.by(
-            pi * 2,
-            EffectController(duration: 0.4),
-          ),
-        ]),
-        RemoveEffect(delay: 0.1),
+        MoveEffect.to(
+          bin.position + Vector2(bin.size.x / 2, bin.size.y * 0.4),
+          EffectController(duration: 0.3, curve: Curves.easeInQuad),
+        ),
+        RemoveEffect(),
       ]),
+    );
+    
+    // Add scale effect separately
+    waste.add(
+      ScaleEffect.to(
+        Vector2.all(0.1),
+        EffectController(duration: 0.3),
+      ),
+    );
+    
+    // Add rotation effect
+    waste.add(
+      RotateEffect.by(
+        correct ? pi : -pi,
+        EffectController(duration: 0.3),
+      ),
     );
     
     if (correct) {
@@ -619,23 +519,83 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
       bin.triggerErrorAnimation();
     }
     
+    // Remove from collected waste list
+    collectedWaste.remove(waste);
+    
     _updateSortingStats();
+    
+    // Spawn next item if available
+    _spawnNextWasteItem();
   }
-      
+
+  void _spawnNextWasteItem() {
+    // Count currently visible items
+    final visibleWaste = children.whereType<WasteItemComponent>().length;
+    
+    // Keep 8-12 items visible at a time
+    if (visibleWaste < 8 && collectedWaste.isNotEmpty) {
+      // Find next unsorted item
+      for (var waste in collectedWaste) {
+        if (waste.parent == null) {
+          // Position in available grid slot
+          final existingItems = children.whereType<WasteItemComponent>().toList();
+          final itemsPerRow = 4;
+          final itemSize = size.x * 0.15;
+          final spacing = (size.x - (itemsPerRow * itemSize)) / (itemsPerRow + 1);
+          final startY = size.y * 0.15;
+          
+          final index = existingItems.length;
+          final row = index ~/ itemsPerRow;
+          final col = index % itemsPerRow;
+          
+          waste.position = Vector2(
+            spacing + (itemSize + spacing) * col + itemSize / 2,
+            startY + row * (itemSize + spacing * 1.5) + itemSize / 2,
+          );
+          waste.size = Vector2.all(itemSize * 0.8);
+          waste.priority = 150;
+          
+          waste.removeAll(waste.children.whereType<Effect>());
+          
+          // Spawn animation
+          waste.scale = Vector2.all(0.1);
+          waste.add(
+            SequenceEffect([
+              ScaleEffect.to(
+                Vector2.all(1.0),
+                EffectController(duration: 0.4, curve: Curves.elasticOut),
+              ),
+              ScaleEffect.by(
+                Vector2.all(0.1),
+                EffectController(duration: 0.8, alternate: true, infinite: true),
+              ),
+            ]),
+          );
+          
+          add(waste);
+          break;
+        }
+      }
+    }
+  }
+
   void _updateSortingStats() {
     int total = sortedCorrectly + sortedIncorrectly;
     int accuracy = total > 0 ? ((sortedCorrectly / total) * 100).round() : 0;
     
     onSortingUpdate?.call(accuracy, total);
     
-    // Check if sorting complete
-    if (total >= collectedWaste.length) {
-      Future.delayed(const Duration(seconds: 2), () {
-        if (accuracy >= 60) { // More forgiving threshold
+    // Get original collected count (before any sorting)
+    final totalToSort = sortedCorrectly + sortedIncorrectly + collectedWaste.length;
+    
+    // Check if ALL items have been sorted
+    if (total >= totalToSort && collectedWaste.isEmpty) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (accuracy >= 50) {
           _completePhase2();
         } else {
-          // Can add retry logic here
-          onSortingUpdate?.call(accuracy, total);
+          // Show retry message or auto-complete with penalty
+          _completePhase2();
         }
       });
     }

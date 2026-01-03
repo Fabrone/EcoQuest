@@ -58,7 +58,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         wasteCollected = count;
       });
     };
-    
+        
     game.onPhaseComplete = (phase) {
       setState(() {
         _showPhaseTransition = true;
@@ -67,6 +67,15 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             setState(() {
               currentPhase = phase + 1;
               _showPhaseTransition = false;
+              
+              // ADD THIS: Start the next phase
+              if (phase == 1) {
+                game.startPhase2Sorting();
+              } else if (phase == 2) {
+                game.startPhase3Treatment();
+              } else if (phase == 3) {
+                game.startPhase4Agriculture();
+              }
             });
           }
         });

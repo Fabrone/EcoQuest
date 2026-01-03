@@ -1851,22 +1851,14 @@ class BinComponent extends PositionComponent {
   }
 
   bool containsDrop(PositionComponent item) {
-    // Expanded hit area for easier dropping (50% larger)
-    final expandedRect = Rect.fromCenter(
-      center: Offset(
-        position.x + size.x / 2,
-        position.y + size.y / 2,
-      ),
-      width: size.x * 1.5,
-      height: size.y * 1.5,
-    );
+    // Use bin center and generous detection area
+    final binCenter = position + Vector2(size.x / 2, size.y / 2);
+    final distanceToCenter = (item.position - binCenter).length;
     
-    final itemCenter = Offset(
-      item.position.x,
-      item.position.y,
-    );
+    // Accept drops within 70% of bin diagonal
+    final acceptanceRadius = (size.x + size.y) * 0.7;
     
-    return expandedRect.contains(itemCenter);
+    return distanceToCenter < acceptanceRadius;
   }
 }
 
