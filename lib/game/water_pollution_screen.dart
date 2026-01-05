@@ -796,46 +796,50 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           ),
         ),
         
-        // Instructions - Floating hint
-        Positioned(
-          top: size.height * 0.25,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: Container(
-              margin: EdgeInsets.symmetric(horizontal: 20),
-              padding: EdgeInsets.all(isMobile ? 10 : 12),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.amber, width: 2),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.touch_app,
-                    color: Colors.amber,
-                    size: isMobile ? 20 : 24,
-                  ),
-                  SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      'TAP & DRAG items to bins',
-                      style: GoogleFonts.exo2(
-                        fontSize: isMobile ? 12 : 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
+        // Instructions - Floating hint (ONLY show on first few items)
+        if (itemsSorted < 3)
+          Positioned(
+            top: size.height * 0.2,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                margin: EdgeInsets.symmetric(horizontal: 20),
+                padding: EdgeInsets.all(isMobile ? 10 : 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber, width: 2),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.touch_app,
+                      color: Colors.amber,
+                      size: isMobile ? 20 : 24,
+                    ),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        isMobile 
+                            ? 'TAP to select, then TAP bin\nOR DRAG to bin'
+                            : 'TAP item then TAP bin | OR | DRAG item to bin',
+                        style: GoogleFonts.exo2(
+                          fontSize: isMobile ? 11 : 13,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ),
         
-        // Bin labels at bottom - MINIMAL TRANSPARENT VERSION
+        // Bin labels at bottom - ADAPTIVE POSITIONING
         Positioned(
           bottom: 0,
           left: 0,
