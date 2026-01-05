@@ -727,6 +727,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   Widget _buildSortingInterface() {
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
+    // final isTablet = size.width >= 600 && size.width < 1024;
     
     return Stack(
       children: [
@@ -777,7 +778,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                       Container(width: 1, height: 30, color: Colors.white24),
                       _buildCompactStat(
                         'Progress',
-                        '$itemsSorted/${game.collectedWaste.length}',
+                        '$itemsSorted/${game.collectedWaste.length + itemsSorted}',
                         Colors.cyan,
                         isMobile,
                       ),
@@ -796,18 +797,18 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           ),
         ),
         
-        // Instructions - Floating hint (ONLY show on first few items)
-        if (itemsSorted < 3)
+        // Instructions - Floating hint (show on first few items)
+        // Position relative to SCREEN for overlay consistency
+        if (itemsSorted < 5)
           Positioned(
-            top: size.height * 0.2,
-            left: 0,
-            right: 0,
+            top: size.height * 0.15,
+            left: 16,
+            right: 16,
             child: Center(
               child: Container(
-                margin: EdgeInsets.symmetric(horizontal: 20),
                 padding: EdgeInsets.all(isMobile ? 10 : 12),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.7),
+                  color: Colors.black.withValues(alpha: 0.8),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: Colors.amber, width: 2),
                 ),
@@ -823,7 +824,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                     Flexible(
                       child: Text(
                         isMobile 
-                            ? 'TAP to select, then TAP bin\nOR DRAG to bin'
+                            ? 'TAP item → TAP bin\nOR DRAG to bin'
                             : 'TAP item then TAP bin | OR | DRAG item to bin',
                         style: GoogleFonts.exo2(
                           fontSize: isMobile ? 11 : 13,
@@ -839,17 +840,22 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             ),
           ),
         
-        // Bin labels at bottom - ADAPTIVE POSITIONING
+        // Bin labels at bottom - POSITIONED RELATIVE TO SCREEN
+        // These labels align with the visual bins in the game canvas
         Positioned(
           bottom: 0,
           left: 0,
           right: 0,
           child: SafeArea(
+            bottom: false,
             child: Container(
+              // Position labels where bins appear visually
+              // Bins are at 82% of canvas height
+              // We need to account for SafeArea and any GameWidget padding
               padding: EdgeInsets.only(
                 left: isMobile ? 8 : 16,
                 right: isMobile ? 8 : 16,
-                bottom: isMobile ? 8 : 12,
+                bottom: size.height * 0.05, // Adjust based on where bins appear
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -863,6 +869,74 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             ),
           ),
         ),
+        
+        // DEBUG OVERLAY - Enhanced with canvas size
+        if (itemsSorted < 5) // Show for first 5 items
+          Positioned(
+            bottom: size.height * 0.2,
+            right: 8,
+            child: Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.yellow, width: 1),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'DEBUG INFO',
+                    style: GoogleFonts.exo2(
+                      fontSize: 11,
+                      color: Colors.yellow,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Screen: ${size.width.toInt()}×${size.height.toInt()}',
+                    style: GoogleFonts.exo2(
+                      fontSize: 9,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    'Canvas: ${game.size.x.toInt()}×${game.size.y.toInt()}',
+                    style: GoogleFonts.exo2(
+                      fontSize: 9,
+                      color: Colors.cyan,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Waste: ${game.collectedWaste.length}',
+                    style: GoogleFonts.exo2(
+                      fontSize: 9,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  Text(
+                    'Sorted: $itemsSorted',
+                    style: GoogleFonts.exo2(
+                      fontSize: 9,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  Text(
+                    'Bins: ${game.bins.length}',
+                    style: GoogleFonts.exo2(
+                      fontSize: 9,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }

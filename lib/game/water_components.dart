@@ -570,7 +570,7 @@ class SpeedboatComponent extends PositionComponent
   }
 }
 
-class WasteItemComponent extends PositionComponent {
+class WasteItemComponent extends PositionComponent with DragCallbacks, TapCallbacks {
   final String type;
   late Color color;
   late Color accentColor;
@@ -579,6 +579,10 @@ class WasteItemComponent extends PositionComponent {
   double bobAmount = 2.0 + Random().nextDouble() * 3.0;
   double rotation = 0.0;
   double rotationSpeed = (Random().nextDouble() - 0.5) * 0.2;
+  
+  // Drag state
+  bool isDragging = false;
+  Vector2? dragStartPosition;
 
   WasteItemComponent({
     required this.type,
@@ -628,9 +632,198 @@ class WasteItemComponent extends PositionComponent {
   @override
   void update(double dt) {
     super.update(dt);
-    bobOffset += dt * bobSpeed;
-    position.y += sin(bobOffset) * bobAmount * dt;
-    rotation += rotationSpeed * dt;
+    if (!isDragging) {
+      bobOffset += dt * bobSpeed;
+      position.y += sin(bobOffset) * bobAmount * dt;
+      rotation += rotationSpeed * dt;
+    }
+  }
+
+  @override
+  bool onDragStart(DragStartEvent event) {
+    super.onDragStart(event);
+    debugPrint('\n════════════════════════════════════');
+    debugPrint('🎯 WASTE ITEM DRAG START');
+    debugPrint('════════════════════════════════════');
+    debugPrint('Item type: $type');
+    debugPrint('Item position: $position');
+    debugPrint('Item size: $size');
+    debugPrint('Event local position: ${event.localPosition}');
+    debugPrint('Event canvas position: ${event.canvasPosition}');
+    
+    // Check if this is the top item in the game
+    final game = parent;
+    if (game is WaterPollutionGame) {
+      if (game.collectedWaste.isEmpty || game.collectedWaste.first != this) {
+        debugPrint('❌ Not the top item - ignoring drag');
+        debugPrint('════════════════════════════════════\n');
+        return false;
+      }
+      
+      if (game.currentPhase != 2) {
+        debugPrint('❌ Not in sorting phase - ignoring drag');
+        debugPrint('════════════════════════════════════\n');
+        return false;
+      }
+    }
+    
+    isDragging = true;
+    dragStartPosition = position.clone();
+    
+    // Stop animations
+    removeAll(children.whereType<Effect>());
+    
+    // Lift effect
+    add(ScaleEffect.to(
+      Vector2.all(1.3),
+      EffectController(duration: 0.15),
+    ));
+    
+    priority = 300;
+    
+    debugPrint('✅ Drag started successfully');
+    debugPrint('════════════════════════════════════\n');
+    return true;
+  }
+
+  @override
+  bool onDragUpdate(DragUpdateEvent event) {
+    if (isDragging) {
+      position += event.localDelta;
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  bool onDragEnd(DragEndEvent event) {
+    super.onDragEnd(event);
+    debugPrint('\n════════════════════════════════════');
+    debugPrint('🎯 WASTE ITEM DRAG END');
+    debugPrint('════════════════════════════════════');
+    debugPrint('Item type: $type');
+    debugPrint('Final position: $position');
+    
+    if (!isDragging) {
+      debugPrint('❌ Not dragging - ignoring');
+      debugPrint('════════════════════════════════════\n');
+      return false;
+    }
+    
+    isDragging = false;
+    
+    final game = parent;
+    if (game is WaterPollutionGame) {
+      debugPrint('Checking ${game.bins.length} bins for drop');
+      
+      BinComponent? closestBin;
+      double closestDistance = double.infinity;
+      
+      // Find closest bin
+      for (var bin in game.bins) {
+        final distanceToBin = (bin.position - position).length;
+        debugPrint('  - ${bin.binType}: distance=$distanceToBin');
+        
+        if (distanceToBin < closestDistance) {
+          closestDistance = distanceToBin;
+          closestBin = bin;
+        }
+      }
+      
+      if (closestBin != null) {
+        final binRadius = (closestBin.size.x + closestBin.size.y) * 0.7;
+        debugPrint('Closest bin: ${closestBin.binType}, distance=$closestDistance, radius=$binRadius');
+        
+        if (closestDistance < binRadius) {
+          bool isCorrect = game.isCorrectBin(type, closestBin.binType);
+          debugPrint('✅ Dropped in ${closestBin.binType} bin - ${isCorrect ? "CORRECT" : "WRONG"}');
+          
+          if (isCorrect) {
+            game.submitSort(this, closestBin);
+            debugPrint('════════════════════════════════════\n');
+            return true;
+          } else {
+            closestBin.triggerErrorAnimation();
+            game.showWrongBinFeedback(type, closestBin.binType);
+          }
+        } else {
+          debugPrint('❌ Too far from bin');
+        }
+      }
+      
+      // Return to original position
+      debugPrint('Returning to stack');
+      removeAll(children.whereType<Effect>());
+      
+      final stackCenterX = game.size.x * 0.5;
+      final stackCenterY = game.size.y * 0.30;
+      
+      add(SequenceEffect([
+        MoveEffect.to(
+          Vector2(stackCenterX, stackCenterY),
+          EffectController(duration: 0.3, curve: Curves.easeOut),
+        ),
+        ScaleEffect.to(
+          Vector2.all(1.0),
+          EffectController(duration: 0.2),
+        ),
+      ]));
+      
+      priority = 150;
+    }
+    
+    debugPrint('════════════════════════════════════\n');
+    return true;
+  }
+
+  @override
+  bool onTapDown(TapDownEvent event) {
+    debugPrint('\n════════════════════════════════════');
+    debugPrint('🎯 WASTE ITEM TAP');
+    debugPrint('════════════════════════════════════');
+    debugPrint('Item type: $type');
+    debugPrint('Item position: $position');
+    
+    final game = parent;
+    if (game is WaterPollutionGame) {
+      if (game.collectedWaste.isEmpty || game.collectedWaste.first != this) {
+        debugPrint('❌ Not the top item');
+        debugPrint('════════════════════════════════════\n');
+        return false;
+      }
+      
+      if (game.currentPhase != 2) {
+        debugPrint('❌ Not in sorting phase');
+        debugPrint('════════════════════════════════════\n');
+        return false;
+      }
+      
+      // Toggle selection
+      if (game.selectedWaste == this) {
+        game.selectedWaste = null;
+        removeAll(children.whereType<Effect>());
+        scale = Vector2.all(1.0);
+        debugPrint('✅ Item deselected');
+      } else {
+        if (game.selectedWaste != null) {
+          game.selectedWaste!.removeAll(game.selectedWaste!.children.whereType<Effect>());
+          game.selectedWaste!.scale = Vector2.all(1.0);
+        }
+        game.selectedWaste = this;
+        removeAll(children.whereType<Effect>());
+        add(ScaleEffect.to(
+          Vector2.all(1.2),
+          EffectController(duration: 0.2),
+        ));
+        debugPrint('✅ Item selected');
+      }
+      
+      debugPrint('════════════════════════════════════\n');
+      return true;
+    }
+    
+    debugPrint('════════════════════════════════════\n');
+    return false;
   }
 
   @override
@@ -645,7 +838,7 @@ class WasteItemComponent extends PositionComponent {
 
     // Apply 3D perspective transform
     final transform = Matrix4.identity()
-      ..setEntry(3, 2, 0.002) // perspective
+      ..setEntry(3, 2, 0.002)
       ..rotateX(sin(bobOffset) * 0.2)
       ..rotateY(cos(bobOffset * 0.7) * 0.15);
 
@@ -670,8 +863,8 @@ class WasteItemComponent extends PositionComponent {
     canvas.restore();
   }
 
+  // Keep all existing render methods unchanged...
   void _draw3DShadow(Canvas canvas) {
-    // Multiple shadow layers for realistic depth
     final shadowLayers = [
       (offset: Offset(4, 6), blur: 8.0, alpha: 0.4),
       (offset: Offset(2, 3), blur: 4.0, alpha: 0.3),
@@ -745,7 +938,6 @@ class WasteItemComponent extends PositionComponent {
   }
 
   LinearGradient _create3DGradient() {
-    // Light source from top-left for 3D effect
     return LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
@@ -759,7 +951,6 @@ class WasteItemComponent extends PositionComponent {
       ..color = Colors.white.withValues(alpha: 0.6)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
 
-    // Position highlight based on type
     Offset highlightPos;
     double highlightSize;
 
@@ -1560,9 +1751,10 @@ class FarmZoneComponent extends PositionComponent {
   }
 }
 
-class BinComponent extends PositionComponent {
+class BinComponent extends PositionComponent with TapCallbacks {
   final String binType;
   late Color binColor;
+  bool _showSuccessGlow = false;
 
   BinComponent({required this.binType, required super.position, super.size}) {
     size = size;
@@ -1582,6 +1774,44 @@ class BinComponent extends PositionComponent {
       default:
         return Colors.black;
     }
+  }
+
+  @override
+  bool onTapDown(TapDownEvent event) {
+    debugPrint('\n════════════════════════════════════');
+    debugPrint('🗑️  BIN TAPPED');
+    debugPrint('════════════════════════════════════');
+    debugPrint('Bin type: $binType');
+    debugPrint('Bin position: $position');
+    debugPrint('Tap position: ${event.localPosition}');
+    
+    final game = parent;
+    if (game is WaterPollutionGame) {
+      if (game.selectedWaste != null) {
+        debugPrint('Selected waste: ${game.selectedWaste!.type}');
+        
+        bool isCorrect = game.isCorrectBin(game.selectedWaste!.type, binType);
+        debugPrint('Correct bin? ${isCorrect ? "YES ✓" : "NO ✗"}');
+        
+        if (isCorrect) {
+          game.submitSort(game.selectedWaste!, this);
+          game.selectedWaste = null;
+          debugPrint('✅ Sort submitted');
+        } else {
+          triggerErrorAnimation();
+          game.showWrongBinFeedback(game.selectedWaste!.type, binType);
+          debugPrint('❌ Wrong bin');
+        }
+        
+        debugPrint('════════════════════════════════════\n');
+        return true;
+      } else {
+        debugPrint('❌ No waste selected');
+      }
+    }
+    
+    debugPrint('════════════════════════════════════\n');
+    return false;
   }
 
   // Enhanced BinComponent with 3D visualization
@@ -1774,8 +2004,6 @@ class BinComponent extends PositionComponent {
     textPainter.paint(canvas, Offset.zero);
     canvas.restore();
   }
-
-  bool _showSuccessGlow = false;
 
   void _drawSuccessGlow(Canvas canvas) {
     final glowPaint = Paint()

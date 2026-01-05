@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flame/components.dart';
 import 'package:google_fonts/google_fonts.dart';
-class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, KeyboardEvents {
+class WaterPollutionGame extends FlameGame with KeyboardEvents {
   final int bacteriaCultures;
   
   // Callbacks for UI updates
@@ -284,7 +284,7 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     debugPrint('Current phase: $currentPhase');
     debugPrint('Collected waste count: ${collectedWaste.length}');
     
-    // pauseEngine();
+    pauseEngine();
     
     // Clear all previous components
     final toRemove = children.toList();
@@ -295,49 +295,66 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     
     await Future.delayed(const Duration(milliseconds: 150));
     
+    // Wait for canvas to be ready and properly sized
+    int attempts = 0;
+    while ((size.x == 0 || size.y == 0) && attempts < 10) {
+      debugPrint('Canvas not ready (attempt ${attempts + 1}), waiting...');
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+    
+    if (size.x == 0 || size.y == 0) {
+      debugPrint('ERROR: Canvas size still zero after waiting!');
+      return;
+    }
+    
+    debugPrint('Canvas size confirmed: ${size.x} x ${size.y}');
+    debugPrint('Canvas ready for sorting phase setup');
+    
     // Add sorting facility background
     final bgComponent = SortingFacilityBackground(size: size);
     await add(bgComponent);
     debugPrint('Added background component');
     
-    // Setup bins with RESPONSIVE spacing and sizing
+    // Setup bins with DYNAMIC responsive spacing based on CANVAS size
     bins.clear();
     final binTypes = ['plastic', 'metal', 'hazardous', 'organic'];
     
-    // Calculate responsive bin dimensions
-    final isMobile = size.x < 600;
-    final isTablet = size.x >= 600 && size.x < 1024;
+    // Calculate bin dimensions as PERCENTAGE of canvas dimensions
+    // This ensures bins scale with the actual game canvas
+    final binWidthPercent = 0.18;  // 18% of canvas width
+    final binHeightPercent = 0.25; // 25% of canvas height
     
-    // Adaptive bin sizing based on screen width
-    final binWidth = isMobile 
-        ? size.x * 0.2  // 20% on mobile
-        : isTablet 
-            ? size.x * 0.18 
-            : size.x * 0.16; // 16% on desktop
-            
-    final binHeight = binWidth * 1.2; // Maintain aspect ratio
+    final binWidth = size.x * binWidthPercent;
+    final binHeight = size.y * binHeightPercent;
     
-    // Calculate spacing to fit all bins
+    debugPrint('Bin dimensions: width=$binWidth (${binWidthPercent * 100}% of ${size.x}), height=$binHeight (${binHeightPercent * 100}% of ${size.y})');
+    
+    // Calculate spacing to distribute bins evenly
     final totalBinWidth = binWidth * binTypes.length;
     final availableSpace = size.x - totalBinWidth;
     final spacing = availableSpace / (binTypes.length + 1);
     
-    // Position bins at bottom with safe margin
-    final binY = size.y - binHeight / 2 - (isMobile ? 30 : 40);
+    // Position bins at bottom with proper margin from edge
+    // Use percentage-based positioning for true responsiveness
+    final binYPercent = 0.82; // 82% down the canvas (leaving 18% from bottom)
+    final binY = size.y * binYPercent;
     
-    debugPrint('Bin dimensions: width=$binWidth, height=$binHeight, spacing=$spacing');
+    debugPrint('Bin Y position: $binY (${binYPercent * 100}% of ${size.y})');
+    debugPrint('Spacing between bins: $spacing');
     
     for (int i = 0; i < binTypes.length; i++) {
+      final binX = spacing + (binWidth + spacing) * i + binWidth / 2;
+      
       final bin = BinComponent(
         binType: binTypes[i],
-        position: Vector2(
-          spacing + (binWidth + spacing) * i + binWidth / 2,
-          binY,
-        ),
+        position: Vector2(binX, binY),
         size: Vector2(binWidth, binHeight),
       );
       bins.add(bin);
       await add(bin);
+      
+      debugPrint('Bin ${i + 1} (${binTypes[i]}): position=($binX, $binY), size=($binWidth x $binHeight)');
     }
     debugPrint('Bins added: ${bins.length}');
     
@@ -358,7 +375,7 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     
     debugPrint('Total waste items to sort: ${collectedWaste.length}');
     
-    // Create centralized stack - FIXED to be static and properly positioned
+    // Create centralized stack with responsive positioning
     _createCentralizedStack();
     
     debugPrint('Resuming engine');
@@ -367,22 +384,23 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
   }
 
   void _createCentralizedStack() {
-    // RESPONSIVE stack positioning - higher on screen, away from bins
-    final isMobile = size.x < 600;
-    final isTablet = size.x >= 600 && size.x < 1024;
+    // DYNAMIC stack positioning based on CANVAS dimensions (not screen size)
+    // Position in upper-middle area to avoid bin collision
+    final stackCenterXPercent = 0.5;  // 50% - center horizontally
+    final stackCenterYPercent = 0.30; // 30% - upper-middle area
     
-    final stackCenterX = size.x / 2;
-    // Position stack higher up to avoid bin overlap
-    final stackCenterY = isMobile ? size.y * 0.3 : size.y * 0.35;
+    final stackCenterX = size.x * stackCenterXPercent;
+    final stackCenterY = size.y * stackCenterYPercent;
     
-    // RESPONSIVE item size - larger for better touch targets
-    final itemSize = isMobile 
-        ? size.x * 0.25  // 25% on mobile for better visibility
-        : isTablet 
-            ? size.x * 0.2 
-            : size.x * 0.18;
+    // Calculate item size as percentage of canvas width
+    // Ensure items are visible but not too large
+    final itemSizePercent = 0.20; // 20% of canvas width
+    final itemSize = size.x * itemSizePercent;
     
-    debugPrint('Stack position: ($stackCenterX, $stackCenterY), item size: $itemSize');
+    debugPrint('=== STACK CREATION ===');
+    debugPrint('Canvas: ${size.x} x ${size.y}');
+    debugPrint('Stack center: ($stackCenterX, $stackCenterY) = (${stackCenterXPercent * 100}%, ${stackCenterYPercent * 100}%)');
+    debugPrint('Item size: $itemSize (${itemSizePercent * 100}% of canvas width)');
     
     // Only show top 3 items in stack for performance
     final itemsToShow = collectedWaste.length < 3 ? collectedWaste.length : 3;
@@ -393,9 +411,10 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
       final waste = collectedWaste[i];
       
       // Stack items with slight offset for depth effect
+      final offsetMultiplier = 3.0;
       waste.position = Vector2(
-        stackCenterX + (i * 4), // Slight horizontal offset
-        stackCenterY - (i * 4), // Slight vertical offset for stack effect
+        stackCenterX + (i * offsetMultiplier),
+        stackCenterY - (i * offsetMultiplier),
       );
       waste.size = Vector2.all(itemSize);
       waste.anchor = Anchor.center;
@@ -403,142 +422,28 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
       // Set priority so top item is on top
       waste.priority = 150 + (itemsToShow - i);
       
-      // CRITICAL FIX: Remove any existing effects to make items STATIC
+      // CRITICAL: Remove any existing effects to make items STATIC
       waste.removeAll(waste.children.whereType<Effect>());
       
       // Set scale once - NO animations
       if (i == 0) {
         waste.scale = Vector2.all(1.0); // Top item at full size
       } else {
-        // Items below are slightly smaller and dimmer
-        waste.scale = Vector2.all(0.95 - (i * 0.05));
+        waste.scale = Vector2.all(0.92 - (i * 0.05)); // Items below slightly smaller
       }
       
       add(waste);
+      debugPrint('Stack item $i: type=${waste.type}, pos=${waste.position}, size=${waste.size}, priority=${waste.priority}');
     }
     
-    debugPrint('Stack created with $itemsToShow visible STATIC items at center ($stackCenterX, $stackCenterY)');
+    debugPrint('Stack created with $itemsToShow STATIC items');
+    debugPrint('Top item (draggable): ${collectedWaste.isNotEmpty ? collectedWaste.first.type : "none"}');
+    debugPrint('=== STACK CREATION COMPLETE ===');
   }
 
-  @override
-  bool onDragStart(DragStartEvent event) {
-    super.onDragStart(event);
-    
-    if (currentPhase != 2) return false;
-    
-    // Only allow dragging the top item in the stack (first item in collectedWaste)
-    if (collectedWaste.isEmpty) return false;
-    
-    final topWaste = collectedWaste.first;
-    
-    // FIXED: Use proper distance check with touch radius
-    final touchRadius = topWaste.size.x * 0.6; // 60% of item size for generous touch area
-    final distanceToCenter = (topWaste.position - event.localPosition).length;
-    
-    debugPrint('Drag start - Distance to top waste: $distanceToCenter, touch radius: $touchRadius');
-    
-    // Check if touch is within top waste bounds
-    if (distanceToCenter < touchRadius) {
-      currentDragged = topWaste;
-      
-      // Stop all animations (if any)
-      topWaste.removeAll(topWaste.children.whereType<Effect>());
-      
-      // Lift effect
-      topWaste.add(
-        ScaleEffect.to(
-          Vector2.all(1.3),
-          EffectController(duration: 0.15),
-        ),
-      );
-      
-      topWaste.priority = 300;
-      debugPrint('✓ Started dragging: ${topWaste.type}');
-      return true;
-    }
-    
-    debugPrint('✗ Touch missed top waste item');
-    return false;
-  }
-
-  @override
-  bool onDragUpdate(DragUpdateEvent event) {
-    super.onDragUpdate(event);
-    
-    if (currentDragged != null) {
-      // Smooth position update
-      currentDragged!.position += event.localDelta;
-      return true;
-    }
-    
-    return false;
-  }
-
-  @override
-  bool onDragEnd(DragEndEvent event) {
-    super.onDragEnd(event);
-    
-    if (currentDragged != null) {
-      bool sortedSuccessfully = false;
-      
-      debugPrint('Drag ended at position: ${currentDragged!.position}');
-      
-      // Check all bins for valid drop
-      for (var bin in bins) {
-        if (bin.containsDrop(currentDragged!)) {
-          bool isCorrect = _isCorrectBin(currentDragged!.type, bin.binType);
-          
-          debugPrint('Dropped on ${bin.binType} bin - Correct: $isCorrect');
-          
-          if (isCorrect) {
-            submitSort(currentDragged!, bin);
-            sortedSuccessfully = true;
-          } else {
-            // Wrong bin - show error and return to stack
-            bin.triggerErrorAnimation();
-            _showWrongBinFeedback(currentDragged!.type, bin.binType);
-            sortedSuccessfully = false;
-          }
-          break;
-        }
-      }
-      
-      if (!sortedSuccessfully) {
-        // Return to stack center
-        debugPrint('Returning item to stack');
-        currentDragged!.removeAll(currentDragged!.children.whereType<Effect>());
-        
-        final isMobile = size.x < 600;
-        final stackCenterX = size.x / 2;
-        final stackCenterY = isMobile ? size.y * 0.3 : size.y * 0.35;
-        
-        currentDragged!.add(
-          SequenceEffect([
-            MoveEffect.to(
-              Vector2(stackCenterX, stackCenterY),
-              EffectController(duration: 0.3, curve: Curves.easeOut),
-            ),
-            ScaleEffect.to(
-              Vector2.all(1.0),
-              EffectController(duration: 0.2, curve: Curves.elasticOut),
-            ),
-          ]),
-        );
-        
-        currentDragged!.priority = 150;
-      }
-      
-      currentDragged = null;
-      return true;
-    }
-    
-    return false;
-  }
-
-  void _showWrongBinFeedback(String wasteType, String binType) {
+  void showWrongBinFeedback(String wasteType, String binType) {
     debugPrint('❌ WRONG BIN: $wasteType does not belong in $binType bin');
     
-    // Create a temporary feedback text component
     final feedbackText = TextComponent(
       text: '❌ Wrong Bin!',
       textRenderer: TextPaint(
@@ -555,15 +460,15 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     
     add(feedbackText);
     
-    // Animate and remove
+    // FIXED: Use scale and move effects only (TextComponent doesn't support OpacityEffect)
     feedbackText.add(
       SequenceEffect([
         ScaleEffect.by(
           Vector2.all(1.5),
           EffectController(duration: 0.3),
         ),
-        OpacityEffect.to(
-          0.0,
+        ScaleEffect.to(
+          Vector2.zero(),
           EffectController(duration: 0.3),
         ),
         RemoveEffect(),
@@ -610,7 +515,7 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     }
   }
 
-  bool _isCorrectBin(String wasteType, String binType) {
+  bool isCorrectBin(String wasteType, String binType) {
     final correctMappings = {
       'plastic_bottle': 'plastic',
       'bag': 'plastic',
@@ -632,7 +537,7 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
   }
 
   void submitSort(WasteItemComponent waste, BinComponent bin) {
-    bool correct = _isCorrectBin(waste.type, bin.binType);
+    bool correct = isCorrectBin(waste.type, bin.binType);
     
     debugPrint('${correct ? "✅" : "❌"} Sorting ${waste.type} into ${bin.binType} bin');
     
@@ -685,6 +590,18 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     });
   }
 
+  void onTapDown(TapDownEvent event) {
+      // Only handle Phase 3 treatment - Phase 2 is handled by components
+      if (currentPhase == 3 && bacteriaRemaining > 0) {
+        for (var tile in waterTiles) {
+          if (tile.containsPoint(event.localPosition) && tile.isPolluted) {
+            treatTile(tile);
+            break;
+          }
+        }
+      }
+    }
+
   void _setupTreatmentPhase() {
     // Create grid of water tiles (6x6)
     const int rows = 6;
@@ -709,87 +626,6 @@ class WaterPollutionGame extends FlameGame with TapCallbacks, DragCallbacks, Key
     }
     
     resumeEngine();
-  }
-
-  @override
-  void onTapDown(TapDownEvent event) {
-    super.onTapDown(event);
-    
-    if (currentPhase == 2) {
-      // FIXED: Better tap detection for top waste item
-      if (collectedWaste.isNotEmpty) {
-        final topWaste = collectedWaste.first;
-        final touchRadius = topWaste.size.x * 0.6;
-        final distanceToCenter = (topWaste.position - event.localPosition).length;
-        
-        debugPrint('Tap - Distance to top waste: $distanceToCenter, touch radius: $touchRadius');
-        
-        if (distanceToCenter < touchRadius) {
-          // Select/deselect the waste item
-          if (selectedWaste == topWaste) {
-            // Deselect
-            selectedWaste = null;
-            topWaste.removeAll(topWaste.children.whereType<Effect>());
-            topWaste.scale = Vector2.all(1.0); // Reset to static
-            debugPrint('Deselected waste item');
-          } else {
-            // Select
-            selectedWaste = topWaste;
-            topWaste.removeAll(topWaste.children.whereType<Effect>());
-            // Highlight selected item with scale
-            topWaste.add(
-              ScaleEffect.to(
-                Vector2.all(1.15),
-                EffectController(duration: 0.2),
-              ),
-            );
-            debugPrint('✓ Selected waste item: ${topWaste.type}');
-          }
-          return;
-        }
-      }
-      
-      // FIXED: Check if tapping on a bin with selected waste
-      if (selectedWaste != null) {
-        debugPrint('Checking bin taps with selected waste: ${selectedWaste!.type}');
-        
-        for (var bin in bins) {
-          // Use containsDrop for consistent detection
-          final binCenter = bin.position;
-          final distanceToBin = (binCenter - event.localPosition).length;
-          final binTouchRadius = (bin.size.x + bin.size.y) * 0.5; // Generous touch area
-          
-          debugPrint('Distance to ${bin.binType} bin: $distanceToBin, radius: $binTouchRadius');
-          
-          if (distanceToBin < binTouchRadius) {
-            bool isCorrect = _isCorrectBin(selectedWaste!.type, bin.binType);
-            
-            debugPrint('Tapped ${bin.binType} bin - Correct: $isCorrect');
-            
-            if (isCorrect) {
-              submitSort(selectedWaste!, bin);
-              selectedWaste = null;
-            } else {
-              bin.triggerErrorAnimation();
-              _showWrongBinFeedback(selectedWaste!.type, bin.binType);
-            }
-            return;
-          }
-        }
-        
-        debugPrint('No bin tapped');
-      }
-    }
-    
-    if (currentPhase == 3 && bacteriaRemaining > 0) {
-      // Check if clicked on polluted tile
-      for (var tile in waterTiles) {
-        if (tile.containsPoint(event.localPosition) && tile.isPolluted) {
-          treatTile(tile);
-          break;
-        }
-      }
-    }
   }
   
   // Made public so WaterTileComponent can call it
