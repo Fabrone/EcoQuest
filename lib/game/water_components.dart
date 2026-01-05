@@ -743,21 +743,46 @@ class WasteItemComponent extends PositionComponent with DragCallbacks, TapCallba
             debugPrint('════════════════════════════════════\n');
             return true;
           } else {
+            // WRONG BIN - trigger feedback
             closestBin.triggerErrorAnimation();
             game.showWrongBinFeedback(type, closestBin.binType);
+            
+            // Return to stack WITHOUT opacity effects (use only safe effects)
+            debugPrint('Returning to stack (wrong bin)');
+            removeAll(children.whereType<Effect>());
+            
+            final stackCenterX = game.size.x * 0.5;
+            final stackCenterY = game.size.y * 0.30;
+            
+            // Use only MoveEffect and ScaleEffect - NO OpacityEffect
+            add(SequenceEffect([
+              MoveEffect.to(
+                Vector2(stackCenterX, stackCenterY),
+                EffectController(duration: 0.4, curve: Curves.easeOut),
+              ),
+              ScaleEffect.to(
+                Vector2.all(1.0),
+                EffectController(duration: 0.2),
+              ),
+            ]));
+            
+            priority = 150;
+            debugPrint('════════════════════════════════════\n');
+            return true;
           }
         } else {
           debugPrint('❌ Too far from bin');
         }
       }
       
-      // Return to original position
-      debugPrint('Returning to stack');
+      // Return to original position (dropped outside any bin)
+      debugPrint('Returning to stack (dropped outside)');
       removeAll(children.whereType<Effect>());
       
       final stackCenterX = game.size.x * 0.5;
       final stackCenterY = game.size.y * 0.30;
       
+      // Use only safe effects - NO OpacityEffect
       add(SequenceEffect([
         MoveEffect.to(
           Vector2(stackCenterX, stackCenterY),

@@ -4,6 +4,7 @@ import 'package:ecoquest/game/water_components.dart';
 import 'package:flame/effects.dart';
 import 'package:flame/events.dart';
 import 'package:flame/game.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flame/components.dart';
@@ -444,36 +445,96 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   void showWrongBinFeedback(String wasteType, String binType) {
     debugPrint('❌ WRONG BIN: $wasteType does not belong in $binType bin');
     
-    final feedbackText = TextComponent(
-      text: '❌ Wrong Bin!',
+    // Get the correct bin for this waste type
+    final correctMappings = {
+      'plastic_bottle': 'plastic',
+      'bag': 'plastic',
+      'can': 'metal',
+      'oil_slick': 'hazardous',
+      'wood': 'organic',
+    };
+    
+    final correctBin = correctMappings[wasteType] ?? 'unknown';
+    
+    // Create a temporary feedback component with clear messaging
+    final feedbackContainer = RectangleComponent(
+      position: Vector2(size.x / 2, size.y / 2),
+      size: Vector2(size.x * 0.7, 120),
+      anchor: Anchor.center,
+      priority: 500,
+      paint: Paint()
+        ..color = Colors.red.withValues(alpha: 0.95)
+        ..style = PaintingStyle.fill,
+    );
+    
+    // Add border
+    feedbackContainer.add(
+      RectangleComponent(
+        size: feedbackContainer.size,
+        paint: Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4,
+      ),
+    );
+    
+    // Main error message
+    final errorText = TextComponent(
+      text: '❌ WRONG BIN!',
       textRenderer: TextPaint(
         style: GoogleFonts.exo2(
-          fontSize: 24,
-          color: Colors.red,
+          fontSize: 28,
+          color: Colors.white,
           fontWeight: FontWeight.w900,
         ),
       ),
-      position: Vector2(size.x / 2, size.y / 2),
+      position: Vector2(feedbackContainer.size.x / 2, 30),
       anchor: Anchor.center,
-      priority: 500,
     );
     
-    add(feedbackText);
+    // Helpful hint message
+    final hintText = TextComponent(
+      text: '$wasteType → $correctBin bin',
+      textRenderer: TextPaint(
+        style: GoogleFonts.exo2(
+          fontSize: 18,
+          color: Colors.yellow,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      position: Vector2(feedbackContainer.size.x / 2, 70),
+      anchor: Anchor.center,
+    );
     
-    // FIXED: Use scale and move effects only (TextComponent doesn't support OpacityEffect)
-    feedbackText.add(
+    feedbackContainer.add(errorText);
+    feedbackContainer.add(hintText);
+    
+    add(feedbackContainer);
+    
+    // Animate feedback: pulse then fade out
+    feedbackContainer.add(
       SequenceEffect([
         ScaleEffect.by(
-          Vector2.all(1.5),
-          EffectController(duration: 0.3),
+          Vector2.all(1.15),
+          EffectController(duration: 0.2, alternate: true, repeatCount: 2),
         ),
         ScaleEffect.to(
-          Vector2.zero(),
+          Vector2.all(1.2),
           EffectController(duration: 0.3),
         ),
-        RemoveEffect(),
+        RemoveEffect(delay: 1.5), // Show for 1.5 seconds before removing
       ]),
     );
+    
+    // Vibration feedback (if on mobile)
+    if (defaultTargetPlatform == TargetPlatform.android || 
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      HapticFeedback.heavyImpact();
+    }
+    
+    // Increment wrong sort counter
+    sortedIncorrectly++;
+    _updateSortingStats();
   }
 
   void _spawnNextWasteItem() {
