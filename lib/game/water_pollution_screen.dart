@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:ecoquest/game/water_pollution_game.dart';
+import 'package:flame/extensions.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -115,7 +116,9 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           children: [
             // Main game view - SHOW FOR PHASE 2 AS WELL
             if (currentPhase == 1 || currentPhase == 2 || currentPhase == 3)
-              GameWidget(game: game),
+              SizedBox.expand(
+                child: GameWidget(game: game),
+              ),
             
             // UI Overlays
             if (currentPhase == 0) _buildIntroScreen(),
@@ -727,7 +730,12 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   Widget _buildSortingInterface() {
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
-    // final isTablet = size.width >= 600 && size.width < 1024;
+    // SYNC GAME CANVAS SIZE WITH SCREEN SIZE
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (game.size.x != size.width || game.size.y != size.height) {
+        game.onGameResize(size.toVector2());
+      }
+    });
     
     return Stack(
       children: [

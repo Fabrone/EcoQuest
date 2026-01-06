@@ -389,7 +389,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.centerLeft,
                             child: Text(
-                              'Level 1: Kiambu County',
+                              'Level 1',
                               style: GoogleFonts.vt323(
                                 fontSize: (constraints.maxWidth * 0.032).clamp(16.0, 22.0),
                                 color: Colors.white,
@@ -756,7 +756,7 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
     'Restore the degraded Kinale Forest by matching 3 or more identical eco-items. Your goal is to turn all brown (degraded) tiles green (restored) before time runs out! ⏰',
     '',
     '🎮 HOW TO PLAY',
-    '1️⃣ Swipe any eco-item (rain 💧, hummingbird 🐦, summer ☀️, rose 🌹, or man 👨) in any direction (up, down, left, right).',
+    '1️⃣ Swipe any eco-item (leaf, root(beetroot), flower 🌹, fruit(berries) or treebark) in any direction (up, down, left, right).',
     '2️⃣ Match 3 or more items of the same type horizontally or vertically.',
     '3️⃣ When items match, they disappear and the tile underneath turns green! 🌿',
     '4️⃣ New items fall from the top to fill empty spaces.',

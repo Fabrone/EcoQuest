@@ -81,6 +81,51 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     return KeyEventResult.ignored;
   }
 
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    debugPrint('Game resized to: ${size.x} x ${size.y}');
+    
+    // If in sorting phase, reposition components
+    if (currentPhase == 2 && bins.isNotEmpty) {
+      _repositionSortingComponents();
+    }
+  }
+
+  void _repositionSortingComponents() {
+    debugPrint('Repositioning sorting components for new size: ${size.x} x ${size.y}');
+    
+    // Recalculate bin positions
+    final binTypes = ['plastic', 'metal', 'hazardous', 'organic'];
+    final horizontalPadding = size.x * 0.05;
+    final availableWidth = size.x - (2 * horizontalPadding);
+    final binSpacing = availableWidth * 0.02;
+    final totalSpacing = binSpacing * (binTypes.length - 1);
+    final binWidth = (availableWidth - totalSpacing) / binTypes.length;
+    final binHeight = size.y * 0.22;
+    final binY = size.y * 0.78;
+    
+    for (int i = 0; i < bins.length; i++) {
+      final binX = horizontalPadding + (i * (binWidth + binSpacing)) + (binWidth / 2);
+      bins[i].position = Vector2(binX, binY);
+      bins[i].size = Vector2(binWidth, binHeight);
+    }
+    
+    // Reposition waste stack
+    final stackCenterX = size.x * 0.5;
+    final stackCenterY = size.y * 0.35;
+    final itemSize = (size.x * 0.18).clamp(60.0, 150.0);
+    
+    final visibleWaste = children.whereType<WasteItemComponent>().toList();
+    for (int i = 0; i < visibleWaste.length && i < 3; i++) {
+      visibleWaste[i].position = Vector2(
+        stackCenterX + (i * 3.0),
+        stackCenterY - (i * 3.0),
+      );
+      visibleWaste[i].size = Vector2.all(itemSize);
+    }
+  }
+
   void startPhase1() {
     currentPhase = 1;
     _setupCollectionPhase();
@@ -281,71 +326,55 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
   void _setupSortingPhase() async {
     debugPrint('=== SORTING PHASE DEBUG ===');
-    debugPrint('Starting sorting phase setup');
-    debugPrint('Current phase: $currentPhase');
-    debugPrint('Collected waste count: ${collectedWaste.length}');
     
     pauseEngine();
     
-    // Clear all previous components
+    // Clear components
     final toRemove = children.toList();
-    debugPrint('Removing ${toRemove.length} previous components');
     for (var child in toRemove) {
       child.removeFromParent();
     }
     
     await Future.delayed(const Duration(milliseconds: 150));
     
-    // Wait for canvas to be ready and properly sized
+    // CRITICAL FIX: Wait for proper canvas sizing
     int attempts = 0;
-    while ((size.x == 0 || size.y == 0) && attempts < 10) {
-      debugPrint('Canvas not ready (attempt ${attempts + 1}), waiting...');
+    while ((size.x == 0 || size.y == 0 || size.x < 100 || size.y < 100) && attempts < 20) {
+      debugPrint('Canvas not ready (attempt ${attempts + 1}): ${size.x} x ${size.y}');
       await Future.delayed(const Duration(milliseconds: 100));
       attempts++;
     }
     
-    if (size.x == 0 || size.y == 0) {
-      debugPrint('ERROR: Canvas size still zero after waiting!');
+    if (size.x == 0 || size.y == 0 || size.x < 100) {
+      debugPrint('ERROR: Canvas size invalid after waiting!');
       return;
     }
     
     debugPrint('Canvas size confirmed: ${size.x} x ${size.y}');
-    debugPrint('Canvas ready for sorting phase setup');
     
-    // Add sorting facility background
+    // Add background
     final bgComponent = SortingFacilityBackground(size: size);
     await add(bgComponent);
-    debugPrint('Added background component');
     
-    // Setup bins with DYNAMIC responsive spacing based on CANVAS size
+    // IMPROVED BIN SETUP with guaranteed spacing
     bins.clear();
     final binTypes = ['plastic', 'metal', 'hazardous', 'organic'];
     
-    // Calculate bin dimensions as PERCENTAGE of canvas dimensions
-    // This ensures bins scale with the actual game canvas
-    final binWidthPercent = 0.18;  // 18% of canvas width
-    final binHeightPercent = 0.25; // 25% of canvas height
+    // Calculate responsive bin dimensions
+    final horizontalPadding = size.x * 0.05; // 5% padding on each side
+    final availableWidth = size.x - (2 * horizontalPadding);
+    final binSpacing = availableWidth * 0.02; // 2% spacing between bins
+    final totalSpacing = binSpacing * (binTypes.length - 1);
+    final binWidth = (availableWidth - totalSpacing) / binTypes.length;
+    final binHeight = size.y * 0.22; // 22% of canvas height
     
-    final binWidth = size.x * binWidthPercent;
-    final binHeight = size.y * binHeightPercent;
+    // Position bins with equal spacing
+    final binY = size.y * 0.78; // 78% down (leaving 22% from bottom)
     
-    debugPrint('Bin dimensions: width=$binWidth (${binWidthPercent * 100}% of ${size.x}), height=$binHeight (${binHeightPercent * 100}% of ${size.y})');
-    
-    // Calculate spacing to distribute bins evenly
-    final totalBinWidth = binWidth * binTypes.length;
-    final availableSpace = size.x - totalBinWidth;
-    final spacing = availableSpace / (binTypes.length + 1);
-    
-    // Position bins at bottom with proper margin from edge
-    // Use percentage-based positioning for true responsiveness
-    final binYPercent = 0.82; // 82% down the canvas (leaving 18% from bottom)
-    final binY = size.y * binYPercent;
-    
-    debugPrint('Bin Y position: $binY (${binYPercent * 100}% of ${size.y})');
-    debugPrint('Spacing between bins: $spacing');
+    debugPrint('Bin layout: width=$binWidth, height=$binHeight, spacing=$binSpacing');
     
     for (int i = 0; i < binTypes.length; i++) {
-      final binX = spacing + (binWidth + spacing) * i + binWidth / 2;
+      final binX = horizontalPadding + (i * (binWidth + binSpacing)) + (binWidth / 2);
       
       final bin = BinComponent(
         binType: binTypes[i],
@@ -355,13 +384,12 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       bins.add(bin);
       await add(bin);
       
-      debugPrint('Bin ${i + 1} (${binTypes[i]}): position=($binX, $binY), size=($binWidth x $binHeight)');
+      debugPrint('Bin ${i + 1} (${binTypes[i]}): x=$binX, y=$binY');
     }
-    debugPrint('Bins added: ${bins.length}');
     
-    // Ensure we have waste to sort
+    // Setup waste stack
     if (collectedWaste.isEmpty) {
-      debugPrint('WARNING: No collected waste found, generating default waste');
+      // Generate default waste
       final wasteTypes = ['plastic_bottle', 'can', 'bag', 'oil_slick', 'wood'];
       for (int i = 0; i < 20; i++) {
         collectedWaste.add(
@@ -374,36 +402,27 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       }
     }
     
-    debugPrint('Total waste items to sort: ${collectedWaste.length}');
-    
-    // Create centralized stack with responsive positioning
     _createCentralizedStack();
     
-    debugPrint('Resuming engine');
     resumeEngine();
     debugPrint('=== SORTING PHASE SETUP COMPLETE ===');
   }
 
   void _createCentralizedStack() {
-    // DYNAMIC stack positioning based on CANVAS dimensions (not screen size)
-    // Position in upper-middle area to avoid bin collision
-    final stackCenterXPercent = 0.5;  // 50% - center horizontally
-    final stackCenterYPercent = 0.30; // 30% - upper-middle area
+    // Position stack in safe zone (upper-middle, away from bins)
+    final stackCenterX = size.x * 0.5;  // Center horizontally
+    final stackCenterY = size.y * 0.35; // 35% from top (bins at 78%)
     
-    final stackCenterX = size.x * stackCenterXPercent;
-    final stackCenterY = size.y * stackCenterYPercent;
-    
-    // Calculate item size as percentage of canvas width
-    // Ensure items are visible but not too large
-    final itemSizePercent = 0.20; // 20% of canvas width
-    final itemSize = size.x * itemSizePercent;
+    // Calculate item size based on available space
+    // Make items large enough to see but not overlap bins
+    final maxItemSize = size.x * 0.18; // 18% of width
+    final itemSize = maxItemSize.clamp(60.0, 150.0); // Min 60, max 150
     
     debugPrint('=== STACK CREATION ===');
     debugPrint('Canvas: ${size.x} x ${size.y}');
-    debugPrint('Stack center: ($stackCenterX, $stackCenterY) = (${stackCenterXPercent * 100}%, ${stackCenterYPercent * 100}%)');
-    debugPrint('Item size: $itemSize (${itemSizePercent * 100}% of canvas width)');
+    debugPrint('Stack center: ($stackCenterX, $stackCenterY)');
+    debugPrint('Item size: $itemSize');
     
-    // Only show top 3 items in stack for performance
     final itemsToShow = collectedWaste.length < 3 ? collectedWaste.length : 3;
     
     for (int i = 0; i < itemsToShow; i++) {
@@ -411,34 +430,25 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       
       final waste = collectedWaste[i];
       
-      // Stack items with slight offset for depth effect
-      final offsetMultiplier = 3.0;
+      // Stack with slight offset
       waste.position = Vector2(
-        stackCenterX + (i * offsetMultiplier),
-        stackCenterY - (i * offsetMultiplier),
+        stackCenterX + (i * 3.0),
+        stackCenterY - (i * 3.0),
       );
       waste.size = Vector2.all(itemSize);
       waste.anchor = Anchor.center;
-      
-      // Set priority so top item is on top
       waste.priority = 150 + (itemsToShow - i);
       
-      // CRITICAL: Remove any existing effects to make items STATIC
+      // Remove any existing effects
       waste.removeAll(waste.children.whereType<Effect>());
       
-      // Set scale once - NO animations
-      if (i == 0) {
-        waste.scale = Vector2.all(1.0); // Top item at full size
-      } else {
-        waste.scale = Vector2.all(0.92 - (i * 0.05)); // Items below slightly smaller
-      }
+      // Scale for depth
+      waste.scale = Vector2.all(i == 0 ? 1.0 : 0.92 - (i * 0.05));
       
       add(waste);
-      debugPrint('Stack item $i: type=${waste.type}, pos=${waste.position}, size=${waste.size}, priority=${waste.priority}');
+      debugPrint('Stack item $i: pos=${waste.position}, size=${waste.size}');
     }
     
-    debugPrint('Stack created with $itemsToShow STATIC items');
-    debugPrint('Top item (draggable): ${collectedWaste.isNotEmpty ? collectedWaste.first.type : "none"}');
     debugPrint('=== STACK CREATION COMPLETE ===');
   }
 
