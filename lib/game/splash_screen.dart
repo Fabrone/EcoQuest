@@ -1,3 +1,4 @@
+import 'package:ecoquest/game/water_pollution_screen.dart';
 import 'package:ecoquest/main.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -117,8 +118,44 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     ),
                   ),
                 ),
+
+                // 🧪 TEST BUTTON - To get removed later after completing development
+                Positioned(
+                  bottom: 20,
+                  right: 20,
+                  child: FloatingActionButton.extended(
+                    onPressed: () => _navigateToWaterPollutionTest(context),
+                    backgroundColor: const Color.fromARGB(255, 35, 12, 87).withValues(alpha: 0.9),
+                    icon: const Icon(Icons.water_drop, color: Colors.white),
+                    label: Text(
+                      'TEST L2',
+                      style: GoogleFonts.vt323(
+                        fontSize: 16,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    heroTag: 'testWaterButton', // Prevents hero animation conflicts
+                  ),
+                ),
               ],
             );
+          },
+        ),
+      ),
+    );
+  }
+
+  // For testing purposes - Navigates directly to Water Pollution Screen 
+  void _navigateToWaterPollutionTest(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => WaterPollutionScreen(
+          bacteriaCulturesAvailable: 10, // Test value
+          materialsFromPreviousLevel: {
+            'wood': 5,
+            'leaves': 8,
+            'roots': 6,
           },
         ),
       ),

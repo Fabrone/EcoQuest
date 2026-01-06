@@ -95,20 +95,21 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   void _repositionSortingComponents() {
     debugPrint('Repositioning sorting components for new size: ${size.x} x ${size.y}');
     
-    // Recalculate bin positions
+    // Recalculate bin positions with balanced distribution
     final binTypes = ['plastic', 'metal', 'hazardous', 'organic'];
-    final horizontalPadding = size.x * 0.05;
-    final availableWidth = size.x - (2 * horizontalPadding);
-    final binSpacing = availableWidth * 0.02;
+    final horizontalMargin = size.x * 0.05; // 5% margin (consistent with setup)
+    final availableWidth = size.x - (2 * horizontalMargin);
+    final binSpacing = availableWidth * 0.03; // 3% spacing between bins
     final totalSpacing = binSpacing * (binTypes.length - 1);
     final binWidth = (availableWidth - totalSpacing) / binTypes.length;
     final binHeight = size.y * 0.22;
     final binY = size.y * 0.78;
     
     for (int i = 0; i < bins.length; i++) {
-      final binX = horizontalPadding + (i * (binWidth + binSpacing)) + (binWidth / 2);
-      bins[i].position = Vector2(binX, binY);
+      final binCenterX = horizontalMargin + (binWidth / 2) + (i * (binWidth + binSpacing));
+      bins[i].position = Vector2(binCenterX, binY);
       bins[i].size = Vector2(binWidth, binHeight);
+      bins[i].anchor = Anchor.center; // Ensure anchor is set
     }
     
     // Reposition waste stack
@@ -356,35 +357,38 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     final bgComponent = SortingFacilityBackground(size: size);
     await add(bgComponent);
     
-    // IMPROVED BIN SETUP with guaranteed spacing
+    // FIXED BIN SETUP with balanced distribution
     bins.clear();
     final binTypes = ['plastic', 'metal', 'hazardous', 'organic'];
     
-    // Calculate responsive bin dimensions
-    final horizontalPadding = size.x * 0.05; // 5% padding on each side
-    final availableWidth = size.x - (2 * horizontalPadding);
-    final binSpacing = availableWidth * 0.02; // 2% spacing between bins
+    // Calculate responsive bin dimensions with balanced spacing
+    final horizontalMargin = size.x * 0.05; // 5% margin on each side (reduced from 8%)
+    final availableWidth = size.x - (2 * horizontalMargin);
+    final binSpacing = availableWidth * 0.03; // 3% spacing between bins
     final totalSpacing = binSpacing * (binTypes.length - 1);
     final binWidth = (availableWidth - totalSpacing) / binTypes.length;
     final binHeight = size.y * 0.22; // 22% of canvas height
     
-    // Position bins with equal spacing
-    final binY = size.y * 0.78; // 78% down (leaving 22% from bottom)
+    // Position bins with balanced distribution
+    final binY = size.y * 0.78; // 78% down from top
     
-    debugPrint('Bin layout: width=$binWidth, height=$binHeight, spacing=$binSpacing');
+    debugPrint('Bin layout: width=$binWidth, height=$binHeight, spacing=$binSpacing, margin=$horizontalMargin');
     
     for (int i = 0; i < binTypes.length; i++) {
-      final binX = horizontalPadding + (i * (binWidth + binSpacing)) + (binWidth / 2);
+      // Calculate center X position for each bin with balanced spacing
+      // Start from left margin + half bin width, then add full bin width + spacing for each subsequent bin
+      final binCenterX = horizontalMargin + (binWidth / 2) + (i * (binWidth + binSpacing));
       
       final bin = BinComponent(
         binType: binTypes[i],
-        position: Vector2(binX, binY),
+        position: Vector2(binCenterX, binY),
         size: Vector2(binWidth, binHeight),
       );
+      bin.anchor = Anchor.center; // Explicitly set anchor
       bins.add(bin);
       await add(bin);
       
-      debugPrint('Bin ${i + 1} (${binTypes[i]}): x=$binX, y=$binY');
+      debugPrint('Bin ${i + 1} (${binTypes[i]}): centerX=$binCenterX, y=$binY, left=${binCenterX - binWidth/2}, right=${binCenterX + binWidth/2}');
     }
     
     // Setup waste stack
