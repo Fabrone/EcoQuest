@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:ecoquest/game/water_pollution_game.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame/game.dart';
@@ -877,100 +878,372 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   }
 
   Widget _buildTreatmentOverlay() {
-    return Positioned(
-      top: 0,
-      left: 0,
-      right: 0,
-      child: SafeArea(
-        child: Container(
-          margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.green, width: 2),
-          ),
-          child: Column(
-            children: [
-              Text(
-                'BACTERIAL TREATMENT',
-                style: GoogleFonts.exo2(
-                  fontSize: 18,
-                  color: Colors.green,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              
-              const SizedBox(height: 12),
-              
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildTreatmentStat('Zones', '$zonesTreated/$totalZones', Colors.cyan),
-                  _buildTreatmentStat('Pollution', '${pollutionLevel.toInt()}%', 
-                    pollutionLevel < 20 ? Colors.green : Colors.red),
-                  _buildTreatmentStat('Bacteria', '${game.bacteriaRemaining}', Colors.green),
-                ],
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Pollution meter
-              Container(
-                height: 20,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade800,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Stack(
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      width: MediaQuery.of(context).size.width * 0.9 * (pollutionLevel / 100),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.red, Colors.orange, Colors.yellow],
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    final isTablet = size.width >= 600 && size.width < 1024;
+    
+    return Stack(
+      children: [
+        // Top stats panel
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            child: Container(
+              margin: EdgeInsets.all(isMobile ? 12 : 16),
+              padding: EdgeInsets.all(isMobile ? 12 : 16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.black.withValues(alpha: 0.85),
+                    Colors.black.withValues(alpha: 0.7),
                   ],
                 ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.green, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.green.withValues(alpha: 0.3),
+                    blurRadius: 15,
+                    spreadRadius: 2,
+                  ),
+                ],
               ),
-              
-              const SizedBox(height: 8),
-              
-              Text(
-                'Click polluted zones (red/brown) to apply bacteria',
-                style: GoogleFonts.exo2(
-                  fontSize: 12,
-                  color: Colors.white70,
-                ),
-                textAlign: TextAlign.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'BACTERIAL TREATMENT',
+                        style: GoogleFonts.exo2(
+                          fontSize: isMobile ? 14 : isTablet ? 16 : 18,
+                          color: Colors.green,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isMobile ? 10 : 12,
+                          vertical: isMobile ? 4 : 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.green, width: 1.5),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.science,
+                              size: isMobile ? 16 : 20,
+                              color: Colors.green,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              '${game.bacteriaRemaining}',
+                              style: GoogleFonts.exo2(
+                                fontSize: isMobile ? 16 : 20,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  SizedBox(height: isMobile ? 12 : 16),
+                  
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildTreatmentStat(
+                        'Zones Treated',
+                        '$zonesTreated/${game.waterTiles.length}',
+                        Colors.cyan,
+                        isMobile,
+                      ),
+                      _buildTreatmentStat(
+                        'Pollution',
+                        '${pollutionLevel.toInt()}%',
+                        pollutionLevel < 30
+                            ? Colors.green
+                            : pollutionLevel < 60
+                                ? Colors.orange
+                                : Colors.red,
+                        isMobile,
+                      ),
+                    ],
+                  ),
+                  
+                  SizedBox(height: isMobile ? 12 : 16),
+                  
+                  // Animated pollution meter
+                  Container(
+                    height: isMobile ? 20 : 24,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade900,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.green.withValues(alpha: 0.5),
+                        width: 2,
+                      ),
+                    ),
+                    child: Stack(
+                      children: [
+                        // Background segments
+                        Row(
+                          children: List.generate(10, (index) {
+                            return Expanded(
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade800,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
+                        
+                        // Animated progress
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 500),
+                          curve: Curves.easeInOut,
+                          width: (size.width - (isMobile ? 48 : 64)) *
+                              (pollutionLevel / 100),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: pollutionLevel < 30
+                                  ? [Colors.green, Colors.lightGreen]
+                                  : pollutionLevel < 60
+                                      ? [Colors.orange, Colors.amber]
+                                      : [Colors.red, Colors.deepOrange],
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: [
+                              BoxShadow(
+                                color: (pollutionLevel < 30
+                                        ? Colors.green
+                                        : pollutionLevel < 60
+                                            ? Colors.orange
+                                            : Colors.red)
+                                    .withValues(alpha: 0.6),
+                                blurRadius: 10,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                        ),
+                        
+                        // Percentage text
+                        Center(
+                          child: Text(
+                            '${pollutionLevel.toInt()}%',
+                            style: GoogleFonts.exo2(
+                              fontSize: isMobile ? 11 : 13,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black.withValues(alpha: 0.9),
+                                  blurRadius: 6,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  SizedBox(height: isMobile ? 10 : 12),
+                  
+                  // Instructions
+                  Container(
+                    padding: EdgeInsets.all(isMobile ? 8 : 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.touch_app,
+                          size: isMobile ? 16 : 20,
+                          color: Colors.green.shade300,
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Tap polluted water zones (red/brown) to apply bacteria treatment',
+                            style: GoogleFonts.exo2(
+                              fontSize: isMobile ? 11 : 12,
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
-      ),
+        
+        // Treatment progress indicator (appears when treating)
+        if (game.waterTiles.any((tile) => tile.isTreating))
+          Positioned(
+            top: size.height * 0.3,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: TweenAnimationBuilder<double>(
+                duration: const Duration(milliseconds: 600),
+                tween: Tween(begin: 0.0, end: 1.0),
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: (sin(value * pi * 2) + 1) / 2,
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isMobile ? 20 : 24,
+                        vertical: isMobile ? 10 : 12,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.green.withValues(alpha: 0.9),
+                            Colors.lightGreen.withValues(alpha: 0.9),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.green.withValues(alpha: 0.6),
+                            blurRadius: 20,
+                            spreadRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: isMobile ? 16 : 20,
+                            height: isMobile ? 16 : 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Text(
+                            'TREATING WATER...',
+                            style: GoogleFonts.exo2(
+                              fontSize: isMobile ? 14 : 16,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        
+        // Achievement notifications (bottom-center)
+        if (zonesTreated > 0 && zonesTreated % 5 == 0)
+          Positioned(
+            bottom: isMobile ? 80 : 100,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: TweenAnimationBuilder<double>(
+                duration: const Duration(milliseconds: 1000),
+                tween: Tween(begin: 0.0, end: 1.0),
+                builder: (context, value, child) {
+                  return Transform.scale(
+                    scale: 0.8 + (value * 0.2),
+                    child: Opacity(
+                      opacity: 1.0 - value,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Colors.cyan, Colors.blue],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.cyan.withValues(alpha: 0.6),
+                              blurRadius: 25,
+                              spreadRadius: 8,
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          '🎉 $zonesTreated ZONES PURIFIED!',
+                          style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 16 : 18,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+      ],
     );
   }
 
-  Widget _buildTreatmentStat(String label, String value, Color color) {
+  Widget _buildTreatmentStat(String label, String value, Color color, bool isMobile) {
     return Column(
       children: [
         Text(
           label,
           style: GoogleFonts.exo2(
-            fontSize: 12,
+            fontSize: isMobile ? 10 : 12,
             color: Colors.white70,
+            fontWeight: FontWeight.w500,
           ),
         ),
-        Text(
-          value,
-          style: GoogleFonts.exo2(
-            fontSize: 20,
-            color: color,
-            fontWeight: FontWeight.w900,
+        SizedBox(height: 4),
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: isMobile ? 8 : 10,
+            vertical: isMobile ? 4 : 6,
+          ),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color, width: 1.5),
+          ),
+          child: Text(
+            value,
+            style: GoogleFonts.exo2(
+              fontSize: isMobile ? 18 : 22,
+              color: color,
+              fontWeight: FontWeight.w900,
+            ),
           ),
         ),
       ],

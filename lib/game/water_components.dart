@@ -11,18 +11,18 @@ import 'package:google_fonts/google_fonts.dart';
 // Color extension for lighten/darken methods
 extension ColorExtension on Color {
   Color lighten([double amount = 0.1]) {
-    assert(amount >= 0 && amount <= 1);
+    assert(amount >= 0 && amount <= 1, 'Amount must be between 0 and 1');
     final hsl = HSLColor.fromColor(this);
-    final hslLight = hsl.withLightness(
-      (hsl.lightness + amount).clamp(0.0, 1.0),
-    );
+    final newLightness = (hsl.lightness + amount).clamp(0.0, 1.0);
+    final hslLight = hsl.withLightness(newLightness);
     return hslLight.toColor();
   }
 
   Color darken([double amount = 0.1]) {
-    assert(amount >= 0 && amount <= 1);
+    assert(amount >= 0 && amount <= 1, 'Amount must be between 0 and 1');
     final hsl = HSLColor.fromColor(this);
-    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
+    final newLightness = (hsl.lightness - amount).clamp(0.0, 1.0);
+    final hslDark = hsl.withLightness(newLightness);
     return hslDark.toColor();
   }
 }
@@ -1570,6 +1570,7 @@ class WasteItemComponent extends PositionComponent with DragCallbacks, TapCallba
   }
 }
 
+// Enhanced WaterTileComponent with full 3D visualization
 class WaterTileComponent extends PositionComponent
     with HasGameReference<WaterPollutionGame>, TapCallbacks {
   final int row;
@@ -1577,6 +1578,10 @@ class WaterTileComponent extends PositionComponent
   bool isPolluted;
   bool isTreating = false;
   bool isClear = false;
+  double treatmentProgress = 0.0;
+  List<BacteriaParticle> bacteriaParticles = [];
+  double waveAnimation = 0.0;
+  double pollutionDensity = 0.0;
 
   WaterTileComponent({
     required this.row,
@@ -1584,98 +1589,421 @@ class WaterTileComponent extends PositionComponent
     required super.position,
     required super.size,
     required this.isPolluted,
-  });
+  }) {
+    pollutionDensity = isPolluted ? (0.6 + Random().nextDouble() * 0.4) : 0.0;
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    
+    waveAnimation += dt * 2;
+    
+    if (isTreating) {
+      treatmentProgress += dt / 2.0; // 2 seconds treatment time
+      
+      // Update bacteria particles
+      for (var particle in bacteriaParticles) {
+        particle.update(dt);
+      }
+      
+      // Gradually reduce pollution
+      pollutionDensity = (1.0 - treatmentProgress) * pollutionDensity;
+      
+      if (treatmentProgress >= 1.0) {
+        completeTreatment();
+      }
+    }
+  }
 
   @override
   void render(Canvas canvas) {
     super.render(canvas);
 
-    Color waterColor;
+    canvas.save();
+
+    // Determine water color based on state
+    Color baseWaterColor;
     if (isClear) {
-      waterColor = const Color(0xFF00BCD4);
+      baseWaterColor = const Color(0xFF00BCD4); // Crystal clear cyan
     } else if (isTreating) {
-      waterColor = const Color(0xFF808080);
+      // Transitioning color during treatment
+      baseWaterColor = Color.lerp(
+        const Color(0xFF8B4513), // Brown polluted
+        const Color(0xFF00BCD4), // Clear cyan
+        treatmentProgress,
+      ) ?? const Color(0xFF808080);
     } else if (isPolluted) {
-      waterColor = const Color(0xFF8B4513);
+      baseWaterColor = const Color(0xFF8B4513); // Brown polluted
     } else {
-      waterColor = const Color(0xFF64B5F6);
+      baseWaterColor = const Color(0xFF64B5F6); // Light blue
     }
 
-    final paint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [waterColor.lighten(0.2), waterColor.darken(0.2)],
-      ).createShader(size.toRect());
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(4)),
-      paint,
-    );
-
-    final borderPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.3)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(4)),
-      borderPaint,
-    );
-
+    // Draw water with 3D layered effect
+    _draw3DWaterSurface(canvas, baseWaterColor);
+    
+    // Draw pollution particles if polluted
+    if (isPolluted && !isClear) {
+      _drawPollutionParticles(canvas);
+    }
+    
+    // Draw bacteria particles during treatment
     if (isTreating) {
-      _drawBubbles(canvas);
+      _drawBacteriaParticles(canvas);
+      _drawTreatmentEffect(canvas);
     }
-
+    
+    // Draw sparkles and bubbles for clear water
     if (isClear) {
-      _drawSparkles(canvas);
+      _drawClearWaterEffects(canvas);
+    }
+    
+    // Draw tile border with glow
+    _draw3DTileBorder(canvas);
+
+    canvas.restore();
+  }
+
+  void _draw3DWaterSurface(Canvas canvas, Color waterColor) {
+    // Multi-layer water for depth
+    final layers = [
+      (depth: 0.0, alpha: 0.9, offset: 0.0),
+      (depth: 0.2, alpha: 0.7, offset: 0.1),
+      (depth: 0.4, alpha: 0.5, offset: 0.2),
+    ];
+    
+    for (final layer in layers) {
+      // Ensure lighten/darken amounts are always positive and safe
+      final lightenAmount = (0.2 - layer.depth).clamp(0.0, 0.3);
+      final darkenAmount = (0.2 + layer.depth).clamp(0.0, 0.3);
+      
+      final layerGradient = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          waterColor.lighten(lightenAmount).withValues(alpha: layer.alpha),
+          waterColor.withValues(alpha: layer.alpha),
+          waterColor.darken(darkenAmount).withValues(alpha: layer.alpha),
+        ],
+        stops: [0.0, 0.5, 1.0],
+      );
+
+      final layerPaint = Paint()
+        ..shader = layerGradient.createShader(size.toRect());
+
+      // Animated wave surface
+      final wavePath = Path();
+      wavePath.moveTo(0, size.y * layer.offset);
+      
+      final segments = 20;
+      for (int i = 0; i <= segments; i++) {
+        final x = (size.x / segments) * i;
+        final wave = sin(waveAnimation + (x / 20) + (row * 0.5) + (col * 0.3)) * 3;
+        final y = size.y * layer.offset + wave;
+        
+        if (i == 0) {
+          wavePath.lineTo(x, y);
+        } else {
+          wavePath.lineTo(x, y);
+        }
+      }
+      
+      wavePath.lineTo(size.x, size.y);
+      wavePath.lineTo(0, size.y);
+      wavePath.close();
+
+      canvas.drawPath(wavePath, layerPaint);
+    }
+    
+    // Specular highlight for water shine
+    final highlightPaint = Paint()
+      ..shader = RadialGradient(
+        center: Alignment.topLeft,
+        radius: 1.5,
+        colors: [
+          Colors.white.withValues(alpha: 0.4),
+          Colors.white.withValues(alpha: 0.1),
+          Colors.white.withValues(alpha: 0),
+        ],
+      ).createShader(size.toRect());
+    
+    canvas.drawRect(size.toRect(), highlightPaint);
+  }
+
+  void _drawPollutionParticles(Canvas canvas) {
+    final random = Random(row * 100 + col);
+    final particleCount = (pollutionDensity * 15).toInt();
+    
+    for (int i = 0; i < particleCount; i++) {
+      final x = random.nextDouble() * size.x;
+      final baseY = random.nextDouble() * size.y;
+      final floatOffset = sin(waveAnimation * 1.5 + i) * 4;
+      final y = baseY + floatOffset;
+      
+      // Varied pollution particle types
+      final particleType = random.nextInt(3);
+      
+      if (particleType == 0) {
+        // Dark sediment particles
+        final sedimentPaint = Paint()
+          ..shader = RadialGradient(
+            colors: [
+              Colors.brown.shade900.withValues(alpha: 0.7),
+              Colors.brown.shade700.withValues(alpha: 0.4),
+              Colors.brown.shade700.withValues(alpha: 0),
+            ],
+          ).createShader(
+            Rect.fromCenter(
+              center: Offset(x, y),
+              width: 8,
+              height: 8,
+            ),
+          );
+        
+        canvas.drawCircle(Offset(x, y), 3 + random.nextDouble() * 2, sedimentPaint);
+      } else if (particleType == 1) {
+        // Algae/organic matter
+        final algaePaint = Paint()
+          ..color = Colors.green.shade900.withValues(alpha: 0.5);
+        
+        final algaePath = Path();
+        algaePath.moveTo(x, y);
+        algaePath.quadraticBezierTo(
+          x + 3, y + 2,
+          x + 6, y,
+        );
+        algaePath.quadraticBezierTo(
+          x + 3, y - 2,
+          x, y,
+        );
+        
+        canvas.drawPath(algaePath, algaePaint);
+      } else {
+        // Chemical contaminants (cloudy areas)
+        final chemicalPaint = Paint()
+          ..shader = RadialGradient(
+            colors: [
+              Colors.grey.shade800.withValues(alpha: 0.4),
+              Colors.grey.shade700.withValues(alpha: 0.2),
+              Colors.grey.shade700.withValues(alpha: 0),
+            ],
+          ).createShader(
+            Rect.fromCenter(
+              center: Offset(x, y),
+              width: 15,
+              height: 15,
+            ),
+          );
+        
+        canvas.drawCircle(Offset(x, y), 5 + random.nextDouble() * 3, chemicalPaint);
+      }
     }
   }
 
-  void _drawBubbles(Canvas canvas) {
+  void _drawBacteriaParticles(Canvas canvas) {
+    for (var particle in bacteriaParticles) {
+      particle.render(canvas);
+    }
+  }
+
+  void _drawTreatmentEffect(Canvas canvas) {
+    // Pulsing treatment aura
+    final treatmentPulse = (sin(waveAnimation * 3) + 1) / 2;
+    
+    final auraPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.green.withValues(alpha: 0.3 * treatmentPulse),
+          Colors.lightGreen.withValues(alpha: 0.2 * treatmentPulse),
+          Colors.green.withValues(alpha: 0),
+        ],
+      ).createShader(size.toRect());
+    
+    canvas.drawRect(size.toRect(), auraPaint);
+    
+    // Rising bubbles during treatment
     final bubblePaint = Paint()
       ..color = Colors.white.withValues(alpha: 0.6)
       ..style = PaintingStyle.fill;
-
-    final random = Random(row * 10 + col);
-    for (int i = 0; i < 5; i++) {
+    
+    final random = Random(row * 50 + col);
+    for (int i = 0; i < 8; i++) {
       final x = random.nextDouble() * size.x;
-      final y = random.nextDouble() * size.y;
-      final radius = 2 + random.nextDouble() * 3;
-
-      canvas.drawCircle(Offset(x, y), radius, bubblePaint);
+      final bubblePhase = (waveAnimation * 2 + i) % 2.0;
+      final y = size.y - (bubblePhase / 2.0) * size.y;
+      final opacity = (1.0 - bubblePhase / 2.0) * 0.7;
+      
+      if (y > 0 && y < size.y) {
+        canvas.drawCircle(
+          Offset(x, y),
+          2 + random.nextDouble() * 2,
+          bubblePaint..color = Colors.white.withValues(alpha: opacity),
+        );
+      }
     }
+    
+    // Treatment progress indicator (subtle glow around edges)
+    final progressPaint = Paint()
+      ..color = Colors.green.withValues(alpha: 0.5 * treatmentProgress)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(4)),
+      progressPaint,
+    );
   }
 
-  void _drawSparkles(Canvas canvas) {
+  void _drawClearWaterEffects(Canvas canvas) {
+    // Sparkles on clean water
     final sparklePaint = Paint()
       ..color = Colors.white.withValues(alpha: 0.8)
       ..style = PaintingStyle.fill;
-
+    
     final random = Random(row * 5 + col);
+    for (int i = 0; i < 4; i++) {
+      final sparklePhase = (waveAnimation + i) % 1.0;
+      final opacity = sin(sparklePhase * pi) * 0.8;
+      
+      if (opacity > 0.1) {
+        final x = random.nextDouble() * size.x;
+        final y = random.nextDouble() * size.y;
+        
+        // Draw star-shaped sparkle
+        canvas.save();
+        canvas.translate(x, y);
+        
+        final sparklePath = Path();
+        for (int j = 0; j < 4; j++) {
+          final angle = (j * pi / 2) + sparklePhase * pi;
+          final length = 3 + sin(sparklePhase * pi * 2) * 2;
+          
+          if (j == 0) {
+            sparklePath.moveTo(cos(angle) * length, sin(angle) * length);
+          } else {
+            sparklePath.lineTo(cos(angle) * length, sin(angle) * length);
+          }
+        }
+        sparklePath.close();
+        
+        canvas.drawPath(
+          sparklePath,
+          sparklePaint..color = Colors.white.withValues(alpha: opacity),
+        );
+        canvas.restore();
+      }
+    }
+    
+    // Gentle bubbles in clear water
+    final clearBubblePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.3)
+      ..style = PaintingStyle.fill;
+    
     for (int i = 0; i < 3; i++) {
-      final x = random.nextDouble() * size.x;
-      final y = random.nextDouble() * size.y;
-
-      canvas.drawCircle(Offset(x, y), 2, sparklePaint);
+      final x = (size.x / 4) * (i + 1);
+      final floatY = sin(waveAnimation + i) * 5;
+      final y = size.y * 0.7 + floatY;
+      
+      canvas.drawCircle(Offset(x, y), 2, clearBubblePaint);
     }
   }
 
+  void _draw3DTileBorder(Canvas canvas) {
+    Color borderColor;
+    double glowIntensity = 0.3;
+    
+    if (isClear) {
+      borderColor = Colors.cyan;
+      glowIntensity = 0.5;
+    } else if (isTreating) {
+      borderColor = Colors.green;
+      glowIntensity = 0.6 + (sin(waveAnimation * 3) * 0.2);
+    } else if (isPolluted) {
+      borderColor = Colors.red.shade700;
+      glowIntensity = 0.4;
+    } else {
+      borderColor = Colors.white;
+      glowIntensity = 0.2;
+    }
+    
+    // Outer glow
+    final glowPaint = Paint()
+      ..color = borderColor.withValues(alpha: glowIntensity)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4;
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(4)),
+      glowPaint,
+    );
+    
+    // Inner border
+    final borderPaint = Paint()
+      ..color = borderColor.withValues(alpha: 0.6)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        size.toRect().deflate(1),
+        const Radius.circular(4),
+      ),
+      borderPaint,
+    );
+  }
+
   void startTreatment() {
+    if (isTreating || !isPolluted) return;
+    
     isTreating = true;
+    treatmentProgress = 0.0;
+    
+    // Generate bacteria particles
+    bacteriaParticles.clear();
+    final random = Random();
+    
+    for (int i = 0; i < 20; i++) {
+      bacteriaParticles.add(
+        BacteriaParticle(
+          startPos: Vector2(
+            size.x * random.nextDouble(),
+            size.y * random.nextDouble(),
+          ),
+          tileSize: size,
+        ),
+      );
+    }
+    
+    // Add particle system for dramatic effect
     add(
       ParticleSystemComponent(
         particle: Particle.generate(
-          count: 20,
+          count: 30,
           lifespan: 2.0,
-          generator: (i) => AcceleratedParticle(
-            acceleration: Vector2(0, -50),
-            child: CircleParticle(
-              radius: 2 + Random().nextDouble() * 2,
-              paint: Paint()..color = Colors.blueAccent.withValues(alpha: 0.7),
-            ),
-          ),
+          generator: (i) {
+            final random = Random();
+            return AcceleratedParticle(
+              acceleration: Vector2(
+                (random.nextDouble() - 0.5) * 20,
+                -30 - random.nextDouble() * 20,
+              ),
+              child: CircleParticle(
+                radius: 2 + random.nextDouble() * 2,
+                paint: Paint()
+                  ..shader = RadialGradient(
+                    colors: [
+                      Colors.green.withValues(alpha: 0.8),
+                      Colors.lightGreen.withValues(alpha: 0.4),
+                    ],
+                  ).createShader(
+                    Rect.fromCircle(center: Offset.zero, radius: 4),
+                  ),
+              ),
+            );
+          },
         ),
+        position: Vector2(size.x / 2, size.y / 2),
       ),
     );
   }
@@ -1684,13 +2012,125 @@ class WaterTileComponent extends PositionComponent
     isTreating = false;
     isPolluted = false;
     isClear = true;
+    treatmentProgress = 0.0;
+    pollutionDensity = 0.0;
+    bacteriaParticles.clear();
+    
+    // Victory particle burst
+    add(
+      ParticleSystemComponent(
+        particle: Particle.generate(
+          count: 40,
+          lifespan: 1.5,
+          generator: (i) {
+            final random = Random();
+            final angle = (i / 40) * 2 * pi;
+            return AcceleratedParticle(
+              acceleration: Vector2(
+                cos(angle) * 80,
+                sin(angle) * 80,
+              ),
+              child: CircleParticle(
+                radius: 2 + random.nextDouble() * 3,
+                paint: Paint()
+                  ..shader = RadialGradient(
+                    colors: [
+                      Colors.cyan.withValues(alpha: 0.9),
+                      Colors.blue.withValues(alpha: 0.5),
+                    ],
+                  ).createShader(
+                    Rect.fromCircle(center: Offset.zero, radius: 5),
+                  ),
+              ),
+            );
+          },
+        ),
+        position: Vector2(size.x / 2, size.y / 2),
+      ),
+    );
   }
 
   @override
   void onTapUp(TapUpEvent event) {
-    if (isPolluted && !isTreating) {
+    if (isPolluted && !isTreating && game.bacteriaRemaining > 0) {
       game.treatTile(this);
     }
+  }
+}
+
+// New class for bacteria particles
+class BacteriaParticle {
+  Vector2 position;
+  late Vector2 velocity; // Changed to late
+  double lifetime = 0.0;
+  double maxLifetime;
+  late Color color; // Changed to late
+  double size;
+  
+  BacteriaParticle({
+    required Vector2 startPos,
+    required Vector2 tileSize,
+  }) : position = startPos.clone(),
+       maxLifetime = 1.5 + Random().nextDouble() * 0.5,
+       size = 2 + Random().nextDouble() * 2 {
+    
+    // Random movement within tile
+    final random = Random();
+    velocity = Vector2(
+      (random.nextDouble() - 0.5) * 30,
+      (random.nextDouble() - 0.5) * 30,
+    );
+    
+    // Bacteria colony colors
+    final colors = [
+      Colors.green.shade400,
+      Colors.lightGreen.shade300,
+      Colors.lime.shade400,
+    ];
+    color = colors[random.nextInt(colors.length)];
+  }
+  
+  void update(double dt) {
+    lifetime += dt;
+    position += velocity * dt;
+    
+    // Fade as lifetime progresses
+    if (lifetime > maxLifetime * 0.8) {
+      final fadeProgress = (lifetime - maxLifetime * 0.8) / (maxLifetime * 0.2);
+      color = color.withValues(alpha: 1.0 - fadeProgress);
+    }
+  }
+  
+  void render(Canvas canvas) {
+    if (lifetime >= maxLifetime) return;
+    
+    final paint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: color.a * 0.9),
+          color.withValues(alpha: color.a * 0.4),
+          color.withValues(alpha: 0),
+        ],
+      ).createShader(
+        Rect.fromCircle(center: Offset(position.x, position.y), radius: size * 2),
+      );
+    
+    canvas.drawCircle(
+      Offset(position.x, position.y),
+      size,
+      paint,
+    );
+    
+    // Add glow effect
+    final glowPaint = Paint()
+      ..color = color.withValues(alpha: color.a * 0.3)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    
+    canvas.drawCircle(
+      Offset(position.x, position.y),
+      size * 1.5,
+      glowPaint,
+    );
   }
 }
 
@@ -2112,6 +2552,532 @@ class BinComponent extends PositionComponent with TapCallbacks {
     final acceptanceRadius = (size.x + size.y) * 0.7;
     
     return distanceToCenter < acceptanceRadius;
+  }
+}
+
+class TreatmentFacilityBackground extends PositionComponent {
+  double animationTime = 0.0;
+  
+  TreatmentFacilityBackground({required Vector2 size}) : super(size: size) {
+    priority = -10;
+  }
+  
+  @override
+  void update(double dt) {
+    super.update(dt);
+    animationTime += dt;
+  }
+  
+  @override
+  void render(Canvas canvas) {
+    // Laboratory/Treatment facility gradient background
+    final bgGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        const Color(0xFF1A3A4A), // Dark blue-grey
+        const Color(0xFF2A4A5A),
+        const Color(0xFF1A3A4A),
+      ],
+      stops: [0.0, 0.5, 1.0],
+    );
+    
+    canvas.drawRect(
+      size.toRect(),
+      Paint()..shader = bgGradient.createShader(size.toRect()),
+    );
+    
+    // Grid pattern for scientific facility look
+    _drawScientificGrid(canvas);
+    
+    // Equipment silhouettes in background
+    _drawEquipmentSilhouettes(canvas);
+    
+    // Ambient light effects
+    _drawAmbientLighting(canvas);
+    
+    // Status monitors on walls
+    _drawStatusMonitors(canvas);
+  }
+  
+  void _drawScientificGrid(Canvas canvas) {
+    final gridPaint = Paint()
+      ..color = Colors.cyan.withValues(alpha: 0.1)
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+    
+    // Vertical lines
+    for (double x = 0; x < size.x; x += 40) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, size.y),
+        gridPaint,
+      );
+    }
+    
+    // Horizontal lines
+    for (double y = 0; y < size.y; y += 40) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(size.x, y),
+        gridPaint,
+      );
+    }
+  }
+  
+  void _drawEquipmentSilhouettes(Canvas canvas) {
+    final equipmentPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.3);
+    
+    // Large treatment tank (left side)
+    final tankGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.black.withValues(alpha: 0.2),
+        Colors.black.withValues(alpha: 0.4),
+      ],
+    );
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(20, size.y * 0.2, 60, size.y * 0.6),
+        const Radius.circular(10),
+      ),
+      Paint()..shader = tankGradient.createShader(
+        Rect.fromLTWH(20, size.y * 0.2, 60, size.y * 0.6),
+      ),
+    );
+    
+    // Pipes
+    final pipePaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.3)
+      ..strokeWidth = 8
+      ..style = PaintingStyle.stroke;
+    
+    canvas.drawLine(
+      Offset(50, size.y * 0.3),
+      Offset(size.x * 0.2, size.y * 0.3),
+      pipePaint,
+    );
+    
+    // Control panel (right side)
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x - 80, size.y * 0.15, 60, 100),
+        const Radius.circular(8),
+      ),
+      equipmentPaint,
+    );
+    
+    // Panel lights (blinking)
+    final lightColors = [Colors.green, Colors.blue, Colors.red];
+    for (int i = 0; i < 3; i++) {
+      final blinkPhase = (animationTime * 2 + i) % 2.0;
+      final opacity = blinkPhase > 1.0 ? 2.0 - blinkPhase : blinkPhase;
+      
+      canvas.drawCircle(
+        Offset(size.x - 50, size.y * 0.15 + 30 + i * 20),
+        3,
+        Paint()..color = lightColors[i].withValues(alpha: opacity * 0.8),
+      );
+    }
+  }
+  
+  void _drawAmbientLighting(Canvas canvas) {
+    // Overhead lighting effect
+    final lightPositions = [
+      Offset(size.x * 0.3, 0),
+      Offset(size.x * 0.7, 0),
+    ];
+    
+    for (final lightPos in lightPositions) {
+      final lightGradient = RadialGradient(
+        center: Alignment(
+          (lightPos.dx - size.x / 2) / (size.x / 2),
+          -1.0,
+        ),
+        radius: 1.2,
+        colors: [
+          Colors.white.withValues(alpha: 0.15),
+          Colors.cyan.withValues(alpha: 0.08),
+          Colors.transparent,
+        ],
+        stops: [0.0, 0.4, 1.0],
+      );
+      
+      canvas.drawRect(
+        size.toRect(),
+        Paint()..shader = lightGradient.createShader(size.toRect()),
+      );
+    }
+    
+    // Subtle animated light rays
+    final rayPaint = Paint()
+      ..color = Colors.cyan.withValues(alpha: 0.05)
+      ..style = PaintingStyle.fill;
+    
+    for (int i = 0; i < 3; i++) {
+      final rayOffset = sin(animationTime + i) * 20;
+      final rayPath = Path();
+      
+      rayPath.moveTo(size.x * (0.3 + i * 0.2) + rayOffset, 0);
+      rayPath.lineTo(size.x * (0.25 + i * 0.2) + rayOffset, size.y * 0.4);
+      rayPath.lineTo(size.x * (0.35 + i * 0.2) + rayOffset, size.y * 0.4);
+      rayPath.close();
+      
+      canvas.drawPath(rayPath, rayPaint);
+    }
+  }
+  
+  void _drawStatusMonitors(Canvas canvas) {
+    // Monitor screens showing data
+    final monitorPositions = [
+      Rect.fromLTWH(size.x * 0.05, size.y * 0.05, size.x * 0.15, size.y * 0.1),
+      Rect.fromLTWH(size.x * 0.8, size.y * 0.05, size.x * 0.15, size.y * 0.1),
+    ];
+    
+    for (final monitorRect in monitorPositions) {
+      // Monitor frame
+      final framePaint = Paint()
+        ..color = Colors.black.withValues(alpha: 0.5);
+      
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(monitorRect, const Radius.circular(4)),
+        framePaint,
+      );
+      
+      // Screen glow
+      final screenGradient = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Colors.green.withValues(alpha: 0.3),
+          Colors.green.withValues(alpha: 0.1),
+        ],
+      );
+      
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          monitorRect.deflate(4),
+          const Radius.circular(2),
+        ),
+        Paint()..shader = screenGradient.createShader(monitorRect),
+      );
+      
+      // Animated scan lines
+      final scanLinePaint = Paint()
+        ..color = Colors.green.withValues(alpha: 0.2)
+        ..strokeWidth = 1;
+      
+      final scanOffset = (animationTime * 50) % monitorRect.height;
+      for (double y = 0; y < monitorRect.height; y += 4) {
+        final lineY = monitorRect.top + ((y + scanOffset) % monitorRect.height);
+        canvas.drawLine(
+          Offset(monitorRect.left, lineY),
+          Offset(monitorRect.right, lineY),
+          scanLinePaint,
+        );
+      }
+      
+      // Fake data visualization
+      final dataPaint = Paint()
+        ..color = Colors.green.withValues(alpha: 0.6)
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke;
+      
+      final dataPath = Path();
+      // FIXED: Use center.dy instead of centerY
+      dataPath.moveTo(monitorRect.left + 8, monitorRect.center.dy);
+      
+      for (double x = 0; x < monitorRect.width - 16; x += 8) {
+        final y = sin((animationTime + x / 10) * 2) * (monitorRect.height * 0.15);
+        dataPath.lineTo(
+          monitorRect.left + 8 + x,
+          monitorRect.center.dy + y, // FIXED: Use center.dy instead of centerY
+        );
+      }
+      
+      canvas.drawPath(dataPath, dataPaint);
+    }
+  }
+}
+
+class TreatmentAmbientParticle extends PositionComponent {
+  double lifetime = 0;
+  final double maxLifetime = 6 + Random().nextDouble() * 4;
+  final Color particleColor;
+  final double particleSize;
+  double opacity = 0.4;
+  final Vector2 gameSize;
+  final double floatSpeed;
+  final double driftSpeed;
+  
+  TreatmentAmbientParticle({
+    required super.position,
+    required this.gameSize,
+  }) : particleColor = [
+          Colors.cyan.withValues(alpha: 0.3),
+          Colors.lightBlue.withValues(alpha: 0.25),
+          Colors.white.withValues(alpha: 0.2),
+        ][Random().nextInt(3)],
+        particleSize = 3 + Random().nextDouble() * 5,
+        floatSpeed = 8 + Random().nextDouble() * 12,
+        driftSpeed = 15 + Random().nextDouble() * 10 {
+    priority = 5;
+  }
+  
+  @override
+  void update(double dt) {
+    super.update(dt);
+    
+    lifetime += dt;
+    
+    // Gentle upward float
+    position.y -= floatSpeed * dt;
+    
+    // Horizontal drift
+    position.x += sin(lifetime * 2) * driftSpeed * dt;
+    
+    // Fade in and out
+    if (lifetime < 1) {
+      opacity = lifetime * 0.4;
+    } else if (lifetime > maxLifetime - 2) {
+      opacity = ((maxLifetime - lifetime) / 2) * 0.4;
+    }
+    
+    // Reset when off screen or lifetime exceeded
+    if (position.y < -20 || lifetime > maxLifetime) {
+      position.y = gameSize.y + 20;
+      position.x = Random().nextDouble() * gameSize.x;
+      lifetime = 0;
+    }
+    
+    // Wrap around horizontally
+    if (position.x < -20) {
+      position.x = gameSize.x + 20;
+    } else if (position.x > gameSize.x + 20) {
+      position.x = -20;
+    }
+  }
+  
+  @override
+  void render(Canvas canvas) {
+    // Main particle with glow
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          particleColor.withValues(alpha: opacity * 0.8),
+          particleColor.withValues(alpha: opacity * 0.4),
+          particleColor.withValues(alpha: 0),
+        ],
+      ).createShader(
+        Rect.fromCircle(center: Offset.zero, radius: particleSize * 2),
+      );
+    
+    canvas.drawCircle(Offset.zero, particleSize * 1.5, glowPaint);
+    
+    // Core particle
+    final corePaint = Paint()
+      ..color = particleColor.withValues(alpha: opacity)
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawCircle(Offset.zero, particleSize * 0.6, corePaint);
+    
+    // Highlight
+    final highlightPaint = Paint()
+      ..color = Colors.white.withValues(alpha: opacity * 0.6);
+    
+    canvas.drawCircle(
+      Offset(-particleSize * 0.2, -particleSize * 0.2),
+      particleSize * 0.3,
+      highlightPaint,
+    );
+  }
+}
+
+// Enhanced bacteria indicator component for UI
+class BacteriaIndicatorComponent extends PositionComponent {
+  int bacteriaCount;
+  bool isPulsing = false;
+  double pulseAnimation = 0.0;
+  
+  BacteriaIndicatorComponent({
+    required super.position,
+    required super.size,
+    required this.bacteriaCount,
+  }) {
+    priority = 300;
+  }
+  
+  @override
+  void update(double dt) {
+    super.update(dt);
+    
+    if (isPulsing) {
+      pulseAnimation += dt * 4;
+      if (pulseAnimation >= 1.0) {
+        pulseAnimation = 0.0;
+        isPulsing = false;
+      }
+    }
+  }
+  
+  @override
+  void render(Canvas canvas) {
+    canvas.save();
+    
+    // Container background
+    final containerGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.green.shade800.withValues(alpha: 0.8),
+        Colors.green.shade900.withValues(alpha: 0.9),
+      ],
+    );
+    
+    final containerPaint = Paint()
+      ..shader = containerGradient.createShader(size.toRect());
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(12)),
+      containerPaint,
+    );
+    
+    // Pulse effect when bacteria used
+    if (isPulsing) {
+      final pulsePaint = Paint()
+        ..color = Colors.green.withValues(alpha: (1.0 - pulseAnimation) * 0.5)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3;
+      
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          size.toRect().inflate(pulseAnimation * 10),
+          const Radius.circular(12),
+        ),
+        pulsePaint,
+      );
+    }
+    
+    // Border
+    final borderPaint = Paint()
+      ..color = Colors.green
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(12)),
+      borderPaint,
+    );
+    
+    // Bacteria icon (simplified microorganism)
+    _drawBacteriaIcon(canvas, size.x * 0.25, size.y * 0.5);
+    
+    // Count text
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: 'x$bacteriaCount',
+        style: GoogleFonts.exo2(
+          fontSize: size.y * 0.4,
+          color: Colors.white,
+          fontWeight: FontWeight.w900,
+          shadows: [
+            Shadow(
+              color: Colors.black.withValues(alpha: 0.7),
+              blurRadius: 4,
+              offset: const Offset(2, 2),
+            ),
+          ],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    
+    textPainter.paint(
+      canvas,
+      Offset(
+        size.x * 0.45,
+        (size.y - textPainter.height) / 2,
+      ),
+    );
+    
+    canvas.restore();
+  }
+  
+  void _drawBacteriaIcon(Canvas canvas, double x, double y) {
+    // Main bacteria body
+    final bodyGradient = RadialGradient(
+      colors: [
+        Colors.lightGreen.shade300,
+        Colors.green.shade400,
+        Colors.green.shade600,
+      ],
+      stops: [0.0, 0.6, 1.0],
+    );
+    
+    final bodyPaint = Paint()
+      ..shader = bodyGradient.createShader(
+        Rect.fromCircle(center: Offset(x, y), radius: size.y * 0.25),
+      );
+    
+    // Elongated bacteria shape
+    final bacteriaPath = Path();
+    bacteriaPath.addOval(
+      Rect.fromCenter(
+        center: Offset(x, y),
+        width: size.y * 0.3,
+        height: size.y * 0.45,
+      ),
+    );
+    
+    canvas.drawPath(bacteriaPath, bodyPaint);
+    
+    // Flagella (tail-like structures)
+    final flagellaPaint = Paint()
+      ..color = Colors.green.shade400
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    
+    for (int i = 0; i < 3; i++) {
+      final flagellaPath = Path();
+      final startX = x + (i - 1) * 3;
+      final startY = y + size.y * 0.2;
+      
+      flagellaPath.moveTo(startX, startY);
+      flagellaPath.quadraticBezierTo(
+        startX + (i - 1) * 4,
+        startY + 6,
+        startX + (i - 1) * 2,
+        startY + 12,
+      );
+      
+      canvas.drawPath(flagellaPath, flagellaPaint);
+    }
+    
+    // Highlight
+    final highlightPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.6);
+    
+    canvas.drawCircle(
+      Offset(x - size.y * 0.08, y - size.y * 0.08),
+      size.y * 0.08,
+      highlightPaint,
+    );
+  }
+  
+  void triggerPulse() {
+    isPulsing = true;
+    pulseAnimation = 0.0;
+  }
+  
+  void updateCount(int newCount) {
+    if (newCount < bacteriaCount) {
+      triggerPulse();
+    }
+    bacteriaCount = newCount;
   }
 }
 
