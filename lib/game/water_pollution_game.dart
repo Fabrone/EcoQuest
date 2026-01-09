@@ -690,41 +690,27 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Add treatment facility background
     _addTreatmentBackground();
     
-    // Create grid of water tiles (6x6)
+    // Create SINGLE unified water tile that spans the screen
     waterTiles.clear();
-    const int rows = 6;
-    const int cols = 6;
     
-    final availableWidth = size.x * 0.9;
-    final availableHeight = size.y * 0.7;
-    final tileSize = min(availableWidth / cols, availableHeight / rows) * 0.95;
+    // Position below the overlay (overlay is ~25% of height)
+    final startY = size.y * 0.28; // Start just below overlay
+    final availableHeight = size.y - startY - 20; // 20px bottom margin
     
-    final gridWidth = cols * tileSize;
-    final gridHeight = rows * tileSize;
-    final startX = (size.x - gridWidth) / 2;
-    final startY = (size.y - gridHeight) / 2 + 50;
+    final unifiedTile = WaterTileComponent(
+      row: 0,
+      col: 0,
+      position: Vector2(size.x * 0.05, startY), // 5% margin on sides
+      size: Vector2(size.x * 0.9, availableHeight), // 90% width, fills available height
+      isPolluted: true, // Start fully polluted
+    );
     
-    // Create tiles with varied pollution
-    final random = Random();
-    for (int r = 0; r < rows; r++) {
-      for (int c = 0; c < cols; c++) {
-        final isPolluted = random.nextDouble() < 0.65; // 65% polluted
-        
-        final tile = WaterTileComponent(
-          row: r,
-          col: c,
-          position: Vector2(
-            startX + c * tileSize + (tileSize * 0.025),
-            startY + r * tileSize + (tileSize * 0.025),
-          ),
-          size: Vector2(tileSize * 0.95, tileSize * 0.95),
-          isPolluted: isPolluted,
-        );
-        
-        waterTiles.add(tile);
-        add(tile);
-      }
-    }
+    // Set initial pollution level based on bacteria count
+    unifiedTile.pollutionDensity = 1.0; // Fully polluted at start
+    unifiedTile.cleanProgress = 0.0; // No cleaning yet
+    
+    waterTiles.add(unifiedTile);
+    add(unifiedTile);
     
     // Add ambient water particles
     _addTreatmentAmbientEffects();
@@ -751,14 +737,21 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
   }
 
-void treatTile(WaterTileComponent tile) {
-    if (bacteriaRemaining <= 0 || !tile.isPolluted || tile.isTreating) {
+  // Update treatTile method for tap-based treatment with mixing
+  void treatTile(WaterTileComponent tile) {
+    if (bacteriaRemaining <= 0 || tile.isTreating) {
       return;
     }
     
     bacteriaRemaining--;
-    tile.startTreatment();
-  
+    
+    // Calculate clean progress (12 bacteria = 100% clean)
+    final progressPerBacteria = 1.0 / 12.0;
+    tile.cleanProgress = ((12 - bacteriaRemaining) * progressPerBacteria).clamp(0.0, 1.0);
+    
+    // Start treatment animation at tap point
+    tile.startTreatmentAtPoint(tile.lastTapPosition ?? Vector2(tile.size.x / 2, tile.size.y / 2));
+    
     // Visual feedback - camera pulse
     camera.viewfinder.add(
       SequenceEffect([
@@ -773,40 +766,33 @@ void treatTile(WaterTileComponent tile) {
       ]),
     );
 
-    // Wait for treatment animation
-    Future.delayed(const Duration(milliseconds: 2000), () {
-      if (!tile.isClear) {
-        tile.completeTreatment();
-      }
-      
-      zonesTreated++;
-      
-      // Update pollution meter
-      final totalPollutedTiles = waterTiles.where((t) => t.isPolluted || t.isTreating).length;
-      pollutionMeter = (totalPollutedTiles / waterTiles.length * 100).clamp(0, 100);
-      
-      onTreatmentUpdate?.call(zonesTreated, pollutionMeter);
-      
-      // Check if all zones treated
-      final remainingPolluted = waterTiles.where((t) => t.isPolluted).length;
-      if (remainingPolluted == 0) {
-        Future.delayed(const Duration(milliseconds: 500), () {
-          _completePhase3();
-        });
-      }
-    });
+    // Update pollution meter (inversely related to clean progress)
+    pollutionMeter = ((1.0 - tile.cleanProgress) * 100).clamp(0, 100);
+    
+    // Calculate zones treated (for UI)
+    zonesTreated = (12 - bacteriaRemaining);
+    
+    onTreatmentUpdate?.call(zonesTreated, pollutionMeter);
+    
+    // Check if fully cleaned or bacteria depleted
+    if (tile.cleanProgress >= 1.0 || bacteriaRemaining == 0) {
+      Future.delayed(const Duration(milliseconds: 2000), () {
+        _completePhase3();
+      });
+    }
   }
-    
+      
   void _completePhase3() {
-    // Calculate purified water amount based on performance
-    final cleanedTiles = waterTiles.where((t) => t.isClear).length;
-    purifiedWaterAmount = (cleanedTiles * 50).round(); // 50L per zone
+    final cleanedPercentage = waterTiles.isNotEmpty ? waterTiles.first.cleanProgress : 0.0;
     
-    // Bacteria multiply in clean water environment
-    final efficiencyBonus = cleanedTiles >= waterTiles.length * 0.9 ? 3 : 2;
+    // Calculate purified water based on cleanliness (max 600L at 100% clean)
+    purifiedWaterAmount = (cleanedPercentage * 600).round();
+    
+    // Bacteria multiply based on efficiency
+    final efficiencyBonus = cleanedPercentage >= 0.9 ? 3 : cleanedPercentage >= 0.7 ? 2 : 1;
     bacteriaMultiplied = bacteriaRemaining + (zonesTreated * efficiencyBonus);
     
-    // Celebration effect - wave of light across tiles
+    // Celebration effect
     _playCompletionAnimation();
     
     Future.delayed(const Duration(milliseconds: 1500), () {
@@ -815,45 +801,31 @@ void treatTile(WaterTileComponent tile) {
     });
   }
 
+  // Update _playCompletionAnimation for unified tile
   void _playCompletionAnimation() {
-    // Sequential wave animation across all tiles
-    int delay = 0;
+    if (waterTiles.isEmpty) return;
     
-    for (int r = 0; r < 6; r++) {
-      for (int c = 0; c < 6; c++) {
-        final tileIndex = r * 6 + c;
-        if (tileIndex < waterTiles.length) {
-          final tile = waterTiles[tileIndex];
-          
-          Future.delayed(Duration(milliseconds: delay), () {
-            tile.add(
-              SequenceEffect([
-                ScaleEffect.to(
-                  Vector2.all(1.1),
-                  EffectController(duration: 0.2),
-                ),
-                ScaleEffect.to(
-                  Vector2.all(1.0),
-                  EffectController(duration: 0.2),
-                ),
-              ]),
-            );
-            
-            // Flash effect
-            tile.add(
-              OpacityEffect.fadeOut(
-                EffectController(
-                  duration: 0.3,
-                  alternate: true,
-                  repeatCount: 2,
-                ),
-              ),
-            );
-          });
-          
-          delay += 50; // 50ms between each tile
-        }
-      }
+    final tile = waterTiles.first;
+    
+    // Pulsing glow effect
+    tile.add(
+      SequenceEffect([
+        ScaleEffect.to(
+          Vector2.all(1.05),
+          EffectController(duration: 0.3),
+        ),
+        ScaleEffect.to(
+          Vector2.all(1.0),
+          EffectController(duration: 0.3),
+        ),
+      ], repeatCount: 3),
+    );
+    
+    // Sparkle effect across the entire river
+    for (int i = 0; i < 20; i++) {
+      Future.delayed(Duration(milliseconds: i * 100), () {
+        tile.triggerSparkleEffect();
+      });
     }
   }
 

@@ -1583,6 +1583,12 @@ class WaterTileComponent extends PositionComponent
   double waveAnimation = 0.0;
   double pollutionDensity = 0.0;
 
+  // NEW PROPERTIES FOR UNIFIED RIVER
+  double cleanProgress = 0.0; // 0.0 = fully polluted, 1.0 = fully clean
+  List<TreatmentZone> treatmentZones = []; // Track individual treatment areas
+  Vector2? lastTapPosition; // Store last tap location
+  List<WaveMixingParticle> mixingParticles = []; // Visual mixing effect
+
   WaterTileComponent({
     required this.row,
     required this.col,
@@ -1599,20 +1605,23 @@ class WaterTileComponent extends PositionComponent
     
     waveAnimation += dt * 2;
     
-    if (isTreating) {
-      treatmentProgress += dt / 2.0; // 2 seconds treatment time
-      
-      // Update bacteria particles
-      for (var particle in bacteriaParticles) {
-        particle.update(dt);
-      }
-      
-      // Gradually reduce pollution
-      pollutionDensity = (1.0 - treatmentProgress) * pollutionDensity;
-      
-      if (treatmentProgress >= 1.0) {
-        completeTreatment();
-      }
+    // Update treatment zones (they spread and mix)
+    for (var zone in treatmentZones) {
+      zone.update(dt);
+    }
+    
+    // Update mixing particles
+    for (var particle in mixingParticles) {
+      particle.update(dt);
+    }
+    
+    // Remove completed zones and particles
+    treatmentZones.removeWhere((zone) => zone.isComplete);
+    mixingParticles.removeWhere((particle) => particle.lifetime > particle.maxLifetime);
+    
+    // Gradually blend pollution across the river (mixing effect)
+    if (treatmentZones.isNotEmpty) {
+      _simulateWaveMixing(dt);
     }
   }
 
@@ -1622,49 +1631,392 @@ class WaterTileComponent extends PositionComponent
 
     canvas.save();
 
-    // Determine water color based on state
-    Color baseWaterColor;
-    if (isClear) {
-      baseWaterColor = const Color(0xFF00BCD4); // Crystal clear cyan
-    } else if (isTreating) {
-      // Transitioning color during treatment
-      baseWaterColor = Color.lerp(
-        const Color(0xFF8B4513), // Brown polluted
-        const Color(0xFF00BCD4), // Clear cyan
-        treatmentProgress,
-      ) ?? const Color(0xFF808080);
-    } else if (isPolluted) {
-      baseWaterColor = const Color(0xFF8B4513); // Brown polluted
-    } else {
-      baseWaterColor = const Color(0xFF64B5F6); // Light blue
-    }
+    // Determine water color based on clean progress
+    Color baseWaterColor = _getWaterColorForProgress(cleanProgress);
 
-    // Draw water with 3D layered effect
-    _draw3DWaterSurface(canvas, baseWaterColor);
+    // Draw unified river with waves
+    _drawUnifiedRiverSurface(canvas, baseWaterColor);
     
-    // Draw pollution particles if polluted
-    if (isPolluted && !isClear) {
-      _drawPollutionParticles(canvas);
+    // Draw treatment zones (expanding circles of cleanliness)
+    _drawTreatmentZones(canvas);
+    
+    // Draw mixing particles
+    _drawMixingParticles(canvas);
+    
+    // Draw pollution particles (fewer as river gets cleaner)
+    if (cleanProgress < 1.0) {
+      _drawProgressivePollutionParticles(canvas);
     }
     
-    // Draw bacteria particles during treatment
-    if (isTreating) {
-      _drawBacteriaParticles(canvas);
-      _drawTreatmentEffect(canvas);
-    }
-    
-    // Draw sparkles and bubbles for clear water
-    if (isClear) {
+    // Draw sparkles and clear water effects when clean
+    if (cleanProgress >= 0.8) {
       _drawClearWaterEffects(canvas);
     }
     
-    // Draw tile border with glow
-    _draw3DTileBorder(canvas);
+    // Draw glowing border based on cleanliness
+    _drawProgressiveBorder(canvas);
 
     canvas.restore();
   }
 
-  void _draw3DWaterSurface(Canvas canvas, Color waterColor) {
+  // NEW METHOD: Start treatment at specific tap point
+  void startTreatmentAtPoint(Vector2 tapPosition) {
+    lastTapPosition = tapPosition;
+    
+    // Create expanding treatment zone
+    final zone = TreatmentZone(
+      center: tapPosition.clone(),
+      maxRadius: size.x * 0.25, // Expand to 25% of river width
+      cleanStrength: 1.0 / 12.0, // Each bacteria cleans 1/12th
+      tileSize: size,
+    );
+    
+    treatmentZones.add(zone);
+    
+    // Generate mixing particles at tap point
+    for (int i = 0; i < 15; i++) {
+      mixingParticles.add(
+        WaveMixingParticle(
+          startPos: tapPosition.clone(),
+          tileSize: size,
+        ),
+      );
+    }
+    
+    // Add particle system for visual feedback
+    add(
+      ParticleSystemComponent(
+        particle: Particle.generate(
+          count: 30,
+          lifespan: 2.0,
+          generator: (i) {
+            final random = Random();
+            return AcceleratedParticle(
+              acceleration: Vector2(
+                (random.nextDouble() - 0.5) * 20,
+                -30 - random.nextDouble() * 20,
+              ),
+              child: CircleParticle(
+                radius: 2 + random.nextDouble() * 2,
+                paint: Paint()
+                  ..shader = RadialGradient(
+                    colors: [
+                      Colors.green.withValues(alpha: 0.8),
+                      Colors.lightGreen.withValues(alpha: 0.4),
+                    ],
+                  ).createShader(
+                    Rect.fromCircle(center: Offset.zero, radius: 4),
+                  ),
+              ),
+            );
+          },
+        ),
+        position: tapPosition,
+      ),
+    );
+  }
+
+  // NEW METHOD: Simulate wave mixing spreading cleanliness
+  void _simulateWaveMixing(double dt) {
+    // Treatment zones spread their cleanliness through wave action
+    // This creates the progressive cleaning effect
+    
+    for (var zone in treatmentZones) {
+      if (zone.currentRadius < zone.maxRadius) {
+        // Zone is still expanding - local cleaning
+        zone.currentRadius += dt * 50; // Expand 50 pixels per second
+      }
+    }
+  }
+
+  // NEW METHOD: Get water color based on clean progress
+  Color _getWaterColorForProgress(double progress) {
+    // 0.0 = fully polluted (dark brown)
+    // 1.0 = crystal clear (cyan)
+    
+    if (progress >= 1.0) {
+      return const Color(0xFF00BCD4); // Crystal clear cyan
+    } else if (progress >= 0.8) {
+      return Color.lerp(
+        const Color(0xFF4A7C8F), // Light polluted blue
+        const Color(0xFF00BCD4), // Clear cyan
+        (progress - 0.8) / 0.2,
+      )!;
+    } else if (progress >= 0.5) {
+      return Color.lerp(
+        const Color(0xFF6B5D47), // Medium brown
+        const Color(0xFF4A7C8F), // Light polluted blue
+        (progress - 0.5) / 0.3,
+      )!;
+    } else {
+      return Color.lerp(
+        const Color(0xFF8B4513), // Dark polluted brown
+        const Color(0xFF6B5D47), // Medium brown
+        progress / 0.5,
+      )!;
+    }
+  }
+
+  // NEW METHOD: Draw unified river with adaptive waves
+  void _drawUnifiedRiverSurface(Canvas canvas, Color waterColor) {
+    // Create realistic layered water effect that spans entire component
+    
+    final layers = [
+      (depth: 0.0, alpha: 0.9, offset: 0.0, waveHeight: 4.0),
+      (depth: 0.15, alpha: 0.7, offset: 0.05, waveHeight: 6.0),
+      (depth: 0.3, alpha: 0.5, offset: 0.1, waveHeight: 3.0),
+    ];
+    
+    for (final layer in layers) {
+      final lightenAmount = (0.2 - layer.depth).clamp(0.0, 0.3);
+      final darkenAmount = (0.2 + layer.depth).clamp(0.0, 0.3);
+      
+      final layerGradient = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          waterColor.lighten(lightenAmount).withValues(alpha: layer.alpha),
+          waterColor.withValues(alpha: layer.alpha),
+          waterColor.darken(darkenAmount).withValues(alpha: layer.alpha),
+        ],
+        stops: [0.0, 0.5, 1.0],
+      );
+
+      final layerPaint = Paint()
+        ..shader = layerGradient.createShader(size.toRect());
+
+      // Create flowing wave path across entire width
+      final wavePath = Path();
+      wavePath.moveTo(0, size.y * layer.offset);
+      
+      final segments = 40; // More segments for smoother waves
+      for (int i = 0; i <= segments; i++) {
+        final x = (size.x / segments) * i;
+        final wavePhase = waveAnimation + (x / size.x) * pi * 2;
+        final wave = sin(wavePhase + (layer.depth * pi)) * layer.waveHeight;
+        final y = size.y * layer.offset + wave;
+        
+        wavePath.lineTo(x, y);
+      }
+      
+      wavePath.lineTo(size.x, size.y);
+      wavePath.lineTo(0, size.y);
+      wavePath.close();
+
+      canvas.drawPath(wavePath, layerPaint);
+    }
+    
+    // Add specular highlight for realism
+    final highlightPaint = Paint()
+      ..shader = RadialGradient(
+        center: Alignment.topCenter,
+        radius: 1.2,
+        colors: [
+          Colors.white.withValues(alpha: 0.3 * cleanProgress), // Brighter when clean
+          Colors.white.withValues(alpha: 0.1 * cleanProgress),
+          Colors.white.withValues(alpha: 0),
+        ],
+      ).createShader(size.toRect());
+    
+    canvas.drawRect(size.toRect(), highlightPaint);
+  }
+
+  // NEW METHOD: Draw expanding treatment zones
+  void _drawTreatmentZones(Canvas canvas) {
+    for (var zone in treatmentZones) {
+      final progress = zone.currentRadius / zone.maxRadius;
+      final opacity = (1.0 - progress) * 0.6; // Fade as it expands
+      
+      // Draw expanding green circle
+      final zonePaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.green.withValues(alpha: opacity * 0.8),
+            Colors.lightGreen.withValues(alpha: opacity * 0.4),
+            Colors.green.withValues(alpha: 0),
+          ],
+        ).createShader(
+          Rect.fromCircle(
+            center: Offset(zone.center.x, zone.center.y),
+            radius: zone.currentRadius,
+          ),
+        );
+      
+      canvas.drawCircle(
+        Offset(zone.center.x, zone.center.y),
+        zone.currentRadius,
+        zonePaint,
+      );
+      
+      // Draw pulsing ring at edge
+      final ringPaint = Paint()
+        ..color = Colors.green.withValues(alpha: opacity)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3;
+      
+      canvas.drawCircle(
+        Offset(zone.center.x, zone.center.y),
+        zone.currentRadius,
+        ringPaint,
+      );
+    }
+  }
+
+  // NEW METHOD: Draw mixing particles showing cleanliness spreading
+  void _drawMixingParticles(Canvas canvas) {
+    for (var particle in mixingParticles) {
+      particle.render(canvas);
+    }
+  }
+
+  // NEW METHOD: Draw progressive pollution (less as river cleans)
+  void _drawProgressivePollutionParticles(Canvas canvas) {
+    final random = Random(42);
+    final pollutionAmount = (1.0 - cleanProgress);
+    final particleCount = (pollutionAmount * 40).toInt(); // Max 40 particles when dirty
+    
+    for (int i = 0; i < particleCount; i++) {
+      final x = random.nextDouble() * size.x;
+      final baseY = random.nextDouble() * size.y;
+      final floatOffset = sin(waveAnimation * 1.5 + i) * 4;
+      final y = baseY + floatOffset;
+      
+      // Varied pollution types
+      final particleType = random.nextInt(3);
+      final particleOpacity = pollutionAmount * 0.7;
+      
+      if (particleType == 0) {
+        // Dark sediment
+        final sedimentPaint = Paint()
+          ..shader = RadialGradient(
+            colors: [
+              Colors.brown.shade900.withValues(alpha: particleOpacity),
+              Colors.brown.shade700.withValues(alpha: particleOpacity * 0.5),
+              Colors.brown.shade700.withValues(alpha: 0),
+            ],
+          ).createShader(
+            Rect.fromCenter(center: Offset(x, y), width: 8, height: 8),
+          );
+        
+        canvas.drawCircle(Offset(x, y), 3 + random.nextDouble() * 2, sedimentPaint);
+      } else if (particleType == 1) {
+        // Algae/organic matter
+        final algaePaint = Paint()
+          ..color = Colors.green.shade900.withValues(alpha: particleOpacity * 0.6);
+        
+        final algaePath = Path();
+        algaePath.moveTo(x, y);
+        algaePath.quadraticBezierTo(x + 3, y + 2, x + 6, y);
+        algaePath.quadraticBezierTo(x + 3, y - 2, x, y);
+        
+        canvas.drawPath(algaePath, algaePaint);
+      } else {
+        // Chemical clouds
+        final chemicalPaint = Paint()
+          ..shader = RadialGradient(
+            colors: [
+              Colors.grey.shade800.withValues(alpha: particleOpacity * 0.5),
+              Colors.grey.shade700.withValues(alpha: particleOpacity * 0.2),
+              Colors.grey.shade700.withValues(alpha: 0),
+            ],
+          ).createShader(
+            Rect.fromCenter(center: Offset(x, y), width: 15, height: 15),
+          );
+        
+        canvas.drawCircle(Offset(x, y), 5 + random.nextDouble() * 3, chemicalPaint);
+      }
+    }
+  }
+
+  // NEW METHOD: Draw progressive border showing treatment progress
+  void _drawProgressiveBorder(Canvas canvas) {
+    Color borderColor;
+    double glowIntensity;
+    
+    if (cleanProgress >= 0.9) {
+      borderColor = Colors.cyan;
+      glowIntensity = 0.7 + (sin(waveAnimation * 2) * 0.2); // Pulsing glow
+    } else if (cleanProgress >= 0.6) {
+      borderColor = Colors.green;
+      glowIntensity = 0.5;
+    } else if (cleanProgress >= 0.3) {
+      borderColor = Colors.orange;
+      glowIntensity = 0.4;
+    } else {
+      borderColor = Colors.red.shade700;
+      glowIntensity = 0.3;
+    }
+    
+    // Outer glow
+    final glowPaint = Paint()
+      ..color = borderColor.withValues(alpha: glowIntensity)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4;
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(8)),
+      glowPaint,
+    );
+    
+    // Inner border
+    final borderPaint = Paint()
+      ..color = borderColor.withValues(alpha: 0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(size.toRect().deflate(2), const Radius.circular(6)),
+      borderPaint,
+    );
+  }
+
+  // NEW METHOD: Trigger sparkle effect for completion
+  void triggerSparkleEffect() {
+    final random = Random();
+    
+    add(
+      ParticleSystemComponent(
+        particle: Particle.generate(
+          count: 10,
+          lifespan: 1.0,
+          generator: (i) => AcceleratedParticle(
+            acceleration: Vector2(
+              (random.nextDouble() - 0.5) * 30,
+              -50 - random.nextDouble() * 20,
+            ),
+            child: CircleParticle(
+              radius: 2 + random.nextDouble() * 3,
+              paint: Paint()
+                ..shader = RadialGradient(
+                  colors: [
+                    Colors.cyan.withValues(alpha: 0.9),
+                    Colors.white.withValues(alpha: 0.6),
+                  ],
+                ).createShader(
+                  Rect.fromCircle(center: Offset.zero, radius: 5),
+                ),
+            ),
+          ),
+        ),
+        position: Vector2(
+          random.nextDouble() * size.x,
+          random.nextDouble() * size.y,
+        ),
+      ),
+    );
+  }
+
+  @override
+  void onTapUp(TapUpEvent event) {
+    lastTapPosition = event.localPosition;
+    
+    if (game.bacteriaRemaining > 0) {
+      game.treatTile(this);
+    }
+  }
+
+  /*void _draw3DWaterSurface(Canvas canvas, Color waterColor) {
     // Multi-layer water for depth
     final layers = [
       (depth: 0.0, alpha: 0.9, offset: 0.0),
@@ -1852,7 +2204,7 @@ class WaterTileComponent extends PositionComponent
       RRect.fromRectAndRadius(size.toRect(), const Radius.circular(4)),
       progressPaint,
     );
-  }
+  }*/
 
   void _drawClearWaterEffects(Canvas canvas) {
     // Sparkles on clean water
@@ -1908,7 +2260,7 @@ class WaterTileComponent extends PositionComponent
     }
   }
 
-  void _draw3DTileBorder(Canvas canvas) {
+  /*void _draw3DTileBorder(Canvas canvas) {
     Color borderColor;
     double glowIntensity = 0.3;
     
@@ -1951,7 +2303,7 @@ class WaterTileComponent extends PositionComponent
       ),
       borderPaint,
     );
-  }
+  }*/
 
   void startTreatment() {
     if (isTreating || !isPolluted) return;
@@ -2049,12 +2401,92 @@ class WaterTileComponent extends PositionComponent
       ),
     );
   }
+}
 
-  @override
-  void onTapUp(TapUpEvent event) {
-    if (isPolluted && !isTreating && game.bacteriaRemaining > 0) {
-      game.treatTile(this);
+// NEW CLASS: Treatment zone that expands and spreads cleanliness
+class TreatmentZone {
+  Vector2 center;
+  double currentRadius = 0.0;
+  double maxRadius;
+  double cleanStrength;
+  Vector2 tileSize;
+  bool isComplete = false;
+  
+  TreatmentZone({
+    required this.center,
+    required this.maxRadius,
+    required this.cleanStrength,
+    required this.tileSize,
+  });
+  
+  void update(double dt) {
+    if (currentRadius < maxRadius) {
+      currentRadius += dt * 60; // Expand at 60 pixels/second
+    } else {
+      isComplete = true;
     }
+  }
+}
+
+// NEW CLASS: Wave mixing particle showing treatment spreading
+class WaveMixingParticle {
+  Vector2 position;
+  late Vector2 velocity;
+  double lifetime = 0.0;
+  double maxLifetime;
+  late Color color;
+  double size;
+  Vector2 tileSize;
+  
+  WaveMixingParticle({
+    required Vector2 startPos,
+    required this.tileSize,
+  }) : position = startPos.clone(),
+       maxLifetime = 2.0 + Random().nextDouble() * 1.0,
+       size = 3 + Random().nextDouble() * 3 {
+    
+    final random = Random();
+    
+    // Random outward movement
+    final angle = random.nextDouble() * 2 * pi;
+    final speed = 20 + random.nextDouble() * 40;
+    velocity = Vector2(cos(angle) * speed, sin(angle) * speed);
+    
+    // Green/cyan treatment colors
+    color = random.nextBool() 
+        ? Colors.green.shade400
+        : Colors.cyan.shade300;
+  }
+  
+  void update(double dt) {
+    lifetime += dt;
+    position += velocity * dt;
+    
+    // Slow down over time
+    velocity *= 0.95;
+    
+    // Fade based on lifetime
+    if (lifetime > maxLifetime * 0.6) {
+      final fadeProgress = (lifetime - maxLifetime * 0.6) / (maxLifetime * 0.4);
+      color = color.withValues(alpha: 1.0 - fadeProgress);
+    }
+  }
+  
+  void render(Canvas canvas) {
+    if (lifetime >= maxLifetime) return;
+    
+    final paint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: color.a * 0.8),
+          color.withValues(alpha: color.a * 0.3),
+          color.withValues(alpha: 0),
+        ],
+      ).createShader(
+        Rect.fromCircle(center: Offset(position.x, position.y), radius: size * 2),
+      );
+    
+    canvas.drawCircle(Offset(position.x, position.y), size, paint);
   }
 }
 
