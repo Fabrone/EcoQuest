@@ -682,13 +682,12 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     removeAll(children.where((c) => 
       c is BinComponent || 
       c is ConveyorBeltComponent ||
-      c is SortingFacilityBackground
+      c is SortingFacilityBackground ||
+      c is TreatmentFacilityBackground || // Remove old background
+      c is TreatmentAmbientParticle // Remove old ambient particles
     ));
     
     await Future.delayed(const Duration(milliseconds: 100));
-    
-    // Add treatment facility background
-    _addTreatmentBackground();
     
     // Create SINGLE unified water tile that spans the screen
     waterTiles.clear();
@@ -712,29 +711,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     waterTiles.add(unifiedTile);
     add(unifiedTile);
     
-    // Add ambient water particles
-    _addTreatmentAmbientEffects();
-    
     resumeEngine();
-  }
-    
-  void _addTreatmentBackground() {
-    final treatmentBg = TreatmentFacilityBackground(size: size);
-    add(treatmentBg);
-  }
-
-  void _addTreatmentAmbientEffects() {
-    // Add floating steam/mist particles
-    for (int i = 0; i < 15; i++) {
-      final particle = TreatmentAmbientParticle(
-        position: Vector2(
-          Random().nextDouble() * size.x,
-          Random().nextDouble() * size.y,
-        ),
-        gameSize: size,
-      );
-      add(particle);
-    }
   }
 
   // Update treatTile method for tap-based treatment with mixing
