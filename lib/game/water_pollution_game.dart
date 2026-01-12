@@ -683,30 +683,28 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       c is BinComponent || 
       c is ConveyorBeltComponent ||
       c is SortingFacilityBackground ||
-      c is TreatmentFacilityBackground || // Remove old background
-      c is TreatmentAmbientParticle // Remove old ambient particles
+      c is TreatmentFacilityBackground ||
+      c is TreatmentAmbientParticle
     ));
     
     await Future.delayed(const Duration(milliseconds: 100));
     
-    // Create SINGLE unified water tile that spans the screen
+    // Create SINGLE unified water tile
     waterTiles.clear();
     
-    // Position below the overlay (overlay is ~25% of height)
-    final startY = size.y * 0.28; // Start just below overlay
-    final availableHeight = size.y - startY - 20; // 20px bottom margin
+    final startY = size.y * 0.28;
+    final availableHeight = size.y - startY - 20;
     
     final unifiedTile = WaterTileComponent(
       row: 0,
       col: 0,
-      position: Vector2(size.x * 0.05, startY), // 5% margin on sides
-      size: Vector2(size.x * 0.9, availableHeight), // 90% width, fills available height
-      isPolluted: true, // Start fully polluted
+      position: Vector2(size.x * 0.05, startY),
+      size: Vector2(size.x * 0.9, availableHeight),
+      isPolluted: true,
     );
     
-    // Set initial pollution level based on bacteria count
-    unifiedTile.pollutionDensity = 1.0; // Fully polluted at start
-    unifiedTile.cleanProgress = 0.0; // No cleaning yet
+    unifiedTile.pollutionDensity = 1.0;
+    unifiedTile.cleanProgress = 0.0;
     
     waterTiles.add(unifiedTile);
     add(unifiedTile);

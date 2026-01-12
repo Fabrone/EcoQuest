@@ -1588,6 +1588,9 @@ class WaterTileComponent extends PositionComponent
   List<TreatmentZone> treatmentZones = []; // Track individual treatment areas
   Vector2? lastTapPosition; // Store last tap location
   List<WaveMixingParticle> mixingParticles = []; // Visual mixing effect
+  List<MicroOrganism> microorganisms = [];
+  List<RiverRock> riverbedRocks = [];
+  bool riverbedInitialized = false;
 
   WaterTileComponent({
     required this.row,
@@ -1597,6 +1600,73 @@ class WaterTileComponent extends PositionComponent
     required this.isPolluted,
   }) {
     pollutionDensity = isPolluted ? (0.6 + Random().nextDouble() * 0.4) : 0.0;
+  }
+
+  @override
+  Future<void> onLoad() async {
+    super.onLoad();
+    
+    // Initialize riverbed rocks (only once)
+    if (!riverbedInitialized) {
+      _initializeRiverbed();
+      riverbedInitialized = true;
+    }
+    
+    // Initialize microorganisms based on pollution
+    _initializeMicroorganisms();
+  }
+
+  void _initializeRiverbed() {
+    riverbedRocks.clear();
+    final random = Random(42); // Fixed seed for consistent placement
+    
+    // Create 15-25 rocks scattered across riverbed
+    final rockCount = 15 + random.nextInt(11);
+    
+    for (int i = 0; i < rockCount; i++) {
+      final rockSize = 12.0 + random.nextDouble() * 20.0;
+      riverbedRocks.add(
+        RiverRock(
+          position: Vector2(
+            random.nextDouble() * size.x,
+            size.y * (0.88 + random.nextDouble() * 0.10), // Bottom 12% area
+          ),
+          size: rockSize,
+        ),
+      );
+    }
+  }
+
+  void _initializeMicroorganisms() {
+    microorganisms.clear();
+    final random = Random(123);
+    
+    // Number of microorganisms based on pollution level
+    final organismCount = ((1.0 - cleanProgress) * 30).toInt();
+    
+    final organismTypes = ['virus', 'bacteria', 'algae', 'amoeba', 'protozoa'];
+    final organismColors = {
+      'virus': Colors.red.shade900,
+      'bacteria': Colors.green.shade900,
+      'algae': Colors.green.shade700,
+      'amoeba': Colors.brown.shade700,
+      'protozoa': Colors.purple.shade900,
+    };
+    
+    for (int i = 0; i < organismCount; i++) {
+      final type = organismTypes[random.nextInt(organismTypes.length)];
+      microorganisms.add(
+        MicroOrganism(
+          position: Vector2(
+            random.nextDouble() * size.x,
+            random.nextDouble() * size.y * 0.85, // Above riverbed
+          ),
+          type: type,
+          size: 8.0 + random.nextDouble() * 6.0,
+          color: organismColors[type]!,
+        ),
+      );
+    }
   }
 
   @override
@@ -1615,9 +1685,22 @@ class WaterTileComponent extends PositionComponent
       particle.update(dt);
     }
     
+    // Update microorganisms
+    for (var organism in microorganisms) {
+      organism.update(dt, size);
+    }
+    
     // Remove completed zones and particles
     treatmentZones.removeWhere((zone) => zone.isComplete);
     mixingParticles.removeWhere((particle) => particle.lifetime > particle.maxLifetime);
+    
+    // Gradually remove microorganisms as water gets cleaner
+    if (cleanProgress > 0.7) {
+      final removalRate = (cleanProgress - 0.7) * 2; // Faster removal when cleaner
+      microorganisms.removeWhere((organism) => 
+        organism.lifetime > 2.0 && Random().nextDouble() < removalRate * dt
+      );
+    }
     
     // Gradually blend pollution across the river (mixing effect)
     if (treatmentZones.isNotEmpty) {
@@ -1632,29 +1715,30 @@ class WaterTileComponent extends PositionComponent
 
     canvas.save();
 
-    // Determine water color based on clean progress
     Color baseWaterColor = _getWaterColorForProgress(cleanProgress);
 
-    // Draw unified river with waves
     _drawUnifiedRiverSurface(canvas, baseWaterColor);
     
-    // Draw treatment zones (expanding circles of cleanliness)
-    _drawTreatmentZones(canvas);
+    // DRAW RIVERBED FIRST (behind everything)
+    _drawRiverbed(canvas);
     
-    // Draw mixing particles
+    // DRAW MICROORGANISMS
+    final organismOpacity = (1.0 - cleanProgress) * 0.9;
+    for (var organism in microorganisms) {
+      organism.render(canvas, organismOpacity);
+    }
+    
+    _drawTreatmentZones(canvas);
     _drawMixingParticles(canvas);
     
-    // Draw pollution particles (fewer as river gets cleaner)
     if (cleanProgress < 1.0) {
       _drawProgressivePollutionParticles(canvas);
     }
     
-    // Draw sparkles and clear water effects when clean
     if (cleanProgress >= 0.8) {
       _drawClearWaterEffects(canvas);
     }
     
-    // Draw subtle glow instead of border (no hard borders)
     // _drawProgressiveBorder(canvas);
 
     canvas.restore();
@@ -1928,115 +2012,71 @@ class WaterTileComponent extends PositionComponent
   void _drawProgressivePollutionParticles(Canvas canvas) {
     final random = Random(42);
     final pollutionAmount = (1.0 - cleanProgress);
-    final particleCount = (pollutionAmount * 50).toInt(); // More particles when dirty
+    final particleCount = (pollutionAmount * 50).toInt();
     
     for (int i = 0; i < particleCount; i++) {
       final x = random.nextDouble() * size.x;
       
-      // Particles float UP from bottom of river (like sediment stirred up)
-      final lifeCycle = (waveAnimation * 1.2 + i * 0.1) % 3.0;
-      final baseY = size.y * 0.85; // Start near bottom
-      final floatOffset = -lifeCycle * (size.y * 0.25); // Float upward
+      // SLOWED: 5 second cycle
+      final lifeCycle = (waveAnimation * 0.6 + i * 0.08) % 5.0;
+      final baseY = size.y * 0.85;
+      final floatOffset = -lifeCycle * (size.y * 0.17);
       final y = baseY + floatOffset;
       
-      // Skip if particle has floated above water surface
       if (y < 0 || y > size.y) continue;
       
-      // Varied pollution types
       final particleType = random.nextInt(4);
-      final particleOpacity = (pollutionAmount * 0.8 * (1.0 - lifeCycle / 3.0)).clamp(0.0, 0.8);
+      final particleOpacity = (pollutionAmount * 0.8 * (1.0 - lifeCycle / 5.0)).clamp(0.0, 0.8);
       
       if (particleType == 0) {
-        // Dark sediment particles
-        final sedimentSize = 3.0 + random.nextDouble() * 3.0;
-        final sedimentPaint = Paint()
-          ..shader = RadialGradient(
+        canvas.drawCircle(
+          Offset(x, y), 
+          3.0 + random.nextDouble() * 3.0,
+          Paint()..shader = RadialGradient(
             colors: [
               Colors.brown.shade900.withValues(alpha: particleOpacity),
               Colors.brown.shade800.withValues(alpha: particleOpacity * 0.6),
               Colors.brown.shade700.withValues(alpha: 0),
             ],
-          ).createShader(
-            Rect.fromCenter(center: Offset(x, y), width: sedimentSize * 3, height: sedimentSize * 3),
-          );
-        
-        canvas.drawCircle(Offset(x, y), sedimentSize, sedimentPaint);
+          ).createShader(Rect.fromCircle(center: Offset(x, y), radius: 9)),
+        );
       } else if (particleType == 1) {
-        // Organic matter (algae strands)
-        final algaePaint = Paint()
-          ..color = Colors.green.shade900.withValues(alpha: particleOpacity * 0.7)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5;
-        
         final algaePath = Path();
         algaePath.moveTo(x, y);
-        algaePath.quadraticBezierTo(
-          x + 4 + sin(waveAnimation + i) * 2, 
-          y + 3, 
-          x + 8, 
-          y + 1
+        algaePath.quadraticBezierTo(x + 4 + sin(waveAnimation + i) * 2, y + 3, x + 8, y + 1);
+        canvas.drawPath(
+          algaePath,
+          Paint()
+            ..color = Colors.green.shade900.withValues(alpha: particleOpacity * 0.7)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5,
         );
-        
-        canvas.drawPath(algaePath, algaePaint);
       } else if (particleType == 2) {
-        // Chemical clouds (murky patches)
-        final chemicalSize = 6.0 + random.nextDouble() * 5.0;
-        final chemicalPaint = Paint()
-          ..shader = RadialGradient(
+        canvas.drawCircle(
+          Offset(x, y), 
+          6.0 + random.nextDouble() * 5.0,
+          Paint()..shader = RadialGradient(
             colors: [
               Colors.grey.shade800.withValues(alpha: particleOpacity * 0.6),
               Colors.grey.shade700.withValues(alpha: particleOpacity * 0.3),
               Colors.grey.shade600.withValues(alpha: 0),
             ],
-          ).createShader(
-            Rect.fromCenter(center: Offset(x, y), width: chemicalSize * 4, height: chemicalSize * 4),
-          );
-        
-        canvas.drawCircle(Offset(x, y), chemicalSize, chemicalPaint);
+          ).createShader(Rect.fromCircle(center: Offset(x, y), radius: 15)),
+        );
       } else {
-        // Rising bubbles from decomposition
         final bubbleSize = 2.0 + random.nextDouble() * 2.0;
-        final bubblePaint = Paint()
-          ..color = Colors.white.withValues(alpha: particleOpacity * 0.4)
-          ..style = PaintingStyle.fill;
-        
-        canvas.drawCircle(Offset(x, y), bubbleSize, bubblePaint);
-        
-        // Bubble outline
+        canvas.drawCircle(Offset(x, y), bubbleSize, Paint()..color = Colors.white.withValues(alpha: particleOpacity * 0.4));
         canvas.drawCircle(
           Offset(x, y), 
-          bubbleSize, 
+          bubbleSize,
           Paint()
             ..color = Colors.white.withValues(alpha: particleOpacity * 0.6)
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 1
+            ..strokeWidth = 1,
         );
       }
     }
   }
-
-  /*// NEW METHOD: Draw progressive border showing treatment progress
-  void _drawProgressiveBorder(Canvas canvas) {
-    // BORDER REMOVED FOR BETTER WAVE VISIBILITY
-    // No border rendering to allow clear view of wave animation
-    
-    // Optional: Add very subtle glow when fully clean (no hard borders)
-    if (cleanProgress >= 0.95) {
-      final glowPaint = Paint()
-        ..shader = RadialGradient(
-          center: Alignment.center,
-          radius: 1.2,
-          colors: [
-            Colors.cyan.withValues(alpha: 0.0),
-            Colors.cyan.withValues(alpha: 0.15 * (sin(waveAnimation * 2) + 1) / 2),
-            Colors.cyan.withValues(alpha: 0.0),
-          ],
-        ).createShader(size.toRect())
-        ..style = PaintingStyle.fill;
-      
-      canvas.drawRect(size.toRect(), glowPaint);
-    }
-  }*/
 
   // NEW METHOD: Trigger sparkle effect for completion
   void triggerSparkleEffect() {
@@ -2083,196 +2123,6 @@ class WaterTileComponent extends PositionComponent
     }
   }
 
-  /*void _draw3DWaterSurface(Canvas canvas, Color waterColor) {
-    // Multi-layer water for depth
-    final layers = [
-      (depth: 0.0, alpha: 0.9, offset: 0.0),
-      (depth: 0.2, alpha: 0.7, offset: 0.1),
-      (depth: 0.4, alpha: 0.5, offset: 0.2),
-    ];
-    
-    for (final layer in layers) {
-      // Ensure lighten/darken amounts are always positive and safe
-      final lightenAmount = (0.2 - layer.depth).clamp(0.0, 0.3);
-      final darkenAmount = (0.2 + layer.depth).clamp(0.0, 0.3);
-      
-      final layerGradient = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          waterColor.lighten(lightenAmount).withValues(alpha: layer.alpha),
-          waterColor.withValues(alpha: layer.alpha),
-          waterColor.darken(darkenAmount).withValues(alpha: layer.alpha),
-        ],
-        stops: [0.0, 0.5, 1.0],
-      );
-
-      final layerPaint = Paint()
-        ..shader = layerGradient.createShader(size.toRect());
-
-      // Animated wave surface
-      final wavePath = Path();
-      wavePath.moveTo(0, size.y * layer.offset);
-      
-      final segments = 20;
-      for (int i = 0; i <= segments; i++) {
-        final x = (size.x / segments) * i;
-        final wave = sin(waveAnimation + (x / 20) + (row * 0.5) + (col * 0.3)) * 3;
-        final y = size.y * layer.offset + wave;
-        
-        if (i == 0) {
-          wavePath.lineTo(x, y);
-        } else {
-          wavePath.lineTo(x, y);
-        }
-      }
-      
-      wavePath.lineTo(size.x, size.y);
-      wavePath.lineTo(0, size.y);
-      wavePath.close();
-
-      canvas.drawPath(wavePath, layerPaint);
-    }
-    
-    // Specular highlight for water shine
-    final highlightPaint = Paint()
-      ..shader = RadialGradient(
-        center: Alignment.topLeft,
-        radius: 1.5,
-        colors: [
-          Colors.white.withValues(alpha: 0.4),
-          Colors.white.withValues(alpha: 0.1),
-          Colors.white.withValues(alpha: 0),
-        ],
-      ).createShader(size.toRect());
-    
-    canvas.drawRect(size.toRect(), highlightPaint);
-  }
-
-  void _drawPollutionParticles(Canvas canvas) {
-    final random = Random(row * 100 + col);
-    final particleCount = (pollutionDensity * 15).toInt();
-    
-    for (int i = 0; i < particleCount; i++) {
-      final x = random.nextDouble() * size.x;
-      final baseY = random.nextDouble() * size.y;
-      final floatOffset = sin(waveAnimation * 1.5 + i) * 4;
-      final y = baseY + floatOffset;
-      
-      // Varied pollution particle types
-      final particleType = random.nextInt(3);
-      
-      if (particleType == 0) {
-        // Dark sediment particles
-        final sedimentPaint = Paint()
-          ..shader = RadialGradient(
-            colors: [
-              Colors.brown.shade900.withValues(alpha: 0.7),
-              Colors.brown.shade700.withValues(alpha: 0.4),
-              Colors.brown.shade700.withValues(alpha: 0),
-            ],
-          ).createShader(
-            Rect.fromCenter(
-              center: Offset(x, y),
-              width: 8,
-              height: 8,
-            ),
-          );
-        
-        canvas.drawCircle(Offset(x, y), 3 + random.nextDouble() * 2, sedimentPaint);
-      } else if (particleType == 1) {
-        // Algae/organic matter
-        final algaePaint = Paint()
-          ..color = Colors.green.shade900.withValues(alpha: 0.5);
-        
-        final algaePath = Path();
-        algaePath.moveTo(x, y);
-        algaePath.quadraticBezierTo(
-          x + 3, y + 2,
-          x + 6, y,
-        );
-        algaePath.quadraticBezierTo(
-          x + 3, y - 2,
-          x, y,
-        );
-        
-        canvas.drawPath(algaePath, algaePaint);
-      } else {
-        // Chemical contaminants (cloudy areas)
-        final chemicalPaint = Paint()
-          ..shader = RadialGradient(
-            colors: [
-              Colors.grey.shade800.withValues(alpha: 0.4),
-              Colors.grey.shade700.withValues(alpha: 0.2),
-              Colors.grey.shade700.withValues(alpha: 0),
-            ],
-          ).createShader(
-            Rect.fromCenter(
-              center: Offset(x, y),
-              width: 15,
-              height: 15,
-            ),
-          );
-        
-        canvas.drawCircle(Offset(x, y), 5 + random.nextDouble() * 3, chemicalPaint);
-      }
-    }
-  }
-
-  void _drawBacteriaParticles(Canvas canvas) {
-    for (var particle in bacteriaParticles) {
-      particle.render(canvas);
-    }
-  }
-
-  void _drawTreatmentEffect(Canvas canvas) {
-    // Pulsing treatment aura
-    final treatmentPulse = (sin(waveAnimation * 3) + 1) / 2;
-    
-    final auraPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          Colors.green.withValues(alpha: 0.3 * treatmentPulse),
-          Colors.lightGreen.withValues(alpha: 0.2 * treatmentPulse),
-          Colors.green.withValues(alpha: 0),
-        ],
-      ).createShader(size.toRect());
-    
-    canvas.drawRect(size.toRect(), auraPaint);
-    
-    // Rising bubbles during treatment
-    final bubblePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.6)
-      ..style = PaintingStyle.fill;
-    
-    final random = Random(row * 50 + col);
-    for (int i = 0; i < 8; i++) {
-      final x = random.nextDouble() * size.x;
-      final bubblePhase = (waveAnimation * 2 + i) % 2.0;
-      final y = size.y - (bubblePhase / 2.0) * size.y;
-      final opacity = (1.0 - bubblePhase / 2.0) * 0.7;
-      
-      if (y > 0 && y < size.y) {
-        canvas.drawCircle(
-          Offset(x, y),
-          2 + random.nextDouble() * 2,
-          bubblePaint..color = Colors.white.withValues(alpha: opacity),
-        );
-      }
-    }
-    
-    // Treatment progress indicator (subtle glow around edges)
-    final progressPaint = Paint()
-      ..color = Colors.green.withValues(alpha: 0.5 * treatmentProgress)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(4)),
-      progressPaint,
-    );
-  }*/
-
   // UPDATED: Enhanced clear water effects with internal bubbles
   void _drawClearWaterEffects(Canvas canvas) {
     // Sparkles on clean water surface
@@ -2315,32 +2165,88 @@ class WaterTileComponent extends PositionComponent
     }
     
     // Rising bubbles from clean water (originating from bottom)
-    final clearBubblePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.4)
-      ..style = PaintingStyle.fill;
-    
     for (int i = 0; i < 8; i++) {
-      final bubblePhase = (waveAnimation * 0.8 + i * 0.3) % 2.5;
+      final bubblePhase = (waveAnimation * 0.4 + i * 0.2) % 4.0;
       final x = (size.x / 9) * (i + 1) + sin(waveAnimation + i) * 15;
-      final startY = size.y * 0.9; // Start near bottom
-      final y = startY - (bubblePhase / 2.5) * (size.y * 0.7); // Rise to top
+      final startY = size.y * 0.9;
+      final y = startY - (bubblePhase / 4.0) * (size.y * 0.7);
       final bubbleSize = 2.5 + sin(bubblePhase) * 1.5;
-      final bubbleOpacity = (1.0 - bubblePhase / 2.5) * 0.5;
+      final bubbleOpacity = (1.0 - bubblePhase / 4.0) * 0.5;
       
       if (y > size.y * 0.15 && y < size.y) {
         canvas.drawCircle(
           Offset(x, y), 
-          bubbleSize, 
-          clearBubblePaint..color = Colors.white.withValues(alpha: bubbleOpacity)
+          bubbleSize,
+          Paint()..color = Colors.white.withValues(alpha: bubbleOpacity),
         );
         
-        // Bubble highlight
         canvas.drawCircle(
           Offset(x - bubbleSize * 0.3, y - bubbleSize * 0.3),
           bubbleSize * 0.4,
           Paint()..color = Colors.white.withValues(alpha: bubbleOpacity * 0.8),
         );
       }
+    }
+  }
+
+  void _drawRiverbed(Canvas canvas) {
+    final riverbedHeight = size.y * 0.12;
+    final riverbedY = size.y - riverbedHeight;
+    
+    final soilPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          const Color(0xFF6B4423).withValues(alpha: 0.7),
+          const Color(0xFF4A2F1A),
+          const Color(0xFF3A1F0A),
+        ],
+      ).createShader(Rect.fromLTWH(0, riverbedY, size.x, riverbedHeight));
+    
+    final riverbedPath = Path();
+    riverbedPath.moveTo(0, riverbedY);
+    
+    for (int i = 0; i <= 50; i++) {
+      final x = (size.x / 50) * i;
+      final wave = sin((x / size.x) * pi * 4 + waveAnimation * 0.3) * 3;
+      riverbedPath.lineTo(x, riverbedY + wave);
+    }
+    
+    riverbedPath.lineTo(size.x, size.y);
+    riverbedPath.lineTo(0, size.y);
+    riverbedPath.close();
+    
+    canvas.drawPath(riverbedPath, soilPaint);
+    
+    final random = Random(789);
+    for (int i = 0; i < 40; i++) {
+      canvas.drawCircle(
+        Offset(
+          random.nextDouble() * size.x,
+          riverbedY + random.nextDouble() * riverbedHeight * 0.7,
+        ),
+        1.0 + random.nextDouble() * 2.0,
+        Paint()..color = const Color(0xFF5A3825).withValues(alpha: 0.4),
+      );
+    }
+    
+    for (var rock in riverbedRocks) {
+      rock.render(canvas);
+    }
+    
+    for (int i = 0; i < 5; i++) {
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(
+            random.nextDouble() * size.x,
+            riverbedY + riverbedHeight * 0.5,
+          ),
+          width: 30 + random.nextDouble() * 40,
+          height: 15 + random.nextDouble() * 20,
+        ),
+        Paint()..color = const Color(0xFF8B7355).withValues(alpha: 0.3),
+      );
     }
   }
 
@@ -3552,6 +3458,368 @@ class BacteriaIndicatorComponent extends PositionComponent {
   }
 }
 
+// Realistic microorganism/germ representation
+class MicroOrganism {
+  final Vector2 position;
+  final String type;
+  final double size;
+  final Color color;
+  double lifetime;
+  double phase;
+  Vector2 velocity;
+  double rotationAngle;
+  double wigglePhase;
+  
+  MicroOrganism({
+    required this.position,
+    required this.type,
+    required this.size,
+    required this.color,
+    this.lifetime = 0.0,
+  }) : phase = Random().nextDouble() * pi * 2,
+       velocity = Vector2(
+         (Random().nextDouble() - 0.5) * 8,
+         (Random().nextDouble() - 0.5) * 5,
+       ),
+       rotationAngle = Random().nextDouble() * pi * 2,
+       wigglePhase = Random().nextDouble() * pi * 2;
+  
+  void update(double dt, Vector2 tileSize) {
+    lifetime += dt;
+    phase += dt * 0.5;
+    wigglePhase += dt * 2.0;
+    rotationAngle += dt * 0.3;
+    
+    position.x += velocity.x * dt + sin(wigglePhase) * 3 * dt;
+    position.y += velocity.y * dt + cos(wigglePhase * 0.7) * 2 * dt;
+    
+    if (position.x < 0) position.x = tileSize.x;
+    if (position.x > tileSize.x) position.x = 0;
+    if (position.y < 0) position.y = tileSize.y * 0.85;
+    if (position.y > tileSize.y * 0.85) position.y = 0;
+  }
+  
+  void render(Canvas canvas, double opacity) {
+    canvas.save();
+    canvas.translate(position.x, position.y);
+    canvas.rotate(rotationAngle);
+    
+    switch (type) {
+      case 'virus':
+        _drawVirus(canvas, opacity);
+      case 'bacteria':
+        _drawBacteria(canvas, opacity);
+      case 'algae':
+        _drawAlgae(canvas, opacity);
+      case 'amoeba':
+        _drawAmoeba(canvas, opacity);
+      case 'protozoa':
+        _drawProtozoa(canvas, opacity);
+    }
+    
+    canvas.restore();
+  }
+  
+  void _drawVirus(Canvas canvas, double opacity) {
+    final virusPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: opacity * 0.9),
+          color.withValues(alpha: opacity * 0.6),
+        ],
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: size));
+    
+    canvas.drawCircle(Offset.zero, size * 0.6, virusPaint);
+    
+    final spikePaint = Paint()
+      ..color = color.darken(0.2).withValues(alpha: opacity * 0.8)
+      ..strokeWidth = size * 0.15
+      ..strokeCap = StrokeCap.round;
+    
+    for (int i = 0; i < 8; i++) {
+      final angle = (i / 8) * pi * 2 + phase * 0.3;
+      final spikeLength = size * (0.8 + sin(phase + i) * 0.2);
+      canvas.drawLine(
+        Offset(cos(angle) * size * 0.5, sin(angle) * size * 0.5),
+        Offset(cos(angle) * spikeLength, sin(angle) * spikeLength),
+        spikePaint,
+      );
+      
+      canvas.drawCircle(
+        Offset(cos(angle) * spikeLength, sin(angle) * spikeLength),
+        size * 0.12,
+        Paint()..color = color.lighten(0.2).withValues(alpha: opacity),
+      );
+    }
+    
+    canvas.drawCircle(
+      Offset.zero,
+      size * 0.3,
+      Paint()..color = color.lighten(0.3).withValues(alpha: opacity * 0.7),
+    );
+  }
+  
+  void _drawBacteria(Canvas canvas, double opacity) {
+    final bodyPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          color.lighten(0.2).withValues(alpha: opacity),
+          color.withValues(alpha: opacity),
+          color.darken(0.2).withValues(alpha: opacity),
+        ],
+      ).createShader(Rect.fromLTWH(-size * 0.4, -size, size * 0.8, size * 2));
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset.zero, width: size * 0.8, height: size * 2),
+        Radius.circular(size * 0.4),
+      ),
+      bodyPaint,
+    );
+    
+    final flagellaPaint = Paint()
+      ..color = color.darken(0.1).withValues(alpha: opacity * 0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size * 0.1
+      ..strokeCap = StrokeCap.round;
+    
+    for (int i = 0; i < 3; i++) {
+      final flagellaPath = Path();
+      final startX = (i - 1) * size * 0.25;
+      final startY = size * 0.9;
+      
+      flagellaPath.moveTo(startX, startY);
+      
+      for (double t = 0; t <= 1; t += 0.1) {
+        final y = startY + t * size * 1.2;
+        final x = startX + sin((phase + t * 3) + i) * size * 0.3;
+        flagellaPath.lineTo(x, y);
+      }
+      
+      canvas.drawPath(flagellaPath, flagellaPaint);
+    }
+    
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(0, -size * 0.3), width: size * 0.5, height: size * 0.3),
+      Paint()..color = color.lighten(0.4).withValues(alpha: opacity * 0.6),
+    );
+  }
+  
+  void _drawAlgae(Canvas canvas, double opacity) {
+    final algaePaint = Paint()
+      ..color = color.withValues(alpha: opacity)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size * 0.15
+      ..strokeCap = StrokeCap.round;
+    
+    final algaePath = Path();
+    algaePath.moveTo(-size, 0);
+    
+    for (double t = 0; t <= 1; t += 0.05) {
+      final x = -size + t * size * 2;
+      final y = sin((phase + t * 5)) * size * 0.4;
+      algaePath.lineTo(x, y);
+    }
+    
+    canvas.drawPath(algaePath, algaePaint);
+    
+    final chloroplastPaint = Paint()
+      ..color = Colors.green.shade800.withValues(alpha: opacity * 0.8);
+    
+    for (int i = 0; i < 5; i++) {
+      final t = i / 5;
+      final x = -size + t * size * 2;
+      final y = sin((phase + t * 5)) * size * 0.4;
+      canvas.drawCircle(Offset(x, y), size * 0.2, chloroplastPaint);
+    }
+  }
+  
+  void _drawAmoeba(Canvas canvas, double opacity) {
+    final amoebaPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.lighten(0.3).withValues(alpha: opacity * 0.7),
+          color.withValues(alpha: opacity),
+          color.darken(0.2).withValues(alpha: opacity),
+        ],
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: size));
+    
+    final bodyPath = Path();
+    bodyPath.moveTo(size * cos(0), size * sin(0));
+    
+    for (int i = 0; i <= 8; i++) {
+      final angle = (i / 8) * pi * 2;
+      final radiusVariation = size * (0.7 + sin(phase + i) * 0.3);
+      bodyPath.lineTo(
+        radiusVariation * cos(angle),
+        radiusVariation * sin(angle),
+      );
+    }
+    bodyPath.close();
+    
+    canvas.drawPath(bodyPath, amoebaPaint);
+    
+    final pseudopodPaint = Paint()
+      ..color = color.withValues(alpha: opacity * 0.8);
+    
+    for (int i = 0; i < 4; i++) {
+      final angle = (i / 4) * pi * 2 + phase * 0.2;
+      final extension = size * (0.5 + sin(wigglePhase + i) * 0.3);
+      
+      final pseudopodPath = Path();
+      pseudopodPath.moveTo(0, 0);
+      pseudopodPath.lineTo(
+        cos(angle - 0.3) * extension,
+        sin(angle - 0.3) * extension,
+      );
+      pseudopodPath.lineTo(
+        cos(angle) * (extension + size * 0.3),
+        sin(angle) * (extension + size * 0.3),
+      );
+      pseudopodPath.lineTo(
+        cos(angle + 0.3) * extension,
+        sin(angle + 0.3) * extension,
+      );
+      pseudopodPath.close();
+      
+      canvas.drawPath(pseudopodPath, pseudopodPaint);
+    }
+    
+    canvas.drawCircle(
+      Offset.zero,
+      size * 0.3,
+      Paint()..color = color.darken(0.4).withValues(alpha: opacity * 0.9),
+    );
+  }
+  
+  void _drawProtozoa(Canvas canvas, double opacity) {
+    final bodyPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.lighten(0.2).withValues(alpha: opacity),
+          color.withValues(alpha: opacity),
+        ],
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: size));
+    
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset.zero, width: size * 1.5, height: size * 2),
+      bodyPaint,
+    );
+    
+    final ciliaPaint = Paint()
+      ..color = color.darken(0.3).withValues(alpha: opacity * 0.6)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size * 0.05
+      ..strokeCap = StrokeCap.round;
+    
+    for (int i = 0; i < 20; i++) {
+      final angle = (i / 20) * pi * 2;
+      final ciliaPhase = phase * 3 + i * 0.5;
+      final ciliaLength = size * 0.4;
+      
+      final startX = cos(angle) * size * 0.6;
+      final startY = sin(angle) * size * 0.9;
+      final endX = cos(angle) * (size * 0.6 + ciliaLength) + sin(ciliaPhase) * size * 0.2;
+      final endY = sin(angle) * (size * 0.9 + ciliaLength) + cos(ciliaPhase) * size * 0.2;
+      
+      canvas.drawLine(Offset(startX, startY), Offset(endX, endY), ciliaPaint);
+    }
+    
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(0, -size * 0.5), width: size * 0.4, height: size * 0.6),
+      Paint()..color = color.darken(0.5).withValues(alpha: opacity * 0.8),
+    );
+  }
+}
+
+// River rock for riverbed
+class RiverRock {
+  final Vector2 position;
+  final double size;
+  final Color color;
+  final double rotation;
+  final bool hasMoss;
+  
+  RiverRock({required this.position, required this.size})
+      : color = [
+          const Color(0xFF6B6B6B),
+          const Color(0xFF8B8B8B),
+          const Color(0xFF7A7A7A),
+          const Color(0xFF5A5A5A),
+        ][Random().nextInt(4)],
+        rotation = Random().nextDouble() * pi * 2,
+        hasMoss = Random().nextBool();
+  
+  void render(Canvas canvas) {
+    canvas.save();
+    canvas.translate(position.x, position.y);
+    canvas.rotate(rotation);
+    
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(2, 3), width: size * 1.2, height: size * 0.8),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.4)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    
+    final rockPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [color.lighten(0.3), color, color.darken(0.2)],
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: size * 0.6));
+    
+    final rockPath = Path();
+    final random = Random(position.x.toInt() + position.y.toInt());
+    for (int i = 0; i < 8; i++) {
+      final angle = (i / 8) * pi * 2;
+      final radius = size * (0.5 + random.nextDouble() * 0.2);
+      
+      if (i == 0) {
+        rockPath.moveTo(cos(angle) * radius, sin(angle) * radius * 0.7);
+      } else {
+        rockPath.lineTo(cos(angle) * radius, sin(angle) * radius * 0.7);
+      }
+    }
+    rockPath.close();
+    
+    canvas.drawPath(rockPath, rockPaint);
+    
+    for (int i = 0; i < 3; i++) {
+      canvas.drawLine(
+        Offset(-size * 0.3 + i * size * 0.2, -size * 0.2),
+        Offset(-size * 0.1 + i * size * 0.15, size * 0.3),
+        Paint()
+          ..color = color.darken(0.4).withValues(alpha: 0.4)
+          ..strokeWidth = 1,
+      );
+    }
+    
+    if (hasMoss) {
+      for (int i = 0; i < 2; i++) {
+        canvas.drawCircle(
+          Offset(
+            (random.nextDouble() - 0.5) * size * 0.6,
+            (random.nextDouble() - 0.5) * size * 0.4,
+          ),
+          size * 0.15,
+          Paint()..color = Colors.green.shade900.withValues(alpha: 0.6),
+        );
+      }
+    }
+    
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(-size * 0.2, -size * 0.3),
+        width: size * 0.3,
+        height: size * 0.2,
+      ),
+      Paint()..color = Colors.white.withValues(alpha: 0.3),
+    );
+    
+    canvas.restore();
+  }
+}
 class PipeComponent extends PositionComponent
     with HasGameReference<WaterPollutionGame>, TapCallbacks {
   int rotationState = 0; // 0-3 for 90 deg rotations
