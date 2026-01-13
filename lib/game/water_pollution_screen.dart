@@ -115,8 +115,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
       child: Scaffold(
         body: Stack(
           children: [
-            // Main game view - SHOW FOR PHASE 2 AS WELL
-            if (currentPhase == 1 || currentPhase == 2 || currentPhase == 3)
+            // Main game view - NOW INCLUDE PHASE 4
+            if (currentPhase == 1 || currentPhase == 2 || currentPhase == 3 || currentPhase == 4)
               SizedBox.expand(
                 child: GameWidget(game: game),
               ),
@@ -1121,63 +1121,109 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     final isMobile = size.width < 600;
     final isTablet = size.width >= 600 && size.width < 1024;
     
-    return Container(
-      color: const Color(0xFF2D5016),
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: EdgeInsets.all(isMobile ? 12 : 16),
-              color: Colors.black.withValues(alpha: 0.7),
-              child: Column(
-                children: [
-                  Text(
-                    'SUSTAINABLE IRRIGATION',
-                    style: GoogleFonts.exo2(
-                      fontSize: isMobile ? 16 : isTablet ? 18 : 20,
-                      color: Colors.green,
-                      fontWeight: FontWeight.w900,
-                    ),
+    return SafeArea(
+      child: Column(
+        children: [
+          // Header with enhanced stats
+          Container(
+            padding: EdgeInsets.all(isMobile ? 12 : 16),
+            color: Colors.black.withValues(alpha: 0.7),
+            child: Column(
+              children: [
+                Text(
+                  'SUSTAINABLE IRRIGATION',
+                  style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 16 : isTablet ? 18 : 20,
+                    color: Colors.green,
+                    fontWeight: FontWeight.w900,
                   ),
-                  SizedBox(height: isMobile ? 8 : 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildAgriStat('Farms', '$farmsIrrigated/$totalFarms', isMobile),
-                      _buildAgriStat('Crops', '$cropsMature', isMobile),
-                      _buildAgriStat('Efficiency', '${game.waterEfficiency}%', isMobile),
-                    ],
+                ),
+                SizedBox(height: isMobile ? 8 : 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildAgriStat('Farms Irrigated', '$farmsIrrigated/$totalFarms', isMobile),
+                    _buildAgriStat('Crops Mature', '$cropsMature', isMobile),
+                    _buildAgriStat('Efficiency', '${game.waterEfficiency}%', isMobile),
+                    _buildAgriStat('Wildlife', '${game.wildlifeSpawned}', isMobile), // New: Ecological revival feedback
+                  ],
+                ),
+                SizedBox(height: isMobile ? 8 : 12),
+                // Pipeline connection status
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: game.pipelineConnected ? Colors.green.withValues(alpha: 0.3) : Colors.red.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: game.pipelineConnected ? Colors.green : Colors.red, width: 2),
                   ),
-                ],
-              ),
-            ),
-            // Pipeline grid
-            Expanded(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(isMobile ? 16 : 24),
                   child: Text(
-                    'Drag and tap pipes to connect river to farms',
+                    game.pipelineConnected ? 'PIPELINE CONNECTED!' : 'CONNECT PIPELINE TO RIVER',
                     style: GoogleFonts.exo2(
-                      fontSize: isMobile ? 14 : isTablet ? 16 : 18,
+                      fontSize: isMobile ? 12 : 14,
                       color: Colors.white,
+                      fontWeight: FontWeight.w700,
                     ),
-                    textAlign: TextAlign.center,
                   ),
+                ),
+              ],
+            ),
+          ),
+          // Expanded area for Flame game view (pipes, farms, river) - no need to add here, as it's in the Stack
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(isMobile ? 16 : 24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Tap pipes to rotate and connect river to farms',
+                      style: GoogleFonts.exo2(
+                        fontSize: isMobile ? 14 : isTablet ? 16 : 18,
+                        color: Colors.white,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    SizedBox(height: 16),
+                    // Growth feedback hint
+                    Text(
+                      'Watch crops grow after irrigation!',
+                      style: GoogleFonts.exo2(
+                        fontSize: isMobile ? 12 : 14,
+                        color: Colors.white70,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
               ),
             ),
-            _buildIrrigationMethods(isMobile, isTablet),
-          ],
-        ),
+          ),
+          _buildIrrigationMethods(isMobile, isTablet),
+        ],
       ),
     );
   }
 
   Widget _buildAgriStat(String label, String value, bool isMobile) {
+    IconData icon;
+    switch (label) {
+      case 'Wildlife':
+        icon = Icons.pets;
+        break;
+      case 'Farms Irrigated':
+        icon = Icons.water_damage;
+        break;
+      case 'Crops Mature':
+        icon = Icons.grass;
+        break;
+      default:
+        icon = Icons.eco;
+    }
     return Column(
       children: [
+        Icon(icon, color: Colors.green, size: isMobile ? 16 : 20),
         Text(
           label,
           style: GoogleFonts.exo2(

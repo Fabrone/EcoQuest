@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math';
 import 'package:ecoquest/game/water_components.dart';
 import 'package:flame/effects.dart';
@@ -42,6 +43,12 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   // Phase 4 - Agriculture
   int waterEfficiency = 0;
   List<FarmZoneComponent> farmZones = [];
+  int farmsIrrigated = 0;
+  int cropsMature = 0;
+  int totalFarms = 3;
+  int wildlifeSpawned = 0;
+  bool waterRedirected = false; // Tracks if pipeline fully connects river to all farms
+  List<Timer> growthTimers = []; // For crop growth stages
   
   // Carry-forward resources
   int purifiedWaterAmount = 0;
@@ -681,7 +688,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Clear previous phase components
     removeAll(children.where((c) => 
       c is BinComponent || 
-      c is ConveyorBeltComponent ||
       c is SortingFacilityBackground ||
       c is TreatmentFacilityBackground ||
       c is TreatmentAmbientParticle
@@ -808,15 +814,26 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     currentPhase = 4;
     _setupAgriculturePhase();
   }
-  
+
   void _setupAgriculturePhase() {
     // Clear previous
     removeAll(children.whereType<WaterTileComponent>());
 
-    // Add farm zones
+    // Add farm background
+    add(AgricultureBackground(size: size));
+
+    // Add river source (top of screen, as a starting point for pipes)
+    final riverSource = RiverSourceComponent(
+      position: Vector2(size.x / 2, 50),
+      size: Vector2(size.x * 0.8, 100),
+    );
+    add(riverSource);
+
+    // Add farm zones with growth stages
     final farmSize = Vector2(size.x * 0.25, size.y * 0.3);
     farmZones = [];
-    for (int i = 0; i < 3; i++) {
+    growthTimers = [];
+    for (int i = 0; i < totalFarms; i++) { // totalFarms = 3 from UI
       final farm = FarmZoneComponent(
         position: Vector2(
           (size.x / 4) * (i + 0.5),
@@ -824,21 +841,32 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
         ),
         size: farmSize,
       );
-      
       farmZones.add(farm);
       add(farm);
+
+      // Growth timer (starts after irrigation)
+      growthTimers.add(Timer(5.0, onTick: () {
+        farm.advanceGrowthStage();
+        if (farm.growthStage == 3) { // Mature
+          cropsMature++;
+          onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
+          if (cropsMature >= 2) { // Threshold for completion
+            _completePhase4();
+          }
+        }
+      }, repeat: true)); // Repeat for stages, but stop at mature
     }
 
-    // Add pipe grid (e.g., 5x5 grid)
+    // Add pipe grid (5x5, but make it connectable from river to farms)
     const gridRows = 5;
     const gridCols = 5;
-    final pipeSize = Vector2(50, 50);
+    final pipeSize = Vector2(size.x / gridCols * 0.8, size.y / gridRows * 0.4);
     final startGridX = (size.x - (gridCols * pipeSize.x)) / 2;
-    final startGridY = 50; // Top area for pipes
+    final startGridY = 150; // Below river
     pipeGrid = [];
     for (int r = 0; r < gridRows; r++) {
       for (int c = 0; c < gridCols; c++) {
-        final pipeType = Random().nextBool() ? 'straight' : 'corner';
+        final pipeType = (r == 0 && c == 2) ? 'straight' : Random().nextBool() ? 'straight' : 'corner'; // Start with random, but ensure connectable
         final pipe = PipeComponent(
           position: Vector2(startGridX + c * pipeSize.x, startGridY + r * pipeSize.y),
           pipeType: pipeType,
@@ -850,36 +878,91 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
     resumeEngine();
   }
-  
+    
   void checkPipelineConnection() {
-    // Simple logic: check if all pipes are rotated correctly
-    int correct = pipeGrid.where((p) => p.rotationState % 2 == 0).length;
-    bool connected = correct > pipeGrid.length / 2;
-    if (connected) {
-      pipelineConnected = true;
+    // Simple BFS to check connection from river (grid[0][2]) to farms
+    if (pipeGrid.isEmpty) return;
+
+    // Grid representation (5x5)
+    final List<List<bool>> visited = List.generate(5, (_) => List.filled(5, false));
+    final Queue<Vector2> queue = Queue();
+    queue.add(Vector2(2, 0)); // Start at top center pipe (river connection)
+    visited[0][2] = true;
+
+    final directions = [Vector2(0, -1), Vector2(0, 1), Vector2(-1, 0), Vector2(1, 0)]; // Up, down, left, right
+
+    int connectedFarms = 0;
+    while (queue.isNotEmpty) {
+      final current = queue.removeFirst();
+      int row = current.y.toInt();
+      int col = current.x.toInt();
+
+      // Check if this pipe reaches a farm (bottom row connects to farms below)
+      if (row == 4) { // Bottom row
+        connectedFarms++; // Assume each bottom column connects to a farm if reached
+      }
+
+      // Explore neighbors if pipe allows connection (based on type and rotation)
+      final pipe = pipeGrid[row * 5 + col];
+      for (final dir in directions) {
+        final newRow = row + dir.y.toInt();
+        final newCol = col + dir.x.toInt();
+        if (newRow >= 0 && newRow < 5 && newCol >= 0 && newCol < 5 && !visited[newRow][newCol]) {
+          // Check if current pipe connects in that direction (e.g., straight allows up/down or left/right based on rotation)
+          if (_pipeConnects(pipe, dir)) {
+            visited[newRow][newCol] = true;
+            queue.add(Vector2(newCol.toDouble(), newRow.toDouble()));
+          }
+        }
+      }
+    }
+
+    pipelineConnected = connectedFarms >= totalFarms; // All farms connected
+    waterRedirected = pipelineConnected; // For redirection stage
+    if (pipelineConnected) {
+      // Trigger water flow animation (add particle effects)
+      add(WaterFlowParticleSystem(position: Vector2(size.x / 2, 150)));
     }
   }
-  
-  void irrigateFarm(FarmZoneComponent farm, String method) {
-    farm.irrigate(method);
+
+  bool _pipeConnects(PipeComponent pipe, Vector2 direction) {
+    // Logic based on type and rotation (0-3 * 90 deg)
+    int rot = pipe.rotationState;
+    if (pipe.pipeType == 'straight') {
+      // Straight: connects horizontally (rot even) or vertically (rot odd)
+      if (rot % 2 == 0) return direction.y == 0; // Horizontal
+      return direction.x == 0; // Vertical
+    } else if (pipe.pipeType == 'corner') {
+      // Corner: connects based on rotation (e.g., rot 0: right-down, rot 1: down-left, etc.)
+      if (rot == 0) return direction == Vector2(1, 0) || direction == Vector2(0, 1);
+      if (rot == 1) return direction == Vector2(0, 1) || direction == Vector2(-1, 0);
+      if (rot == 2) return direction == Vector2(-1, 0) || direction == Vector2(0, -1);
+      return direction == Vector2(0, -1) || direction == Vector2(1, 0);
+    }
+    return false;
+  }
     
+  void irrigateFarm(FarmZoneComponent farm, String method) {
+    if (!pipelineConnected) return; // Must redirect water first
+
+    farm.irrigate(method);
+    farmsIrrigated++;
+    
+    // Start growth (seedling -> young -> mature over 15s total)
+    final index = farmZones.indexOf(farm);
+    growthTimers[index].start(); // 5s per stage
+
     // Calculate efficiency
     waterEfficiency = _calculateWaterEfficiency();
     
-    int irrigated = farmZones.where((f) => f.isIrrigated).length;
-    int mature = farmZones.where((f) => f.cropsMature).length;
-    
-    onAgricultureUpdate?.call(irrigated, mature);
-    
-    // Check if all farms complete
-    if (irrigated >= 3 && mature >= 2) {
-      _completePhase4();
-    }
-    // Spawn wildlife on success
+    // Spawn wildlife for revival
+    wildlifeSpawned++;
     add(WildlifeComponent(
-      position: Vector2(Random().nextDouble() * size.x, Random().nextDouble() * size.y), 
-      size: Vector2(32, 32)
+      position: Vector2(Random().nextDouble() * size.x, Random().nextDouble() * size.y * 0.8),
+      size: Vector2(32, 32),
     ));
+    
+    onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
   }
   
   int _calculateWaterEfficiency() {
@@ -893,8 +976,15 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
     return farmZones.isNotEmpty ? (totalEfficiency / farmZones.length).round() : 0;
   }
-  
+    
   void _completePhase4() {
+    // Bonus wildlife for completion
+    for (int i = 0; i < 5; i++) {
+      add(WildlifeComponent(
+        position: Vector2(Random().nextDouble() * size.x, Random().nextDouble() * size.y),
+        size: Vector2(32, 32),
+      ));
+    }
     onPhaseComplete?.call(4);
     pauseEngine();
   }

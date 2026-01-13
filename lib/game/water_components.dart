@@ -2511,88 +2511,6 @@ class BacteriaParticle {
   }
 }
 
-class FarmZoneComponent extends PositionComponent {
-  bool isIrrigated = false;
-  bool cropsMature = false;
-  String method = '';
-  double growthProgress = 0.0;
-
-  FarmZoneComponent({required super.position, required super.size});
-
-  @override
-  void render(Canvas canvas) {
-    super.render(canvas);
-
-    final plotPaint = Paint()
-      ..color = isIrrigated ? const Color(0xFF8D6E63) : const Color(0xFFBCAAA4);
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(8)),
-      plotPaint,
-    );
-
-    if (isIrrigated) {
-      _drawCrops(canvas);
-    }
-
-    final borderPaint = Paint()
-      ..color = Colors.brown
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(size.toRect(), const Radius.circular(8)),
-      borderPaint,
-    );
-  }
-
-  void _drawCrops(Canvas canvas) {
-    final cropColor = Color.lerp(
-      const Color(0xFF81C784).withValues(alpha: 0.5),
-      const Color(0xFF81C784),
-      growthProgress,
-    );
-
-    final cropPaint = Paint()
-      ..color = cropsMature
-          ? const Color(0xFF4CAF50)
-          : cropColor ?? const Color(0xFF81C784);
-
-    for (int i = 0; i < 6; i++) {
-      for (int j = 0; j < 4; j++) {
-        final x = (size.x / 7) * (i + 1);
-        final y = (size.y / 5) * (j + 1);
-        final height = 10 * growthProgress;
-
-        canvas.drawLine(
-          Offset(x, y),
-          Offset(x, y - height),
-          cropPaint..strokeWidth = 2,
-        );
-      }
-    }
-  }
-
-  void irrigate(String irrigationMethod) {
-    method = irrigationMethod;
-    isIrrigated = true;
-    _startGrowth();
-  }
-
-  void _startGrowth() {
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (growthProgress < 1.0) {
-        growthProgress += 0.017;
-        if (growthProgress >= 1.0) {
-          growthProgress = 1.0;
-          cropsMature = true;
-        }
-        _startGrowth();
-      }
-    });
-  }
-}
-
 class BinComponent extends PositionComponent with TapCallbacks {
   final String binType;
   late Color binColor;
@@ -3820,6 +3738,136 @@ class RiverRock {
     canvas.restore();
   }
 }
+
+class AgricultureBackground extends PositionComponent {
+  AgricultureBackground({required Vector2 size}) : super(size: size, priority: -10);
+
+  @override
+  void render(Canvas canvas) {
+    // Sky gradient
+    final skyGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [Colors.blue.shade200, Colors.white],
+    );
+    canvas.drawRect(size.toRect(), Paint()..shader = skyGradient.createShader(size.toRect()));
+
+    // Fields
+    final fieldPaint = Paint()..color = Colors.green.shade700;
+    canvas.drawRect(Rect.fromLTWH(0, size.y * 0.4, size.x, size.y * 0.6), fieldPaint);
+
+    // Soil lines for realism
+    final soilPaint = Paint()..color = Colors.brown.shade800..strokeWidth = 2;
+    for (double i = size.y * 0.5; i < size.y; i += 20) {
+      canvas.drawLine(Offset(0, i), Offset(size.x, i), soilPaint);
+    }
+  }
+}
+
+class RiverSourceComponent extends PositionComponent {
+  RiverSourceComponent({required super.position, required super.size});
+
+  @override
+  void render(Canvas canvas) {
+    final riverPaint = Paint()..color = Colors.blue.shade600;
+    canvas.drawRect(size.toRect(), riverPaint);
+
+    // Flow lines
+    final flowPaint = Paint()..color = Colors.white.withValues(alpha: 0.3)..strokeWidth = 4;
+    for (double i = 20; i < size.y; i += 20) {
+      canvas.drawLine(Offset(size.x * 0.2, i), Offset(size.x * 0.8, i), flowPaint);
+    }
+  }
+}
+
+class FarmZoneComponent extends PositionComponent with HasGameReference<WaterPollutionGame> {
+  String? method;
+  bool isIrrigated = false;
+  int growthStage = 0; // 0: seedling, 1: young, 2: mature (stop at 2, but UI shows 3 for complete)
+  bool cropsMature = false;
+
+  FarmZoneComponent({required super.position, required super.size});
+
+  void irrigate(String newMethod) {
+    method = newMethod;
+    isIrrigated = true;
+    // Start irrigation effect (e.g., water particles)
+    add(ParticleSystemComponent(
+      particle: Particle.generate(
+        count: 50,
+        generator: (i) => AcceleratedParticle(
+          acceleration: Vector2(0, 100),
+          child: CircleParticle(
+            radius: 2,
+            paint: Paint()..color = Colors.blue.withValues(alpha: 0.5),
+          ),
+        ),
+      ),
+    ));
+  }
+
+  void advanceGrowthStage() {
+    if (growthStage < 2) {
+      growthStage++;
+      if (growthStage == 2) {
+        cropsMature = true;
+      }
+      // Growth effect (scale up)
+      add(ScaleEffect.to(Vector2.all(1.1), EffectController(duration: 0.5)));
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final basePaint = Paint()..color = Colors.brown.shade400;
+    canvas.drawRect(size.toRect(), basePaint);
+
+    // Draw crops based on stage
+    final cropPaint = Paint()..color = Colors.green.shade800;
+    int cropCount = growthStage + 1; // More crops as stages advance
+    for (int i = 0; i < cropCount; i++) {
+      double cropHeight = size.y * 0.3 * (growthStage + 1);
+      canvas.drawRect(
+        Rect.fromLTWH(i * size.x / cropCount, size.y - cropHeight, size.x / cropCount * 0.8, cropHeight),
+        cropPaint,
+      );
+    }
+
+    if (isIrrigated) {
+      // Irrigation visuals (lines for drip, curves for contour)
+      final irrPaint = Paint()..color = Colors.blue..strokeWidth = 2;
+      if (method == 'drip') {
+        for (double y = size.y * 0.2; y < size.y; y += 20) {
+          canvas.drawLine(Offset(0, y), Offset(size.x, y), irrPaint);
+        }
+      } else if (method == 'contour') {
+        final path = Path();
+        path.moveTo(0, size.y / 2);
+        path.quadraticBezierTo(size.x / 2, size.y / 2 - 20, size.x, size.y / 2);
+        canvas.drawPath(path, irrPaint..style = PaintingStyle.stroke);
+      }
+    }
+  }
+}
+
+class WaterFlowParticleSystem extends ParticleSystemComponent {
+  WaterFlowParticleSystem({required Vector2 position})
+      : super(
+          position: position,
+          particle: Particle.generate(
+            count: 100,
+            lifespan: 2.0,
+            generator: (i) => MovingParticle(
+              to: Vector2(0, 300), // Flow downward
+              child: CircleParticle(
+                radius: 3,
+                paint: Paint()..color = Colors.blue.shade300,
+              ),
+            ),
+          ),
+        );
+}
+
 class PipeComponent extends PositionComponent
     with HasGameReference<WaterPollutionGame>, TapCallbacks {
   int rotationState = 0; // 0-3 for 90 deg rotations
@@ -3867,34 +3915,31 @@ class PipeComponent extends PositionComponent
   }
 }
 
-class WildlifeComponent extends SpriteAnimationComponent
-    with HasGameReference<WaterPollutionGame> {
+class WildlifeComponent extends SpriteAnimationComponent with HasGameReference<WaterPollutionGame> {
   WildlifeComponent({required super.position, required super.size});
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
-    try {
-      final image = await game.images.load('wildlife.png');
-      animation = SpriteAnimation.fromFrameData(
-        image,
-        SpriteAnimationData.sequenced(
-          amount: 4,
-          stepTime: 0.1,
-          textureSize: Vector2(32, 32),
-        ),
-      );
-    } catch (e) {
-      // If image not found, create a simple placeholder
-      debugPrint('Wildlife image not found: $e');
-    }
+    // Assume 'wildlife.png' has frames for different animals; random type
+    final type = Random().nextInt(3); // 0: bird, 1: frog, 2: cattle
+    final image = await game.images.load('wildlife.png');
+    animation = SpriteAnimation.fromFrameData(
+      image,
+      SpriteAnimationData.sequenced(
+        amount: 4,
+        stepTime: 0.1 + type * 0.05, // Vary speed
+        textureSize: Vector2(32, 32),
+      ),
+    );
   }
 
   @override
   void update(double dt) {
     super.update(dt);
-    position.x += 50 * dt;
-    if (position.x > game.size.x) removeFromParent();
+    position.x += 50 * dt * (Random().nextBool() ? 1 : -1); // Random wander
+    position.y += sin(position.x * 0.1) * 20 * dt; // Gentle bob
+    if (position.x > game.size.x || position.x < 0) removeFromParent();
   }
 }
 
@@ -4240,99 +4285,6 @@ class SortingFacilityBackground extends PositionComponent {
         height: size.y * 0.4,
       ),
       lightPaint,
-    );
-  }
-}
-
-class ConveyorBeltComponent extends PositionComponent {
-  double animationOffset = 0.0;
-  
-  ConveyorBeltComponent({required super.position, required super.size}) {
-    priority = 0;
-  }
-  
-  @override
-  void update(double dt) {
-    super.update(dt);
-    animationOffset += dt * 30; // Belt speed
-    if (animationOffset > 40) animationOffset = 0;
-  }
-  
-  @override
-  void render(Canvas canvas) {
-    // Belt body with metallic look
-    final beltGradient = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        const Color(0xFF3A3A3A),
-        const Color(0xFF2A2A2A),
-        const Color(0xFF3A3A3A),
-      ],
-      stops: [0.0, 0.5, 1.0],
-    );
-    
-    final beltPaint = Paint()
-      ..shader = beltGradient.createShader(size.toRect());
-    
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        size.toRect(),
-        const Radius.circular(8),
-      ),
-      beltPaint,
-    );
-    
-    // Animated belt lines
-    final linePaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.3)
-      ..strokeWidth = 3;
-    
-    for (double i = -animationOffset; i < size.x + 40; i += 40) {
-      canvas.drawLine(
-        Offset(i, 0),
-        Offset(i, size.y),
-        linePaint,
-      );
-    }
-    
-    // Belt edges with highlights
-    final edgePaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Colors.white.withValues(alpha: 0.2),
-          Colors.black.withValues(alpha: 0.3),
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, size.x, 10));
-    
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.x, 10), edgePaint);
-    canvas.drawRect(Rect.fromLTWH(0, size.y - 10, size.x, 10), edgePaint);
-    
-    // Rollers at edges
-    _drawRoller(canvas, 20, size.y / 2);
-    _drawRoller(canvas, size.x - 20, size.y / 2);
-  }
-  
-  void _drawRoller(Canvas canvas, double x, double y) {
-    final rollerPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          const Color(0xFF5A5A5A),
-          const Color(0xFF2A2A2A),
-        ],
-      ).createShader(
-        Rect.fromCenter(center: Offset(x, y), width: 40, height: 40),
-      );
-    
-    canvas.drawCircle(Offset(x, y), 20, rollerPaint);
-    
-    // Roller shine
-    canvas.drawCircle(
-      Offset(x - 5, y - 5),
-      8,
-      Paint()..color = Colors.white.withValues(alpha: 0.3),
     );
   }
 }
