@@ -103,7 +103,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     if (currentPhase == 2 && bins.isNotEmpty) {
       _repositionSortingComponents();
     } else if (currentPhase == 4) {
-      _repositionAgricultureComponents();
+      _repositionAgricultureComponents(); // NEW: Handle Phase 4 resize
     }
   }
 
@@ -139,56 +139,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
         stackCenterY - (i * 3.0),
       );
       visibleWaste[i].size = Vector2.all(itemSize);
-    }
-  }
-
-  void _repositionAgricultureComponents() {
-    final isLandscape = size.x > size.y;
-    
-    // Reposition river
-    final river = children.whereType<EnhancedRiverComponent>().firstOrNull;
-    if (river != null) {
-      if (isLandscape) {
-        // Desktop/Tablet: River on left (EXACTLY 30%)
-        final riverWidth = size.x * 0.30;
-        river.size = Vector2(riverWidth, size.y * 0.95);
-        river.position = Vector2(0, size.y * 0.025);
-      } else {
-        // Mobile: River on top (EXACTLY 30%)
-        final riverHeight = size.y * 0.30;
-        river.size = Vector2(size.x * 0.95, riverHeight);
-        river.position = Vector2(size.x * 0.025, 0);
-      }
-      river.generateWindingRiverPath();
-    }
-    
-    // Reposition farms
-    if (isLandscape) {
-      final riverWidth = size.x * 0.30;
-      final farmStartX = riverWidth + size.x * 0.05;
-      final farmAreaWidth = size.x * 0.70 - size.x * 0.10;
-      final farmSize = Vector2(farmAreaWidth * 0.28, size.y * 0.25);
-      
-      for (int i = 0; i < farmZones.length; i++) {
-        farmZones[i].position = Vector2(
-          farmStartX + (farmAreaWidth / 3) * i + farmAreaWidth / 6,
-          size.y * 0.5,
-        );
-        farmZones[i].size = farmSize;
-      }
-    } else {
-      final riverHeight = size.y * 0.30;
-      final farmStartY = riverHeight + size.y * 0.05;
-      final farmAreaHeight = size.y * 0.70 - size.y * 0.10;
-      final farmSize = Vector2(size.x * 0.28, farmAreaHeight * 0.35);
-      
-      for (int i = 0; i < farmZones.length; i++) {
-        farmZones[i].position = Vector2(
-          (size.x / 4) * (i + 0.5),
-          farmStartY + farmAreaHeight * 0.3,
-        );
-        farmZones[i].size = farmSize;
-      }
     }
   }
 
@@ -877,7 +827,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   }
 
   void _setupAgriculturePhase() async {
-    // Clear previous
+    // Clear previous components
     removeAll(children.whereType<WaterTileComponent>());
     removeAll(children.whereType<AgricultureBackground>());
     removeAll(children.whereType<EnhancedRiverComponent>());
@@ -886,33 +836,91 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     
     await Future.delayed(const Duration(milliseconds: 100));
     
-    // Add farm background
+    // Wait for proper canvas sizing
+    int attempts = 0;
+    while ((size.x == 0 || size.y == 0 || size.x < 100 || size.y < 100) && attempts < 20) {
+      debugPrint('Canvas not ready (attempt ${attempts + 1}): ${size.x} x ${size.y}');
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+    
+    if (size.x == 0 || size.y == 0) {
+      debugPrint('ERROR: Canvas size invalid for Phase 4!');
+      return;
+    }
+    
+    // Add green background for remaining space
     add(AgricultureBackground(size: size));
     
-    // Determine layout based on screen aspect ratio
-    final isLandscape = size.x > size.y;
+    // Create adaptive river layout
+    _createAdaptiveRiverLayout();
     
-    if (isLandscape) {
-      // Desktop/Tablet: River on left (EXACTLY 30%), farms on right (70%)
-      final riverWidth = size.x * 0.30; // EXACTLY 30%
-      final river = EnhancedRiverComponent(
-        size: Vector2(riverWidth, size.y * 0.95),
-        position: Vector2(0, size.y * 0.025),
+    resumeEngine();
+  }
+
+  void _createAdaptiveRiverLayout() {
+    final isLandscape = size.x > size.y;
+    final isDesktop = size.x >= 1024; // Desktop/Laptop threshold
+    final isTablet = size.x >= 600 && size.x < 1024;
+    // final isMobile = size.x < 600;
+    
+    EnhancedRiverComponent river;
+    
+    if (isLandscape || isDesktop || isTablet) {
+      // DESKTOP/TABLET LANDSCAPE: Vertical river on left (30% width)
+      final riverWidth = size.x * 0.30;
+      final riverHeight = size.y * 0.95;
+      final riverX = 0.0;
+      final riverY = size.y * 0.025;
+      
+      river = EnhancedRiverComponent(
+        size: Vector2(riverWidth, riverHeight),
+        position: Vector2(riverX, riverY),
+        flowDirection: RiverFlowDirection.topToBottom,
+        orientation: RiverOrientation.vertical,
       );
-      add(river);
       
-      // Position farms on the right side (70% area)
-      final farmStartX = riverWidth + size.x * 0.05;
-      final farmAreaWidth = size.x * 0.70 - size.x * 0.10; // 70% minus margins
+      debugPrint('🏞️ Created VERTICAL river: ${riverWidth}w x ${riverHeight}h at ($riverX, $riverY)');
+    } else {
+      // MOBILE PORTRAIT: Horizontal river on top (30% height)
+      final riverWidth = size.x * 0.95;
+      final riverHeight = size.y * 0.30;
+      final riverX = size.x * 0.025;
+      final riverY = 0.0;
+      
+      river = EnhancedRiverComponent(
+        size: Vector2(riverWidth, riverHeight),
+        position: Vector2(riverX, riverY),
+        flowDirection: RiverFlowDirection.leftToRight,
+        orientation: RiverOrientation.horizontal,
+      );
+      
+      debugPrint('🏞️ Created HORIZONTAL river: ${riverWidth}w x ${riverHeight}h at ($riverX, $riverY)');
+    }
+    
+    add(river);
+    
+    // Position farms in remaining space
+    _positionFarmsInAvailableSpace(river);
+  }
+
+  void _positionFarmsInAvailableSpace(EnhancedRiverComponent river) {
+    final isVerticalRiver = river.orientation == RiverOrientation.vertical;
+    
+    farmZones = [];
+    growthTimers = [];
+    
+    if (isVerticalRiver) {
+      // VERTICAL RIVER: Farms on the right side (70% width remaining)
+      final riverWidth = river.size.x;
+      final farmStartX = riverWidth + size.x * 0.05; // 5% margin from river
+      final farmAreaWidth = size.x - riverWidth - (size.x * 0.10); // 70% - margins
       final farmSize = Vector2(farmAreaWidth * 0.28, size.y * 0.25);
-      
-      farmZones = [];
-      growthTimers = [];
       
       for (int i = 0; i < totalFarms; i++) {
         final farm = FarmZoneComponent(
           position: Vector2(
-            farmStartX + (farmAreaWidth / 3) * i + farmAreaWidth / 6,
+            farmStartX + (farmAreaWidth / 3) * i + (farmAreaWidth / 6),
             size.y * 0.5,
           ),
           size: farmSize,
@@ -920,34 +928,16 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
         farmZones.add(farm);
         add(farm);
         
-        growthTimers.add(Timer(5.0, onTick: () {
-          farm.advanceGrowthStage();
-          if (farm.growthStage == 2) {
-            cropsMature++;
-            onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
-            
-            if (cropsMature >= 2) {
-              _completePhase4();
-            }
-          }
-        }, repeat: true));
+        _createGrowthTimer(farm, i);
       }
+      
+      debugPrint('🌾 Positioned $totalFarms farms in RIGHT area (vertical river layout)');
     } else {
-      // Mobile: River on top (EXACTLY 30% height), farms on bottom (70% height)
-      final riverHeight = size.y * 0.30; // EXACTLY 30%
-      final river = EnhancedRiverComponent(
-        size: Vector2(size.x * 0.95, riverHeight),
-        position: Vector2(size.x * 0.025, 0),
-      );
-      add(river);
-      
-      // Position farms at bottom (70% area)
-      final farmStartY = riverHeight + size.y * 0.05;
-      final farmAreaHeight = size.y * 0.70 - size.y * 0.10; // 70% minus margins
+      // HORIZONTAL RIVER: Farms on the bottom (70% height remaining)
+      final riverHeight = river.size.y;
+      final farmStartY = riverHeight + size.y * 0.05; // 5% margin from river
+      final farmAreaHeight = size.y - riverHeight - (size.y * 0.10); // 70% - margins
       final farmSize = Vector2(size.x * 0.28, farmAreaHeight * 0.35);
-      
-      farmZones = [];
-      growthTimers = [];
       
       for (int i = 0; i < totalFarms; i++) {
         final farm = FarmZoneComponent(
@@ -960,23 +950,64 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
         farmZones.add(farm);
         add(farm);
         
-        growthTimers.add(Timer(5.0, onTick: () {
-          farm.advanceGrowthStage();
-          if (farm.growthStage == 2) {
-            cropsMature++;
-            onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
-            
-            if (cropsMature >= 2) {
-              _completePhase4();
-            }
-          }
-        }, repeat: true));
+        _createGrowthTimer(farm, i);
       }
+      
+      debugPrint('🌾 Positioned $totalFarms farms in BOTTOM area (horizontal river layout)');
+    }
+  }
+
+  void _createGrowthTimer(FarmZoneComponent farm, int index) {
+    final timer = Timer(5.0, onTick: () {
+      farm.advanceGrowthStage();
+      if (farm.growthStage == 2) {
+        cropsMature++;
+        onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
+        
+        if (cropsMature >= 2) {
+          _completePhase4();
+        }
+      }
+    }, repeat: true);
+    
+    growthTimers.add(timer);
+  }
+
+  void _repositionAgricultureComponents() {
+    final river = children.whereType<EnhancedRiverComponent>().firstOrNull;
+    if (river == null) {
+      debugPrint('⚠️ No river found for repositioning');
+      return;
     }
     
-    resumeEngine();
-  }
+    // Update river size and position based on new screen dimensions
+    final isLandscape = size.x > size.y;
     
+    if (isLandscape) {
+      // Desktop/Tablet: Vertical river
+      final riverWidth = size.x * 0.30;
+      river.size = Vector2(riverWidth, size.y * 0.95);
+      river.position = Vector2(0, size.y * 0.025);
+      river.orientation = RiverOrientation.vertical;
+      river.flowDirection = RiverFlowDirection.topToBottom;
+    } else {
+      // Mobile: Horizontal river
+      final riverHeight = size.y * 0.30;
+      river.size = Vector2(size.x * 0.95, riverHeight);
+      river.position = Vector2(size.x * 0.025, 0);
+      river.orientation = RiverOrientation.horizontal;
+      river.flowDirection = RiverFlowDirection.leftToRight;
+    }
+    
+    // Regenerate river path with new dimensions
+    river.generateWindingRiverPath();
+    
+    // Reposition farms
+    _positionFarmsInAvailableSpace(river);
+    
+    debugPrint('♻️ Repositioned river and farms for new screen size: ${size.x} x ${size.y}');
+  }
+
   void irrigateFarm(FarmZoneComponent farm, String method) {
     if (!pipelineConnected) return; // Must redirect water first
 

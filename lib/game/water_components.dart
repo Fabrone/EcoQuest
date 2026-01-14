@@ -27,6 +27,16 @@ extension ColorExtension on Color {
   }
 }
 
+enum RiverOrientation {
+  vertical,   // Desktop/Laptop - flows top to bottom
+  horizontal, // Mobile - flows left to right
+}
+
+enum RiverFlowDirection {
+  topToBottom,
+  leftToRight,
+}
+
 class SpeedboatComponent extends PositionComponent
     with
         HasGameReference<WaterPollutionGame>,
@@ -4155,8 +4165,18 @@ class EnhancedRiverComponent extends PositionComponent with HasGameReference<Wat
   late Path riverBezierPath;
   double riverWidth = 100.0;
   
-  EnhancedRiverComponent({required Vector2 size, required Vector2 position})
-      : super(size: size, position: position) {
+  // NEW PROPERTIES
+  RiverOrientation orientation;
+  RiverFlowDirection flowDirection;
+  double windingIntensity = 0.15; // Controls how much the river winds (0.0 - 0.3)
+  int pathSegments = 12; // Number of winding segments
+  
+  EnhancedRiverComponent({
+    required Vector2 size,
+    required Vector2 position,
+    required this.orientation,
+    required this.flowDirection,
+  }) : super(size: size, position: position) {
     priority = -5;
     generateWindingRiverPath();
     _initializeFlowParticles();
@@ -4172,61 +4192,100 @@ class EnhancedRiverComponent extends PositionComponent with HasGameReference<Wat
     return false;
   }
 
-  // Update the generateWindingRiverPath method to flow top to bottom
   void generateWindingRiverPath() {
     riverPath.clear();
     
-    final isLandscape = size.x > size.y;
-    
-    if (isLandscape) {
-      // Desktop/Tablet: Vertical flow (top to bottom)
-      final startX = size.x * 0.5;
-      riverPath.add(Vector2(startX, 0));
-      
-      final segments = 8;
-      final random = Random(42);
-      
-      for (int i = 1; i <= segments; i++) {
-        final yPos = (size.y / segments) * i;
-        final xVariation = sin(i * 0.8) * (size.x * 0.15) + 
-                          (random.nextDouble() - 0.5) * (size.x * 0.1);
-        final xPos = startX + xVariation;
-        
-        riverPath.add(Vector2(xPos.clamp(size.x * 0.2, size.x * 0.8), yPos));
-      }
+    if (orientation == RiverOrientation.vertical) {
+      _generateDesktopVerticalPath();
     } else {
-      // Mobile: Horizontal flow (left to right)
-      final startY = size.y * 0.5;
-      riverPath.add(Vector2(0, startY));
-      
-      final segments = 8;
-      final random = Random(42);
-      
-      for (int i = 1; i <= segments; i++) {
-        final xPos = (size.x / segments) * i;
-        final yVariation = sin(i * 0.8) * (size.y * 0.15) + 
-                          (random.nextDouble() - 0.5) * (size.y * 0.1);
-        final yPos = startY + yVariation;
-        
-        riverPath.add(Vector2(xPos, yPos.clamp(size.y * 0.2, size.y * 0.8)));
-      }
+      _generateMobileHorizontalPath();
     }
     
-    // Create smooth Bezier path
+    // Create smooth Bezier path from generated points
+    _createSmoothBezierPath();
+    
+    // Calculate adaptive river width based on size
+    riverWidth = orientation == RiverOrientation.vertical 
+        ? size.x * 0.65  // 65% of river component width
+        : size.y * 0.65; // 65% of river component height
+    
+    debugPrint('🌊 River path generated: ${riverPath.length} points, width: $riverWidth');
+  }
+
+  void _generateDesktopVerticalPath() {
+    final random = Random(42); // Fixed seed for consistency
+    final startX = size.x * 0.5; // Start at horizontal center
+    
+    // Add starting point at top
+    riverPath.add(Vector2(startX, 0));
+    
+    // Generate winding points along vertical axis
+    for (int i = 1; i <= pathSegments; i++) {
+      final yPos = (size.y / pathSegments) * i;
+      
+      // Calculate winding offset using sine wave + randomness
+      final sineWave = sin(i * 0.7) * (size.x * windingIntensity);
+      final randomWiggle = (random.nextDouble() - 0.5) * (size.x * windingIntensity * 0.5);
+      final xVariation = sineWave + randomWiggle;
+      
+      final xPos = startX + xVariation;
+      
+      // Clamp to stay within bounds (20% margins)
+      final clampedX = xPos.clamp(size.x * 0.20, size.x * 0.80);
+      
+      riverPath.add(Vector2(clampedX, yPos));
+    }
+    
+    debugPrint('📍 Generated VERTICAL path: ${riverPath.length} points (top→bottom)');
+  }
+
+  void _generateMobileHorizontalPath() {
+    final random = Random(42); // Fixed seed for consistency
+    final startY = size.y * 0.5; // Start at vertical center
+    
+    // Add starting point at left
+    riverPath.add(Vector2(0, startY));
+    
+    // Generate winding points along horizontal axis
+    for (int i = 1; i <= pathSegments; i++) {
+      final xPos = (size.x / pathSegments) * i;
+      
+      // Calculate winding offset using sine wave + randomness
+      final sineWave = sin(i * 0.7) * (size.y * windingIntensity);
+      final randomWiggle = (random.nextDouble() - 0.5) * (size.y * windingIntensity * 0.5);
+      final yVariation = sineWave + randomWiggle;
+      
+      final yPos = startY + yVariation;
+      
+      // Clamp to stay within bounds (20% margins)
+      final clampedY = yPos.clamp(size.y * 0.20, size.y * 0.80);
+      
+      riverPath.add(Vector2(xPos, clampedY));
+    }
+    
+    debugPrint('📍 Generated HORIZONTAL path: ${riverPath.length} points (left→right)');
+  }
+
+  void _createSmoothBezierPath() {
     riverBezierPath = Path();
+    
+    if (riverPath.isEmpty) return;
+    
     riverBezierPath.moveTo(riverPath.first.x, riverPath.first.y);
     
-    for (int i = 1; i < riverPath.length - 1; i++) {
+    // Use cubic Bezier curves for smooth winding
+    for (int i = 0; i < riverPath.length - 1; i++) {
       final current = riverPath[i];
       final next = riverPath[i + 1];
       
+      // Calculate smooth control points
       final controlPoint1 = Vector2(
-        current.x + (next.x - current.x) * 0.3,
-        current.y + (next.y - current.y) * 0.3,
+        current.x + (next.x - current.x) * 0.4,
+        current.y + (next.y - current.y) * 0.4,
       );
       final controlPoint2 = Vector2(
-        current.x + (next.x - current.x) * 0.7,
-        current.y + (next.y - current.y) * 0.7,
+        current.x + (next.x - current.x) * 0.6,
+        current.y + (next.y - current.y) * 0.6,
       );
       
       riverBezierPath.cubicTo(
@@ -4236,7 +4295,7 @@ class EnhancedRiverComponent extends PositionComponent with HasGameReference<Wat
       );
     }
   }
-  
+
   void _initializeFlowParticles() {
     flowParticles.clear();
     for (int i = 0; i < 80; i++) {
