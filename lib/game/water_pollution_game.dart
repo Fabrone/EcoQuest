@@ -45,7 +45,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   
   // Phase 4 - Agriculture
   int waterEfficiency = 0;
-  List<FarmZoneComponent> farmZones = [];
+  //List<FarmZoneComponent> farmZones = [];
   int farmsIrrigated = 0;
   int cropsMature = 0;
   int totalFarms = 3;
@@ -829,10 +829,9 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   void _setupAgriculturePhase() async {
     // Clear previous components
     removeAll(children.whereType<WaterTileComponent>());
-    removeAll(children.whereType<AgricultureBackground>());
+    // removeAll(children.whereType<AgricultureBackground>()); // Remove old background
     removeAll(children.whereType<EnhancedRiverComponent>());
     removeAll(children.whereType<DrawnPipeComponent>());
-    removeAll(children.whereType<FarmZoneComponent>());
     
     await Future.delayed(const Duration(milliseconds: 100));
     
@@ -849,8 +848,8 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       return;
     }
     
-    // Add green background for remaining space
-    add(AgricultureBackground(size: size));
+    // Add UNIFIED background (single color/texture)
+    add(UnifiedAgricultureBackground(size: size));
     
     // Create adaptive river layout
     _createAdaptiveRiverLayout();
@@ -900,77 +899,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     
     add(river);
     
-    // Position farms in remaining space
-    _positionFarmsInAvailableSpace(river);
-  }
-
-  void _positionFarmsInAvailableSpace(EnhancedRiverComponent river) {
-    final isVerticalRiver = river.orientation == RiverOrientation.vertical;
-    
-    farmZones = [];
-    growthTimers = [];
-    
-    if (isVerticalRiver) {
-      // VERTICAL RIVER: Farms on the right side (70% width remaining)
-      final riverWidth = river.size.x;
-      final farmStartX = riverWidth + size.x * 0.05; // 5% margin from river
-      final farmAreaWidth = size.x - riverWidth - (size.x * 0.10); // 70% - margins
-      final farmSize = Vector2(farmAreaWidth * 0.28, size.y * 0.25);
-      
-      for (int i = 0; i < totalFarms; i++) {
-        final farm = FarmZoneComponent(
-          position: Vector2(
-            farmStartX + (farmAreaWidth / 3) * i + (farmAreaWidth / 6),
-            size.y * 0.5,
-          ),
-          size: farmSize,
-        );
-        farmZones.add(farm);
-        add(farm);
-        
-        _createGrowthTimer(farm, i);
-      }
-      
-      debugPrint('🌾 Positioned $totalFarms farms in RIGHT area (vertical river layout)');
-    } else {
-      // HORIZONTAL RIVER: Farms on the bottom (70% height remaining)
-      final riverHeight = river.size.y;
-      final farmStartY = riverHeight + size.y * 0.05; // 5% margin from river
-      final farmAreaHeight = size.y - riverHeight - (size.y * 0.10); // 70% - margins
-      final farmSize = Vector2(size.x * 0.28, farmAreaHeight * 0.35);
-      
-      for (int i = 0; i < totalFarms; i++) {
-        final farm = FarmZoneComponent(
-          position: Vector2(
-            (size.x / 4) * (i + 0.5),
-            farmStartY + farmAreaHeight * 0.3,
-          ),
-          size: farmSize,
-        );
-        farmZones.add(farm);
-        add(farm);
-        
-        _createGrowthTimer(farm, i);
-      }
-      
-      debugPrint('🌾 Positioned $totalFarms farms in BOTTOM area (horizontal river layout)');
-    }
-  }
-
-  void _createGrowthTimer(FarmZoneComponent farm, int index) {
-    final timer = Timer(5.0, onTick: () {
-      farm.advanceGrowthStage();
-      if (farm.growthStage == 2) {
-        cropsMature++;
-        onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
-        
-        if (cropsMature >= 2) {
-          _completePhase4();
-        }
-      }
-    }, repeat: true);
-    
-    growthTimers.add(timer);
   }
 
   void _repositionAgricultureComponents() {
@@ -1002,129 +930,17 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Regenerate river path with new dimensions
     river.generateWindingRiverPath();
     
-    // Reposition farms
-    _positionFarmsInAvailableSpace(river);
-    
     debugPrint('♻️ Repositioned river and farms for new screen size: ${size.x} x ${size.y}');
   }
 
-  void irrigateFarm(FarmZoneComponent farm, String method) {
-    if (!pipelineConnected) return; // Must redirect water first
-
-    farm.irrigate(method);
-    farmsIrrigated++;
-    
-    // Start growth (seedling -> young -> mature over 15s total)
-    final index = farmZones.indexOf(farm);
-    growthTimers[index].start(); // 5s per stage
-
-    // Calculate efficiency
-    waterEfficiency = _calculateWaterEfficiency();
-    
-    // Spawn wildlife for revival
-    wildlifeSpawned++;
-    add(WildlifeComponent(
-      position: Vector2(Random().nextDouble() * size.x, Random().nextDouble() * size.y * 0.8),
-      size: Vector2(32, 32),
-    ));
-    
-    onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
-  }
-  
-  int _calculateWaterEfficiency() {
-    int totalEfficiency = 0;
-    for (var farm in farmZones) {
-      if (farm.method == 'drip') {
-        totalEfficiency += 90;
-      } else if (farm.method == 'contour') {
-        totalEfficiency += 85;
-      }
-    }
-    return farmZones.isNotEmpty ? (totalEfficiency / farmZones.length).round() : 0;
-  }
-
-void startDrawingIrrigation(String method) {
-  selectedIrrigationMethod = method;
-  isDrawingPipe = true;
-  currentDrawnPath.clear();
-}
-
-void addPointToPath(Vector2 point) {
-  if (isDrawingPipe && selectedIrrigationMethod != null) {
-    currentDrawnPath.add(point);
-  }
-}
-
-void finishDrawingIrrigation() {
-  if (currentDrawnPath.length < 2) {
-    isDrawingPipe = false;
+  void startDrawingIrrigation(String method) {
+    selectedIrrigationMethod = method;
+    isDrawingPipe = true;
     currentDrawnPath.clear();
-    return;
   }
-  
-  // Create irrigation pipe from drawn path
-  final river = children.whereType<EnhancedRiverComponent>().firstOrNull;
-  if (river == null) return;
-  
-  // Check if path starts near river
-  final startPoint = currentDrawnPath.first;
-  final riverPoint = river.getRiverPointAtY(startPoint.y);
-  
-  if (riverPoint != null && (riverPoint - startPoint).length < size.x * 0.15) {
-    // Create pipe component
-    final pipe = DrawnPipeComponent(
-      path: List.from(currentDrawnPath),
-      irrigationType: selectedIrrigationMethod!,
-    );
-    add(pipe);
-    
-    // Check which farms are now irrigated
-    _checkFarmIrrigation();
-    
-    // Enable water flow
-    pipe.startWaterFlow();
-  }
-  
-  isDrawingPipe = false;
-  currentDrawnPath.clear();
-  selectedIrrigationMethod = null;
-}
 
-void _checkFarmIrrigation() {
-  final pipes = children.whereType<DrawnPipeComponent>();
-  
-  for (var farm in farmZones) {
-    if (!farm.isIrrigated) {
-      for (var pipe in pipes) {
-        // Check if pipe endpoint is near farm
-        if (pipe.path.isNotEmpty) {
-          final endpoint = pipe.path.last;
-          final distance = (endpoint - farm.position).length;
-          
-          if (distance < size.x * 0.15) {
-            farm.irrigate(pipe.irrigationType);
-            farmsIrrigated++;
-            
-            // Start growth timer
-            final index = farmZones.indexOf(farm);
-            if (index >= 0 && index < growthTimers.length) {
-              growthTimers[index].start();
-            }
-            
-            waterEfficiency = _calculateWaterEfficiency();
-            onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
-            break;
-          }
-        }
-      }
-    }
-  }
-  
-  // Check if pipeline is considered "connected"
-  pipelineConnected = farmsIrrigated > 0;
-}
 
-  void _completePhase4() {
+  /*void _completePhase4() {
     // Bonus wildlife for completion
     for (int i = 0; i < 5; i++) {
       add(WildlifeComponent(
@@ -1134,7 +950,7 @@ void _checkFarmIrrigation() {
     }
     onPhaseComplete?.call(4);
     pauseEngine();
-  }
+  }*/
   
   int calculateFinalScore() {
     int score = 0;
@@ -1156,8 +972,6 @@ void _checkFarmIrrigation() {
     score += zonesTreated * 20;
     if (pollutionMeter == 0) score += 150;
     
-    // Agriculture bonus
-    score += farmZones.where((f) => f.cropsMature).length * 30;
     if (waterEfficiency >= 85) score += 100;
     
     return score;

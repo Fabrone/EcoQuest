@@ -1124,7 +1124,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  Widget _buildAgricultureInterface() {
+  /*Widget _buildAgricultureInterface() {
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
     final isTablet = size.width >= 600 && size.width < 1024;
@@ -1390,6 +1390,12 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         ),
       ],
     );
+  }*/
+
+  Widget _buildAgricultureInterface() {
+    // Return empty container - no UI overlays
+    // River and background are rendered by Flame game components
+    return const SizedBox.shrink(); // Invisible widget - no overlays
   }
 
   void _showIrrigationMethodDialog() {

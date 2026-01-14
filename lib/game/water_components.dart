@@ -3749,31 +3749,6 @@ class RiverRock {
   }
 }
 
-class AgricultureBackground extends PositionComponent {
-  AgricultureBackground({required Vector2 size}) : super(size: size, priority: -10);
-
-  @override
-  void render(Canvas canvas) {
-    // Sky gradient
-    final skyGradient = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [Colors.blue.shade200, Colors.white],
-    );
-    canvas.drawRect(size.toRect(), Paint()..shader = skyGradient.createShader(size.toRect()));
-
-    // Fields
-    final fieldPaint = Paint()..color = Colors.green.shade700;
-    canvas.drawRect(Rect.fromLTWH(0, size.y * 0.4, size.x, size.y * 0.6), fieldPaint);
-
-    // Soil lines for realism
-    final soilPaint = Paint()..color = Colors.brown.shade800..strokeWidth = 2;
-    for (double i = size.y * 0.5; i < size.y; i += 20) {
-      canvas.drawLine(Offset(0, i), Offset(size.x, i), soilPaint);
-    }
-  }
-}
-
 class RiverSourceComponent extends PositionComponent {
   RiverSourceComponent({required super.position, required super.size});
 
@@ -3789,77 +3764,6 @@ class RiverSourceComponent extends PositionComponent {
     }
   }
 }
-
-class FarmZoneComponent extends PositionComponent with HasGameReference<WaterPollutionGame> {
-  String? method;
-  bool isIrrigated = false;
-  int growthStage = 0; // 0: seedling, 1: young, 2: mature (stop at 2, but UI shows 3 for complete)
-  bool cropsMature = false;
-
-  FarmZoneComponent({required super.position, required super.size});
-
-  void irrigate(String newMethod) {
-    method = newMethod;
-    isIrrigated = true;
-    // Start irrigation effect (e.g., water particles)
-    add(ParticleSystemComponent(
-      particle: Particle.generate(
-        count: 50,
-        generator: (i) => AcceleratedParticle(
-          acceleration: Vector2(0, 100),
-          child: CircleParticle(
-            radius: 2,
-            paint: Paint()..color = Colors.blue.withValues(alpha: 0.5),
-          ),
-        ),
-      ),
-    ));
-  }
-
-  void advanceGrowthStage() {
-    if (growthStage < 2) {
-      growthStage++;
-      if (growthStage == 2) {
-        cropsMature = true;
-      }
-      // Growth effect (scale up)
-      add(ScaleEffect.to(Vector2.all(1.1), EffectController(duration: 0.5)));
-    }
-  }
-
-  @override
-  void render(Canvas canvas) {
-    final basePaint = Paint()..color = Colors.brown.shade400;
-    canvas.drawRect(size.toRect(), basePaint);
-
-    // Draw crops based on stage
-    final cropPaint = Paint()..color = Colors.green.shade800;
-    int cropCount = growthStage + 1; // More crops as stages advance
-    for (int i = 0; i < cropCount; i++) {
-      double cropHeight = size.y * 0.3 * (growthStage + 1);
-      canvas.drawRect(
-        Rect.fromLTWH(i * size.x / cropCount, size.y - cropHeight, size.x / cropCount * 0.8, cropHeight),
-        cropPaint,
-      );
-    }
-
-    if (isIrrigated) {
-      // Irrigation visuals (lines for drip, curves for contour)
-      final irrPaint = Paint()..color = Colors.blue..strokeWidth = 2;
-      if (method == 'drip') {
-        for (double y = size.y * 0.2; y < size.y; y += 20) {
-          canvas.drawLine(Offset(0, y), Offset(size.x, y), irrPaint);
-        }
-      } else if (method == 'contour') {
-        final path = Path();
-        path.moveTo(0, size.y / 2);
-        path.quadraticBezierTo(size.x / 2, size.y / 2 - 20, size.x, size.y / 2);
-        canvas.drawPath(path, irrPaint..style = PaintingStyle.stroke);
-      }
-    }
-  }
-}
-
 class WaterFlowParticleSystem extends ParticleSystemComponent {
   WaterFlowParticleSystem({required Vector2 position})
       : super(
@@ -4333,8 +4237,6 @@ class EnhancedRiverComponent extends PositionComponent with HasGameReference<Wat
     // Draw flow particles
     _drawFlowParticles(canvas);
     
-    // Draw river banks
-    _drawRiverBanks(canvas);
   }
   
   void _drawRiverBed(Canvas canvas) {
@@ -4432,75 +4334,6 @@ class EnhancedRiverComponent extends PositionComponent with HasGameReference<Wat
   void _drawFlowParticles(Canvas canvas) {
     for (var particle in flowParticles) {
       particle.render(canvas);
-    }
-  }
-  
-  void _drawRiverBanks(Canvas canvas) {
-    // Draw grassy/muddy banks on both sides
-    final bankPaint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          Colors.green.shade900,
-          Colors.green.shade800,
-          Colors.brown.shade700,
-        ],
-      ).createShader(size.toRect())
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 25;
-    
-    // Left bank
-    final leftBankPath = Path();
-    leftBankPath.moveTo(riverPath.first.x - riverWidth / 2 - 15, riverPath.first.y);
-    for (var point in riverPath) {
-      leftBankPath.lineTo(point.x - riverWidth / 2 - 15, point.y);
-    }
-    canvas.drawPath(leftBankPath, bankPaint);
-    
-    // Right bank
-    final rightBankPath = Path();
-    rightBankPath.moveTo(riverPath.first.x + riverWidth / 2 + 15, riverPath.first.y);
-    for (var point in riverPath) {
-      rightBankPath.lineTo(point.x + riverWidth / 2 + 15, point.y);
-    }
-    canvas.drawPath(rightBankPath, bankPaint);
-    
-    // Add vegetation details on banks
-    _drawBankVegetation(canvas);
-  }
-  
-  void _drawBankVegetation(Canvas canvas) {
-    final random = Random(789);
-    final grassPaint = Paint()
-      ..color = Colors.green.shade700
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round;
-    
-    for (int i = 0; i < riverPath.length - 1; i += 2) {
-      final point = riverPath[i];
-      
-      // Left side vegetation
-      for (int g = 0; g < 3; g++) {
-        final grassX = point.x - riverWidth / 2 - 20 - random.nextDouble() * 15;
-        final grassY = point.y + random.nextDouble() * 30 - 15;
-        
-        canvas.drawLine(
-          Offset(grassX, grassY),
-          Offset(grassX + random.nextDouble() * 4 - 2, grassY - 8 - random.nextDouble() * 8),
-          grassPaint,
-        );
-      }
-      
-      // Right side vegetation
-      for (int g = 0; g < 3; g++) {
-        final grassX = point.x + riverWidth / 2 + 20 + random.nextDouble() * 15;
-        final grassY = point.y + random.nextDouble() * 30 - 15;
-        
-        canvas.drawLine(
-          Offset(grassX, grassY),
-          Offset(grassX + random.nextDouble() * 4 - 2, grassY - 8 - random.nextDouble() * 8),
-          grassPaint,
-        );
-      }
     }
   }
   
@@ -5555,6 +5388,55 @@ class WaterDroplet {
     pathProgress += dt * 0.3;
     if (pathProgress >= 1.0) {
       pathProgress = 0.0;
+    }
+  }
+}
+
+class UnifiedAgricultureBackground extends PositionComponent {
+  UnifiedAgricultureBackground({required Vector2 size}) 
+      : super(size: size, priority: -20); // Lowest priority (render first)
+
+  @override
+  void render(Canvas canvas) {
+    // Single unified gradient background
+    final backgroundGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        const Color(0xFF8BC34A), // Light green
+        const Color(0xFF7CB342), // Medium green
+        const Color(0xFF689F38), // Darker green
+      ],
+      stops: [0.0, 0.5, 1.0],
+    );
+    
+    final backgroundPaint = Paint()
+      ..shader = backgroundGradient.createShader(size.toRect())
+      ..style = PaintingStyle.fill;
+    
+    // Draw full background
+    canvas.drawRect(size.toRect(), backgroundPaint);
+    
+    // Add subtle texture overlay for depth
+    _drawSubtleTexture(canvas);
+  }
+  
+  void _drawSubtleTexture(Canvas canvas) {
+    final random = Random(123);
+    final texturePaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.03);
+    
+    // Light grass texture dots
+    for (int i = 0; i < 200; i++) {
+      final x = random.nextDouble() * size.x;
+      final y = random.nextDouble() * size.y;
+      final radius = 0.5 + random.nextDouble() * 1.5;
+      
+      canvas.drawCircle(
+        Offset(x, y),
+        radius,
+        texturePaint,
+      );
     }
   }
 }
