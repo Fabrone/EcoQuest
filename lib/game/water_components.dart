@@ -4344,6 +4344,23 @@ class EnhancedRiverComponent extends PositionComponent with HasGameReference<Wat
     
     return closest;
   }
+
+  Vector2? getRiverClosestPoint(Vector2 point) {
+    if (riverPath.isEmpty) return null;
+    
+    Vector2 closest = riverPath.first;
+    double minDistance = (riverPath.first - point).length;
+    
+    for (var pathPoint in riverPath) {
+      final distance = (pathPoint - point).length;
+      if (distance < minDistance) {
+        minDistance = distance;
+        closest = pathPoint;
+      }
+    }
+    
+    return closest;
+  }
 }
 
 class WaterFlowParticle {
@@ -4574,99 +4591,503 @@ class UnifiedAgricultureBackground extends PositionComponent {
   }
 }
 
-class HoeComponent extends PositionComponent with DragCallbacks, HasGameReference<WaterPollutionGame> {
-  HoeComponent({required super.position, required super.size}) {
-    anchor = Anchor.center;
-    priority = 20;
+/// Represents a single furrow path drawn by the user
+class FurrowPath {
+  List<Vector2> points;
+  bool isConnectedToRiver;
+  Vector2? riverConnectionPoint;
+  bool hasWater;
+  
+  FurrowPath({
+    required this.points,
+    this.isConnectedToRiver = false,
+    this.riverConnectionPoint,
+    this.hasWater = false,
+  });
+}
+
+/// Water flow animation through furrow
+class WaterFlowAnimation {
+  final FurrowPath furrowPath;
+  final Vector2 startPoint;
+  double progress = 0.0;
+  final double speed = 0.3; // 30% of furrow per second
+  bool isComplete = false;
+  List<WaterDropletParticle> droplets = [];
+  
+  WaterFlowAnimation({
+    required this.furrowPath,
+    required this.startPoint,
+  }) {
+    _initializeDroplets();
   }
-
-  @override
-  Future<void> onLoad() async {
-    // Placeholder: Load sprite if asset added (uncomment and add asset loading)
-    // add(SpriteComponent(sprite: await loadSprite('hoe.png'), size: size));
-
-    // Fallback: Simple drawn hoe shape if no sprite
+  
+  void _initializeDroplets() {
+    // Create water droplets along the path
+    for (int i = 0; i < 20; i++) {
+      droplets.add(WaterDropletParticle(
+        offset: i * 0.05, // Staggered start
+      ));
+    }
   }
-
-  @override
-  void render(Canvas canvas) {
-    // Simple hoe render (brown handle, gray blade)
-    final handlePaint = Paint()..color = Colors.brown;
-    canvas.drawRect(Rect.fromLTWH(size.x / 2 - 5, 0, 10, size.y - 10), handlePaint);
-
-    final bladePaint = Paint()..color = Colors.grey;
-    final bladePath = Path()
-      ..moveTo(size.x / 2 - 15, size.y - 10)
-      ..lineTo(size.x / 2 + 15, size.y - 10)
-      ..lineTo(size.x / 2, size.y)
-      ..close();
-    canvas.drawPath(bladePath, bladePaint);
+  
+  void update(double dt) {
+    if (isComplete) return;
+    
+    progress += speed * dt;
+    
+    // Update all droplets
+    for (var droplet in droplets) {
+      droplet.update(dt, speed);
+    }
+    
+    if (progress >= 1.0) {
+      isComplete = true;
+      furrowPath.hasWater = true;
+    }
   }
-
-  @override
-  void onDragStart(DragStartEvent event) {
-    super.onDragStart(event);
-    game.startDiggingFurrow();
-    game.currentDrawnPath.add(event.localPosition);
-  }
-
-  @override
-  void onDragUpdate(DragUpdateEvent event) {
-    super.onDragUpdate(event);
-    position += event.localDelta; // Move hoe with drag
-    game.updateFurrowPath(event.localDelta);
-  }
-
-  @override
-  void onDragEnd(DragEndEvent event) {
-    super.onDragEnd(event);
-    game.completeFurrowDrag();
+  
+  void render(Canvas canvas, List<Vector2> pathPoints) {
+    if (pathPoints.length < 2) return;
+    
+    final currentIndex = (progress * (pathPoints.length - 1)).floor();
+    
+    // Draw water flowing along the furrow
+    for (int i = 0; i <= currentIndex && i < pathPoints.length - 1; i++) {
+      final start = pathPoints[i];
+      final end = pathPoints[i + 1];
+      
+      // Draw water line
+      final waterPaint = Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            Colors.blue.shade400.withValues(alpha: 0.7),
+            Colors.cyan.shade300.withValues(alpha: 0.8),
+            Colors.blue.shade400.withValues(alpha: 0.7),
+          ],
+        ).createShader(Rect.fromPoints(
+          Offset(start.x, start.y),
+          Offset(end.x, end.y),
+        ))
+        ..strokeWidth = 8
+        ..strokeCap = StrokeCap.round;
+      
+      canvas.drawLine(
+        Offset(start.x, start.y),
+        Offset(end.x, end.y),
+        waterPaint,
+      );
+    }
+    
+    // Render water droplets
+    for (var droplet in droplets) {
+      droplet.render(canvas, pathPoints, progress);
+    }
   }
 }
 
-class FurrowComponent extends PositionComponent with HasGameReference<WaterPollutionGame> {
+/// Individual water droplet particle
+class WaterDropletParticle {
+  double offset; // Start offset along path (0-1)
+  double localProgress = 0.0;
+  
+  WaterDropletParticle({required this.offset});
+  
+  void update(double dt, double flowSpeed) {
+    localProgress += flowSpeed * dt;
+  }
+  
+  void render(Canvas canvas, List<Vector2> pathPoints, double globalProgress) {
+    final dropletProgress = (localProgress + offset).clamp(0.0, 1.0);
+    
+    if (dropletProgress > globalProgress) return; // Don't render ahead of flow
+    
+    // Find position along path
+    final pathIndex = (dropletProgress * (pathPoints.length - 1)).floor();
+    if (pathIndex >= pathPoints.length - 1) return;
+    
+    final start = pathPoints[pathIndex];
+    final end = pathPoints[pathIndex + 1];
+    final t = (dropletProgress * (pathPoints.length - 1)) - pathIndex;
+    
+    final position = start + (end - start) * t;
+    
+    // Draw droplet
+    final dropletPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.9),
+          Colors.cyan.shade200.withValues(alpha: 0.7),
+          Colors.blue.shade400.withValues(alpha: 0.4),
+        ],
+      ).createShader(Rect.fromCircle(
+        center: Offset(position.x, position.y),
+        radius: 4,
+      ));
+    
+    canvas.drawCircle(Offset(position.x, position.y), 4, dropletPaint);
+    
+    // Add highlight
+    canvas.drawCircle(
+      Offset(position.x - 1, position.y - 1),
+      1.5,
+      Paint()..color = Colors.white.withValues(alpha: 0.8),
+    );
+  }
+}
+
+/// Tractor component that follows user drag
+class TractorComponent extends PositionComponent {
+  double rotation = 0.0;
+  bool visible = true;
+  
+  TractorComponent({
+    required Vector2 position,
+    required Vector2 size,
+  }) : super(position: position, size: size) {
+    anchor = Anchor.center;
+    priority = 100;
+  }
+  
+  void updateRotation(Vector2 direction) {
+    if (direction.length > 0) {
+      // Calculate angle from direction vector
+      rotation = atan2(direction.y, direction.x) + (pi / 2);
+    }
+  }
+  
   @override
   void render(Canvas canvas) {
-    final dashPaint = Paint()
-      ..color = Colors.black
-      ..strokeWidth = 4
+    if (!visible) return;
+    
+    canvas.save();
+    
+    // Apply rotation
+    canvas.translate(size.x / 2, size.y / 2);
+    canvas.rotate(rotation);
+    canvas.translate(-size.x / 2, -size.y / 2);
+    
+    // Draw tractor icon using Flutter Icons.agriculture
+    _drawTractorIcon(canvas);
+    
+    canvas.restore();
+  }
+  
+  void _drawTractorIcon(Canvas canvas) {
+    // Main tractor body (cabin)
+    final cabinGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.red.shade600,
+        Colors.red.shade800,
+        Colors.red.shade900,
+      ],
+    );
+    
+    final cabinPaint = Paint()
+      ..shader = cabinGradient.createShader(
+        Rect.fromLTWH(size.x * 0.25, size.y * 0.15, size.x * 0.5, size.y * 0.4),
+      );
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.25, size.y * 0.15, size.x * 0.5, size.y * 0.4),
+        const Radius.circular(4),
+      ),
+      cabinPaint,
+    );
+    
+    // Windshield
+    final windshieldPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          Colors.lightBlue.shade100.withValues(alpha: 0.8),
+          Colors.white.withValues(alpha: 0.6),
+        ],
+      ).createShader(
+        Rect.fromLTWH(size.x * 0.3, size.y * 0.2, size.x * 0.4, size.y * 0.25),
+      );
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.3, size.y * 0.2, size.x * 0.4, size.y * 0.25),
+        const Radius.circular(3),
+      ),
+      windshieldPaint,
+    );
+    
+    // Rear wheel (larger)
+    _drawWheel(canvas, Vector2(size.x * 0.2, size.y * 0.7), size.x * 0.25);
+    
+    // Front wheel (smaller)
+    _drawWheel(canvas, Vector2(size.x * 0.75, size.y * 0.75), size.x * 0.18);
+    
+    // Exhaust pipe
+    final exhaustPaint = Paint()
+      ..color = Colors.grey.shade800
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.15, size.y * 0.05, size.x * 0.08, size.y * 0.15),
+        const Radius.circular(2),
+      ),
+      exhaustPaint,
+    );
+    
+    // Engine hood
+    final hoodPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          Colors.red.shade700,
+          Colors.red.shade900,
+        ],
+      ).createShader(
+        Rect.fromLTWH(size.x * 0.25, size.y * 0.5, size.x * 0.5, size.y * 0.25),
+      );
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(size.x * 0.25, size.y * 0.5, size.x * 0.5, size.y * 0.25),
+        const Radius.circular(3),
+      ),
+      hoodPaint,
+    );
+  }
+  
+  void _drawWheel(Canvas canvas, Vector2 center, double radius) {
+    // Tire (outer circle)
+    final tirePaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.grey.shade900,
+          Colors.black,
+        ],
+      ).createShader(Rect.fromCircle(
+        center: Offset(center.x, center.y),
+        radius: radius,
+      ));
+    
+    canvas.drawCircle(Offset(center.x, center.y), radius, tirePaint);
+    
+    // Rim (inner circle)
+    final rimPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.grey.shade400,
+          Colors.grey.shade600,
+        ],
+      ).createShader(Rect.fromCircle(
+        center: Offset(center.x, center.y),
+        radius: radius * 0.6,
+      ));
+    
+    canvas.drawCircle(Offset(center.x, center.y), radius * 0.6, rimPaint);
+    
+    // Wheel spokes
+    final spokePaint = Paint()
+      ..color = Colors.grey.shade700
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    
+    for (int i = 0; i < 6; i++) {
+      final angle = (i / 6) * pi * 2;
+      canvas.drawLine(
+        Offset(center.x, center.y),
+        Offset(
+          center.x + cos(angle) * radius * 0.5,
+          center.y + sin(angle) * radius * 0.5,
+        ),
+        spokePaint,
+      );
+    }
+    
+    // Hub cap
+    canvas.drawCircle(
+      Offset(center.x, center.y),
+      radius * 0.2,
+      Paint()..color = Colors.grey.shade300,
+    );
+  }
+}
+
+/// Component that renders all furrows
+class FurrowRenderComponent extends PositionComponent with HasGameReference<WaterPollutionGame> {
+  FurrowRenderComponent() : super(priority: 10);
+  
+  @override
+  void render(Canvas canvas) {
+    // Render completed furrows
+    for (var furrow in game.completedFurrows) {
+      _renderFurrow(canvas, furrow);
+    }
+    
+    // Render current furrow being drawn
+    if (game.currentFurrowBeingDrawn != null) {
+      _renderFurrow(canvas, game.currentFurrowBeingDrawn!, isBeingDrawn: true);
+    }
+    
+    // Render water flow animations
+    for (var waterFlow in game.activeWaterFlows) {
+      waterFlow.render(canvas, waterFlow.furrowPath.points);
+    }
+  }
+  
+  void _renderFurrow(Canvas canvas, FurrowPath furrow, {bool isBeingDrawn = false}) {
+    if (furrow.points.length < 2) return;
+    
+    // Determine furrow color based on water status
+    Color furrowColor;
+    if (furrow.hasWater) {
+      furrowColor = const Color(0xFF4A2F1A); // Wet dark brown
+    } else if (furrow.isConnectedToRiver) {
+      furrowColor = const Color(0xFF6B4423); // Medium brown (waiting for water)
+    } else {
+      furrowColor = const Color(0xFF8B5A3C); // Dry brown
+    }
+    
+    // Draw furrow path with double lines for realistic effect
+    _drawDoubleLineFurrow(canvas, furrow.points, furrowColor, isBeingDrawn);
+    
+    // Draw connection indicator if connected to river
+    if (furrow.isConnectedToRiver && furrow.riverConnectionPoint != null) {
+      _drawRiverConnectionIndicator(canvas, furrow.riverConnectionPoint!);
+    }
+  }
+  
+  void _drawDoubleLineFurrow(Canvas canvas, List<Vector2> points, Color color, bool isBeingDrawn) {
+    if (points.length < 2) return;
+    
+    final furrowPaint = Paint()
+      ..color = color.withValues(alpha: isBeingDrawn ? 0.7 : 1.0)
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
-
-    const dashLength = 10.0;
-    const gapLength = 5.0;
-    const lineSeparation = 5.0; // Separation between double lines
-
-    for (int i = 0; i < game.furrowPaths.length; i++) {
-      final path = game.furrowPaths[i];
-      if (path.length < 2) continue;
-
-      final start = path.first;
-      final end = path.last;
-      final direction = (end - start).normalized();
-      final perpendicular = Vector2(-direction.y, direction.x); // For parallel line
-
-      // Draw two parallel dashed lines
-      for (double offset = -lineSeparation / 2; offset <= lineSeparation / 2; offset += lineSeparation) {
-        final offsetVec = perpendicular * offset;
-        double currentLength = 0.0;
-        final totalLength = (end - start).length;
-
-        while (currentLength < totalLength) {
-          final dashStartT = currentLength / totalLength;
-          final dashEndT = min(1.0, (currentLength + dashLength) / totalLength);
-
-          final dashStart = start + (end - start) * dashStartT + offsetVec;
-          final dashEnd = start + (end - start) * dashEndT + offsetVec;
-
-          canvas.drawLine(
-            Offset(dashStart.x, dashStart.y),
-            Offset(dashEnd.x, dashEnd.y),
-            dashPaint,
-          );
-
-          currentLength += dashLength + gapLength;
+    
+    const lineOffset = 6.0; // Distance between double lines
+    
+    // Draw two parallel lines for each furrow
+    for (double offset in [-lineOffset / 2, lineOffset / 2]) {
+      final path = Path();
+      
+      for (int i = 0; i < points.length; i++) {
+        Vector2 point = points[i];
+        
+        // Calculate perpendicular offset
+        Vector2 perpendicular = Vector2(0, 0);
+        if (i < points.length - 1) {
+          final direction = (points[i + 1] - point).normalized();
+          perpendicular = Vector2(-direction.y, direction.x) * offset;
+        } else if (i > 0) {
+          final direction = (point - points[i - 1]).normalized();
+          perpendicular = Vector2(-direction.y, direction.x) * offset;
+        }
+        
+        final offsetPoint = point + perpendicular;
+        
+        if (i == 0) {
+          path.moveTo(offsetPoint.x, offsetPoint.y);
+        } else {
+          path.lineTo(offsetPoint.x, offsetPoint.y);
         }
       }
+      
+      canvas.drawPath(path, furrowPaint);
     }
+    
+    // Draw dashed center line for depth effect
+    if (!isBeingDrawn) {
+      _drawDashedCenterLine(canvas, points, color.darken(0.3));
+    }
+  }
+  
+  void _drawDashedCenterLine(Canvas canvas, List<Vector2> points, Color color) {
+    final dashPaint = Paint()
+      ..color = color
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    
+    const dashLength = 8.0;
+    const gapLength = 4.0;
+    
+    for (int i = 0; i < points.length - 1; i++) {
+      final start = points[i];
+      final end = points[i + 1];
+      final direction = (end - start).normalized();
+      final segmentLength = (end - start).length;
+      
+      double currentDist = 0.0;
+      while (currentDist < segmentLength) {
+        final dashStart = start + direction * currentDist;
+        final dashEnd = start + direction * min(currentDist + dashLength, segmentLength);
+        
+        canvas.drawLine(
+          Offset(dashStart.x, dashStart.y),
+          Offset(dashEnd.x, dashEnd.y),
+          dashPaint,
+        );
+        
+        currentDist += dashLength + gapLength;
+      }
+    }
+  }
+  
+  void _drawRiverConnectionIndicator(Canvas canvas, Vector2 connectionPoint) {
+    // Pulsing circle to indicate river connection
+    final pulsePaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.cyan.withValues(alpha: 0.6),
+          Colors.blue.withValues(alpha: 0.3),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(
+        center: Offset(connectionPoint.x, connectionPoint.y),
+        radius: 20,
+      ))
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawCircle(
+      Offset(connectionPoint.x, connectionPoint.y),
+      15 + sin(DateTime.now().millisecondsSinceEpoch / 500) * 5,
+      pulsePaint,
+    );
+    
+    // Draw water droplet icon
+    final dropletPath = Path();
+    dropletPath.moveTo(connectionPoint.x, connectionPoint.y - 8);
+    dropletPath.quadraticBezierTo(
+      connectionPoint.x + 5,
+      connectionPoint.y - 3,
+      connectionPoint.x + 5,
+      connectionPoint.y + 2,
+    );
+    dropletPath.quadraticBezierTo(
+      connectionPoint.x + 5,
+      connectionPoint.y + 6,
+      connectionPoint.x,
+      connectionPoint.y + 8,
+    );
+    dropletPath.quadraticBezierTo(
+      connectionPoint.x - 5,
+      connectionPoint.y + 6,
+      connectionPoint.x - 5,
+      connectionPoint.y + 2,
+    );
+    dropletPath.quadraticBezierTo(
+      connectionPoint.x - 5,
+      connectionPoint.y - 3,
+      connectionPoint.x,
+      connectionPoint.y - 8,
+    );
+    dropletPath.close();
+    
+    canvas.drawPath(
+      dropletPath,
+      Paint()..color = Colors.cyan.shade300,
+    );
   }
 }

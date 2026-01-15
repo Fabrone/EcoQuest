@@ -5,8 +5,6 @@ import 'package:ecoquest/game/water_components.dart';
 import 'package:flame/effects.dart';
 import 'package:flame/events.dart';
 import 'package:flame/game.dart';
-import 'package:flame/particles.dart';
-// import 'package:flame/particles.dart' as flame_particles;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,6 +19,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   Function(int, int)? onSortingUpdate;
   Function(int, double)? onTreatmentUpdate;
   Function(int, int)? onAgricultureUpdate;
+  Function()? onFurrowsComplete; // Callback for furrow completion
   // Add callback for river tap
   Function(Vector2)? onRiverTapped;
   
@@ -53,11 +52,14 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   bool waterRedirected = false; // Tracks if pipeline fully connects river to all farms
   List<Timer> growthTimers = []; // For crop growth stages
 
-  List<List<Vector2>> furrowPaths = []; // [0] = horizontal path, [1] = vertical path
-  bool isDiggingFurrow = false;
-  HoeComponent? hoe;
-  bool furrowsComplete = false;
-  Function()? onFurrowsComplete; // Callback for UI prompt
+  TractorComponent? tractor;
+  List<FurrowPath> completedFurrows = [];
+  FurrowPath? currentFurrowBeingDrawn;
+  bool isDrawingFurrow = false;
+  Vector2? lastFurrowPoint;
+  EnhancedRiverComponent? river;
+  bool waterFlowing = false;
+  List<WaterFlowAnimation> activeWaterFlows = [];
 
   List<Vector2> currentDrawnPath = [];
   bool isDrawingPipe = false;
@@ -836,7 +838,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Clear previous components
     removeAll(children.whereType<WaterTileComponent>());
     removeAll(children.whereType<EnhancedRiverComponent>());
-    
     await Future.delayed(const Duration(milliseconds: 100));
     
     // Wait for proper canvas sizing
@@ -852,30 +853,29 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       return;
     }
     
-    // Add UNIFIED background (single color/texture)
+    // Add unified background
     add(UnifiedAgricultureBackground(size: size));
     
     // Create adaptive river layout
     _createAdaptiveRiverLayout();
     
-    // Add hoe to farm area
+    // Initialize tractor (hidden until first drag)
     final isLandscape = size.x > size.y;
     final farmCenter = isLandscape 
-        ? Vector2(size.x * 0.7, size.y * 0.5) // Right of vertical river
-        : Vector2(size.x * 0.5, size.y * 0.7); // Below horizontal river
+        ? Vector2(size.x * 0.7, size.y * 0.5)
+        : Vector2(size.x * 0.5, size.y * 0.7);
     
-    hoe = HoeComponent(
-      position: farmCenter - Vector2(50, 50), // Offset to start position
-      size: Vector2(40, 40),
+    tractor = TractorComponent(
+      position: farmCenter,
+      size: Vector2(60, 60),
     );
-    add(hoe!);
-    final furrow = FurrowComponent();
-    furrow.size = size; // Set size directly if supported
-    add(furrow);
+    tractor!.visible = false; // Hidden initially
+    add(tractor!);
 
-    // Initialize empty paths for cross (horizontal and vertical)
-    furrowPaths = [ [], [] ]; // 0: horizontal, 1: vertical
-
+    add(FurrowRenderComponent());
+    
+    debugPrint('✅ Phase 4 setup complete - Ready for furrow drawing');
+    
     resumeEngine();
   }
 
@@ -924,113 +924,190 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   }
 
   void _repositionAgricultureComponents() {
-    final river = children.whereType<EnhancedRiverComponent>().firstOrNull;
-    if (river == null) {
+    final currentRiver = children.whereType<EnhancedRiverComponent>().firstOrNull;
+    if (currentRiver == null) {
       debugPrint('⚠️ No river found for repositioning');
       return;
     }
+    
+    river = currentRiver; // Update reference
     
     // Update river size and position based on new screen dimensions
     final isLandscape = size.x > size.y;
     
     if (isLandscape) {
-      // Desktop/Tablet: Vertical river
       final riverWidth = size.x * 0.30;
-      river.size = Vector2(riverWidth, size.y * 0.95);
-      river.position = Vector2(0, size.y * 0.025);
-      river.orientation = RiverOrientation.vertical;
-      river.flowDirection = RiverFlowDirection.topToBottom;
+      river!.size = Vector2(riverWidth, size.y * 0.95);
+      river!.position = Vector2(0, size.y * 0.025);
+      river!.orientation = RiverOrientation.vertical;
+      river!.flowDirection = RiverFlowDirection.topToBottom;
     } else {
-      // Mobile: Horizontal river
       final riverHeight = size.y * 0.30;
-      river.size = Vector2(size.x * 0.95, riverHeight);
-      river.position = Vector2(size.x * 0.025, 0);
-      river.orientation = RiverOrientation.horizontal;
-      river.flowDirection = RiverFlowDirection.leftToRight;
+      river!.size = Vector2(size.x * 0.95, riverHeight);
+      river!.position = Vector2(size.x * 0.025, 0);
+      river!.orientation = RiverOrientation.horizontal;
+      river!.flowDirection = RiverFlowDirection.leftToRight;
     }
     
-    // Regenerate river path with new dimensions
-    river.generateWindingRiverPath();
+    river!.generateWindingRiverPath();
     
-    debugPrint('♻️ Repositioned river and farms for new screen size: ${size.x} x ${size.y}');
-    if (hoe != null) {
+    if (tractor != null) {
       final isLandscape = size.x > size.y;
-      hoe!.position = isLandscape 
-          ? Vector2(size.x * 0.7 - 50, size.y * 0.5 - 50)
-          : Vector2(size.x * 0.5 - 50, size.y * 0.7 - 50);
+      tractor!.position = isLandscape 
+          ? Vector2(size.x * 0.7, size.y * 0.5)
+          : Vector2(size.x * 0.5, size.y * 0.7);
     }
+    
+    debugPrint('♻️ Repositioned agriculture components for new screen size: ${size.x} x ${size.y}');
   }
 
-  void startDiggingFurrow() {
-    isDiggingFurrow = true;
-    currentDrawnPath.clear(); // Reuse existing var for temp path during drag
-  }
-
-  void updateFurrowPath(Vector2 delta) {
-    if (isDiggingFurrow && currentDrawnPath.isNotEmpty) {
-      currentDrawnPath.add(currentDrawnPath.last + delta);
-    }
-  }
-
-  void completeFurrowDrag() {
-    if (isDiggingFurrow && currentDrawnPath.length > 1) {
-      // Determine if path is mostly horizontal or vertical
-      final start = currentDrawnPath.first;
-      final end = currentDrawnPath.last;
-      final isHorizontal = (end.y - start.y).abs() < (end.x - start.x).abs();
-
-      // Simplify/constrain path to straight line for cross
-      final simplifiedPath = [start, end];
-
-      // Add to appropriate slot (enforce only one horizontal and one vertical)
-      final index = isHorizontal ? 0 : 1;
-      if (furrowPaths[index].isEmpty) {
-        furrowPaths[index] = simplifiedPath;
+  void onFarmTapDown(Vector2 position) {
+    if (!isDrawingFurrow && !_isPositionInRiver(position)) {
+      isDrawingFurrow = true;
+      lastFurrowPoint = position.clone();
+      
+      // Show and position tractor at tap point
+      if (tractor != null) {
+        tractor!.position = position.clone();
+        tractor!.visible = true;
       }
-
-      // Check if cross complete (both paths present)
-      if (furrowPaths[0].isNotEmpty && furrowPaths[1].isNotEmpty) {
-        furrowsComplete = true;
-        hoe?.removeFromParent();
-        hoe = null;
-        onFurrowsComplete?.call(); // Trigger UI prompt
-      }
+      
+      // Start new furrow path
+      currentFurrowBeingDrawn = FurrowPath(
+        points: [position.clone()],
+        isConnectedToRiver: false,
+      );
+      
+      debugPrint('🚜 Started drawing furrow at $position');
     }
-    isDiggingFurrow = false;
-    currentDrawnPath.clear();
   }
 
-  void startWaterFlow() {
-    // Simple water flow: Add blue particles along furrow paths
-    for (var path in furrowPaths) {
-      if (path.length < 2) continue;
-      add(ParticleSystemComponent(
-        particle: Particle.generate(
-          count: 20,
-          lifespan: 5,
-          generator: (i) => AcceleratedParticle(
-            position: path.first.clone(),
-            speed: (path.last - path.first).normalized() * 50,
-            child: CircleParticle(
-              radius: 3,
-              paint: Paint()..color = Colors.blue,
-            ),
-          ),
-        ),
-      ));
+  void onFarmDragUpdate(Vector2 newPosition, Vector2 delta) {
+    if (!isDrawingFurrow || currentFurrowBeingDrawn == null) return;
+    
+    // Check if position is in farm area (not in river)
+    if (_isPositionInRiver(newPosition)) return;
+    
+    // Only add point if moved enough distance (smooth the path)
+    if (lastFurrowPoint != null) {
+      final distance = (newPosition - lastFurrowPoint!).length;
+      if (distance >= 15) { // Minimum 15 pixels between points
+        currentFurrowBeingDrawn!.points.add(newPosition.clone());
+        lastFurrowPoint = newPosition.clone();
+        
+        // Move tractor to follow drag
+        if (tractor != null) {
+          tractor!.position = newPosition.clone();
+          
+          // Calculate rotation based on drag direction
+          if (delta.length > 0) {
+            tractor!.updateRotation(delta);
+          }
+        }
+      }
     }
-    // Update efficiency or other stats as needed
-    waterEfficiency = 85; // Example
-    onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
+  }
+
+  void onFarmDragEnd(Vector2 endPosition) {
+    if (!isDrawingFurrow || currentFurrowBeingDrawn == null) return;
+    
+    isDrawingFurrow = false;
+    
+    // Add final point
+    currentFurrowBeingDrawn!.points.add(endPosition.clone());
+    
+    // Check if furrow connects to river
+    final connectsToRiver = _checkFurrowRiverConnection(currentFurrowBeingDrawn!);
+    currentFurrowBeingDrawn!.isConnectedToRiver = connectsToRiver;
+    
+    // Save completed furrow
+    completedFurrows.add(currentFurrowBeingDrawn!);
+    
+    debugPrint('✅ Furrow completed: ${currentFurrowBeingDrawn!.points.length} points, connected to river: $connectsToRiver');
+    
+    // If connected to river, trigger water flow
+    if (connectsToRiver) {
+      _startWaterFlowAnimation(currentFurrowBeingDrawn!);
+      onFurrowsComplete?.call(); // Trigger UI prompt
+    }
+    
+    currentFurrowBeingDrawn = null;
+    
+    // Hide tractor with delay
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (tractor != null) {
+        tractor!.visible = false;
+      }
+    });
+  }
+
+  bool _isPositionInRiver(Vector2 position) {
+    if (river == null) return false;
+    
+    // Convert position to river's local coordinates
+    final riverLocalPos = position - river!.position;
+    return river!.containsPoint(riverLocalPos);
+  }
+
+  bool _checkFurrowRiverConnection(FurrowPath furrow) {
+    if (river == null || furrow.points.isEmpty) return false;
+    
+    // Check if any point (especially start/end) is close to river
+    final checkPoints = [
+      furrow.points.first,
+      furrow.points.last,
+    ];
+    
+    for (final point in checkPoints) {
+      if (_isPositionInRiver(point)) {
+        furrow.riverConnectionPoint = point.clone();
+        return true;
+      }
+      
+      // Also check if very close to river (within 30 pixels)
+      final riverLocalPos = point - river!.position;
+      final closestRiverPoint = river!.getRiverClosestPoint(riverLocalPos);
+      
+      if (closestRiverPoint != null) {
+        final distance = (closestRiverPoint - riverLocalPos).length;
+        if (distance <= 30) {
+          furrow.riverConnectionPoint = river!.position + closestRiverPoint;
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  void _startWaterFlowAnimation(FurrowPath furrow) {
+    if (!furrow.isConnectedToRiver || furrow.riverConnectionPoint == null) return;
+    
+    waterFlowing = true;
+    
+    final waterFlow = WaterFlowAnimation(
+      furrowPath: furrow,
+      startPoint: furrow.riverConnectionPoint!,
+    );
+    
+    activeWaterFlows.add(waterFlow);
+    
+    debugPrint('💧 Started water flow animation through furrow');
   }
 
   @override
   void update(double dt) {
     super.update(dt);
-    if (currentPhase == 4 && furrowsComplete) {
-      // Optional: Animate water if flowing
+    
+    // Update water flow animations
+    for (var waterFlow in activeWaterFlows) {
+      waterFlow.update(dt);
     }
+    
+    // Remove completed water flows
+    activeWaterFlows.removeWhere((flow) => flow.isComplete);
   }
+
 
   int calculateFinalScore() {
     int score = 0;

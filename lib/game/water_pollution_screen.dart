@@ -112,9 +112,6 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
       });
     };
 
-    game.onFurrowsComplete = () {
-      _showWaterFlowPrompt();
-    };
   }
 
   @override
@@ -1126,77 +1123,171 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   }
 
   Widget _buildAgricultureInterface() {
-    // Existing code (if any) + hint for hoe if not complete
-    if (!game.furrowsComplete && game.hoe != null) {
-      return Center(
-        child: Text(
-          'Drag hoe to dig cross furrows',
-          style: GoogleFonts.exo2(color: Colors.white, fontSize: 14),
-        ),
-      );
-    }
-    return const SizedBox.shrink();
-  }
-
-    void _showWaterFlowPrompt() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.black.withValues(alpha:0.9),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: Colors.blue, width: 3),
-        ),
-        title: Row(
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    
+      return GestureDetector(
+        onPanStart: (details) {
+          final localPosition = details.localPosition;
+          game.onFarmTapDown(Vector2(localPosition.dx, localPosition.dy));
+        },
+        onPanUpdate: (details) {
+          final localPosition = details.localPosition;
+          final delta = details.delta;
+          game.onFarmDragUpdate(
+            Vector2(localPosition.dx, localPosition.dy),
+            Vector2(delta.dx, delta.dy),
+          );
+        },
+        onPanEnd: (details) {
+          final localPosition = details.localPosition;
+          game.onFarmDragEnd(Vector2(localPosition.dx, localPosition.dy));
+        },
+        child: Stack( 
           children: [
-            Icon(Icons.water, color: Colors.blue, size: 32),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'FURROWS COMPLETE',
-                style: GoogleFonts.exo2(
-                  fontSize: 18,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
+            // Instructions overlay
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Container(
+                  margin: EdgeInsets.all(isMobile ? 8 : 12),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile? 12 : 16,
+                    vertical: isMobile ? 10 : 12,
+                    ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                          Colors.black.withValues(alpha: 0.75),
+                          Colors.black.withValues(alpha: 0.6),
+                          ],
+                      ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green, width: 2),
+                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.agriculture,
+                        color: Colors.green,
+                        size: isMobile ? 20 : 24,
+                      ),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'IRRIGATION SETUP',
+                          style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 14 : 16,
+                            color: Colors.green,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                      Text(
+                      isMobile
+                      ? 'Drag to create furrows\nConnect to river for water flow'
+                      : 'Drag across the farm to dig furrows • Connect to the river to enable water flow',
+                      style: GoogleFonts.exo2(
+                        fontSize: isMobile ? 11 : 13,
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
               ),
             ),
-          ],
-        ),
-        content: Text(
-          'Allow water to start flowing?',
-          style: GoogleFonts.exo2(
-            fontSize: 16,
-            color: Colors.white70,
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              game.startWaterFlow();
-            },
-            child: Text(
-              'YES',
-              style: GoogleFonts.exo2(
-                color: Colors.green,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'NO',
-              style: GoogleFonts.exo2(
-                color: Colors.red,
-                fontWeight: FontWeight.w700,
+          // Stats display
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              child: Container(
+                margin: EdgeInsets.all(isMobile ? 8 : 12),
+                padding: EdgeInsets.all(isMobile ? 10 : 12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.blue.withValues(alpha: 0.8),
+                      Colors.cyan.withValues(alpha: 0.8),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildAgricultureStat(
+                      'Furrows',
+                      '${game.completedFurrows.length}',
+                      Icons.landscape,
+                      isMobile,
+                    ),
+                    Container(width: 1, height: 30, color: Colors.white24),
+                    _buildAgricultureStat(
+                      'Connected',
+                      '${game.completedFurrows.where((f) => f.isConnectedToRiver).length}',
+                      Icons.water_drop,
+                      isMobile,
+                    ),
+                    Container(width: 1, height: 30, color: Colors.white24),
+                    _buildAgricultureStat(
+                      'Irrigated',
+                      '${game.completedFurrows.where((f) => f.hasWater).length}',
+                      Icons.check_circle,
+                      isMobile,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAgricultureStat(String label, String value, IconData icon, bool isMobile) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          icon,
+          color: Colors.white,
+          size: isMobile ? 18 : 22,
+        ),
+        SizedBox(height: 4),
+        Text(
+          value,
+          style: GoogleFonts.exo2(
+          fontSize: isMobile ? 16 : 18,
+          color: Colors.white,
+          fontWeight: FontWeight.w900,
+          ),
+        ),
+        Text(
+          label,
+          style: GoogleFonts.exo2(
+            fontSize: isMobile ? 9 : 10,
+            color: Colors.white70,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1488,62 +1579,5 @@ class VirtualJoystickPainter extends CustomPainter {
   @override
   bool shouldRepaint(VirtualJoystickPainter oldDelegate) {
     return oldDelegate.position != position || oldDelegate.center != center;
-  }
-}
-
-class PathDrawingPainter extends CustomPainter {
-  final List<Vector2> path;
-  final Color color;
-  
-  PathDrawingPainter({
-    required this.path,
-    required this.color,
-  });
-  
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (path.length < 2) return;
-    
-    final paint = Paint()
-      ..color = color.withValues(alpha: 0.8)
-      ..strokeWidth = 12
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
-    
-    final pathToDraw = Path();
-    pathToDraw.moveTo(path.first.x, path.first.y);
-    
-    for (int i = 1; i < path.length; i++) {
-      pathToDraw.lineTo(path[i].x, path[i].y);
-    }
-    
-    // Draw shadow
-    canvas.drawPath(
-      pathToDraw,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.3)
-        ..strokeWidth = 14
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..style = PaintingStyle.stroke
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4),
-    );
-    
-    canvas.drawPath(pathToDraw, paint);
-    
-    // Draw nodes at each point
-    for (var point in path) {
-      canvas.drawCircle(
-        Offset(point.x, point.y),
-        6,
-        Paint()..color = color,
-      );
-    }
-  }
-  
-  @override
-  bool shouldRepaint(PathDrawingPainter oldDelegate) {
-    return oldDelegate.path.length != path.length;
   }
 }
