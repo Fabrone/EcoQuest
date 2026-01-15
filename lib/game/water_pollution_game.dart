@@ -5,6 +5,7 @@ import 'package:ecoquest/game/water_components.dart';
 import 'package:flame/effects.dart';
 import 'package:flame/events.dart';
 import 'package:flame/game.dart';
+import 'package:flame/particles.dart';
 // import 'package:flame/particles.dart' as flame_particles;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -45,13 +46,18 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   
   // Phase 4 - Agriculture
   int waterEfficiency = 0;
-  //List<FarmZoneComponent> farmZones = [];
   int farmsIrrigated = 0;
   int cropsMature = 0;
   int totalFarms = 3;
   int wildlifeSpawned = 0;
   bool waterRedirected = false; // Tracks if pipeline fully connects river to all farms
   List<Timer> growthTimers = []; // For crop growth stages
+
+  List<List<Vector2>> furrowPaths = []; // [0] = horizontal path, [1] = vertical path
+  bool isDiggingFurrow = false;
+  HoeComponent? hoe;
+  bool furrowsComplete = false;
+  Function()? onFurrowsComplete; // Callback for UI prompt
 
   List<Vector2> currentDrawnPath = [];
   bool isDrawingPipe = false;
@@ -829,9 +835,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   void _setupAgriculturePhase() async {
     // Clear previous components
     removeAll(children.whereType<WaterTileComponent>());
-    // removeAll(children.whereType<AgricultureBackground>()); // Remove old background
     removeAll(children.whereType<EnhancedRiverComponent>());
-    removeAll(children.whereType<DrawnPipeComponent>());
     
     await Future.delayed(const Duration(milliseconds: 100));
     
@@ -854,6 +858,24 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Create adaptive river layout
     _createAdaptiveRiverLayout();
     
+    // Add hoe to farm area
+    final isLandscape = size.x > size.y;
+    final farmCenter = isLandscape 
+        ? Vector2(size.x * 0.7, size.y * 0.5) // Right of vertical river
+        : Vector2(size.x * 0.5, size.y * 0.7); // Below horizontal river
+    
+    hoe = HoeComponent(
+      position: farmCenter - Vector2(50, 50), // Offset to start position
+      size: Vector2(40, 40),
+    );
+    add(hoe!);
+    final furrow = FurrowComponent();
+    furrow.size = size; // Set size directly if supported
+    add(furrow);
+
+    // Initialize empty paths for cross (horizontal and vertical)
+    furrowPaths = [ [], [] ]; // 0: horizontal, 1: vertical
+
     resumeEngine();
   }
 
@@ -931,27 +953,85 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     river.generateWindingRiverPath();
     
     debugPrint('♻️ Repositioned river and farms for new screen size: ${size.x} x ${size.y}');
+    if (hoe != null) {
+      final isLandscape = size.x > size.y;
+      hoe!.position = isLandscape 
+          ? Vector2(size.x * 0.7 - 50, size.y * 0.5 - 50)
+          : Vector2(size.x * 0.5 - 50, size.y * 0.7 - 50);
+    }
   }
 
-  void startDrawingIrrigation(String method) {
-    selectedIrrigationMethod = method;
-    isDrawingPipe = true;
+  void startDiggingFurrow() {
+    isDiggingFurrow = true;
+    currentDrawnPath.clear(); // Reuse existing var for temp path during drag
+  }
+
+  void updateFurrowPath(Vector2 delta) {
+    if (isDiggingFurrow && currentDrawnPath.isNotEmpty) {
+      currentDrawnPath.add(currentDrawnPath.last + delta);
+    }
+  }
+
+  void completeFurrowDrag() {
+    if (isDiggingFurrow && currentDrawnPath.length > 1) {
+      // Determine if path is mostly horizontal or vertical
+      final start = currentDrawnPath.first;
+      final end = currentDrawnPath.last;
+      final isHorizontal = (end.y - start.y).abs() < (end.x - start.x).abs();
+
+      // Simplify/constrain path to straight line for cross
+      final simplifiedPath = [start, end];
+
+      // Add to appropriate slot (enforce only one horizontal and one vertical)
+      final index = isHorizontal ? 0 : 1;
+      if (furrowPaths[index].isEmpty) {
+        furrowPaths[index] = simplifiedPath;
+      }
+
+      // Check if cross complete (both paths present)
+      if (furrowPaths[0].isNotEmpty && furrowPaths[1].isNotEmpty) {
+        furrowsComplete = true;
+        hoe?.removeFromParent();
+        hoe = null;
+        onFurrowsComplete?.call(); // Trigger UI prompt
+      }
+    }
+    isDiggingFurrow = false;
     currentDrawnPath.clear();
   }
 
-
-  /*void _completePhase4() {
-    // Bonus wildlife for completion
-    for (int i = 0; i < 5; i++) {
-      add(WildlifeComponent(
-        position: Vector2(Random().nextDouble() * size.x, Random().nextDouble() * size.y),
-        size: Vector2(32, 32),
+  void startWaterFlow() {
+    // Simple water flow: Add blue particles along furrow paths
+    for (var path in furrowPaths) {
+      if (path.length < 2) continue;
+      add(ParticleSystemComponent(
+        particle: Particle.generate(
+          count: 20,
+          lifespan: 5,
+          generator: (i) => AcceleratedParticle(
+            position: path.first.clone(),
+            speed: (path.last - path.first).normalized() * 50,
+            child: CircleParticle(
+              radius: 3,
+              paint: Paint()..color = Colors.blue,
+            ),
+          ),
+        ),
       ));
     }
-    onPhaseComplete?.call(4);
-    pauseEngine();
-  }*/
-  
+    // Update efficiency or other stats as needed
+    waterEfficiency = 85; // Example
+    onAgricultureUpdate?.call(farmsIrrigated, cropsMature);
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    if (currentPhase == 4 && furrowsComplete) {
+      // Optional: Animate water if flowing
+    }
+  }
+
   int calculateFinalScore() {
     int score = 0;
     

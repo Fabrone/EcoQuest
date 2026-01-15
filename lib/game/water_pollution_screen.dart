@@ -111,8 +111,9 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         cropsMature = crops;
       });
     };
-      game.onRiverTapped = (tapPosition) {
-      _showIrrigationMethodDialog();
+
+    game.onFurrowsComplete = () {
+      _showWaterFlowPrompt();
     };
   }
 
@@ -1124,329 +1125,70 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  /*Widget _buildAgricultureInterface() {
-    final size = MediaQuery.of(context).size;
-    final isMobile = size.width < 600;
-    final isTablet = size.width >= 600 && size.width < 1024;
-    // final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-    
-    return Stack(
-      children: [
-        // Main game canvas with drawing overlay
-        Positioned.fill(
-          child: GestureDetector(
-            onPanStart: (details) {
-              if (game.selectedIrrigationMethod != null && !game.isDrawingPipe) {
-                setState(() {
-                  game.isDrawingPipe = true;
-                  game.currentDrawnPath.clear();
-                  game.addPointToPath(details.localPosition.toVector2());
-                });
-              }
-            },
-            onPanUpdate: (details) {
-              if (game.isDrawingPipe && game.selectedIrrigationMethod != null) {
-                setState(() {
-                  game.addPointToPath(details.localPosition.toVector2());
-                });
-              }
-            },
-            onPanEnd: (details) {
-              if (game.isDrawingPipe) {
-                setState(() {
-                  game.finishDrawingIrrigation();
-                });
-              }
-            },
-            child: Stack(
-              children: [
-                Container(color: Colors.transparent),
-                // Draw the current path being drawn
-                if (game.isDrawingPipe && game.currentDrawnPath.isNotEmpty)
-                  CustomPaint(
-                    size: size,
-                    painter: PathDrawingPainter(
-                      path: game.currentDrawnPath,
-                      color: game.selectedIrrigationMethod == 'drip' 
-                          ? Colors.blue 
-                          : Colors.green,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        
-        // Top header with stats
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: SafeArea(
-            child: Container(
-              margin: EdgeInsets.all(isMobile ? 8 : 12),
-              padding: EdgeInsets.symmetric(
-                horizontal: isMobile ? 12 : 16,
-                vertical: isMobile ? 8 : 10,
-              ),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.black.withValues(alpha: 0.85),
-                    Colors.black.withValues(alpha: 0.7),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green, width: 2),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'SUSTAINABLE IRRIGATION',
-                    style: GoogleFonts.exo2(
-                      fontSize: isMobile ? 14 : isTablet ? 16 : 18,
-                      color: Colors.green,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.0,
-                    ),
-                  ),
-                  SizedBox(height: isMobile ? 6 : 8),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildCompactAgriStat(
-                          'Pipeline',
-                          game.pipelineConnected ? 'Connected' : 'Not Connected',
-                          game.pipelineConnected ? Colors.green : Colors.red,
-                          Icons.water,
-                          isMobile,
-                        ),
-                        SizedBox(width: isMobile ? 8 : 12),
-                        _buildCompactAgriStat(
-                          'Farms',
-                          '$farmsIrrigated/$totalFarms',
-                          Colors.blue,
-                          Icons.agriculture,
-                          isMobile,
-                        ),
-                        SizedBox(width: isMobile ? 8 : 12),
-                        _buildCompactAgriStat(
-                          'Crops',
-                          '$cropsMature',
-                          Colors.amber,
-                          Icons.grass,
-                          isMobile,
-                        ),
-                        SizedBox(width: isMobile ? 8 : 12),
-                        _buildCompactAgriStat(
-                          'Efficiency',
-                          '${game.waterEfficiency}%',
-                          Colors.cyan,
-                          Icons.eco,
-                          isMobile,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        
-        // Instruction overlay - First tap river
-        if (!game.pipelineConnected && game.selectedIrrigationMethod == null)
-          Positioned(
-            top: size.height * 0.3,
-            left: 16,
-            right: 16,
-            child: Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.8),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.amber, width: 2),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.touch_app, color: Colors.amber, size: 32),
-                  SizedBox(height: 8),
-                  Text(
-                    'TAP RIVER to select irrigation method',
-                    style: GoogleFonts.exo2(
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        
-        // Drawing mode indicator
-        if (game.selectedIrrigationMethod != null && !game.isDrawingPipe)
-          Positioned(
-            top: size.height * 0.15,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.blue, Colors.cyan],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.blue.withValues(alpha: 0.5),
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      game.selectedIrrigationMethod == 'drip' 
-                          ? Icons.water_drop 
-                          : Icons.landscape,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'DRAW ${game.selectedIrrigationMethod?.toUpperCase()} PATH FROM RIVER',
-                      style: GoogleFonts.exo2(
-                        fontSize: 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        
-        // Drawing active indicator
-        if (game.isDrawingPipe)
-          Positioned(
-            bottom: 100,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'Drawing... Release to complete',
-                  style: GoogleFonts.exo2(
-                    fontSize: 12,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildCompactAgriStat(String label, String value, Color color, IconData icon, bool isMobile) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: color, size: isMobile ? 18 : 22),
-        SizedBox(height: 4),
-        Text(
-          value,
-          style: GoogleFonts.exo2(
-            fontSize: isMobile ? 14 : 16,
-            color: color,
-            fontWeight: FontWeight.w900,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        Text(
-          label,
-          style: GoogleFonts.exo2(
-            fontSize: isMobile ? 9 : 10,
-            color: Colors.white70,
-            fontWeight: FontWeight.w500,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }*/
-
   Widget _buildAgricultureInterface() {
-    // Return empty container - no UI overlays
-    // River and background are rendered by Flame game components
-    return const SizedBox.shrink(); // Invisible widget - no overlays
+    // Existing code (if any) + hint for hoe if not complete
+    if (!game.furrowsComplete && game.hoe != null) {
+      return Center(
+        child: Text(
+          'Drag hoe to dig cross furrows',
+          style: GoogleFonts.exo2(color: Colors.white, fontSize: 14),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 
-  void _showIrrigationMethodDialog() {
+    void _showWaterFlowPrompt() {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.black.withValues(alpha: 0.9),
+        backgroundColor: Colors.black.withValues(alpha:0.9),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: Colors.green, width: 3),
+          side: BorderSide(color: Colors.blue, width: 3),
         ),
         title: Row(
           children: [
-            Icon(Icons.water_drop, color: Colors.cyan, size: 32),
+            Icon(Icons.water, color: Colors.blue, size: 32),
             SizedBox(width: 12),
             Expanded(
               child: Text(
-                'SELECT IRRIGATION METHOD',
+                'FURROWS COMPLETE',
                 style: GoogleFonts.exo2(
                   fontSize: 18,
-                  color: Colors.green,
+                  color: Colors.white,
                   fontWeight: FontWeight.w900,
                 ),
               ),
             ),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildIrrigationMethodOption(
-              'Drip Irrigation',
-              'Efficient water use with direct delivery to roots',
-              Icons.water_drop,
-              'drip',
-            ),
-            SizedBox(height: 16),
-            _buildIrrigationMethodOption(
-              'Contour Farming',
-              'Prevents soil erosion and water runoff',
-              Icons.landscape,
-              'contour',
-            ),
-          ],
+        content: Text(
+          'Allow water to start flowing?',
+          style: GoogleFonts.exo2(
+            fontSize: 16,
+            color: Colors.white70,
+          ),
         ),
         actions: [
           TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              game.startWaterFlow();
+            },
+            child: Text(
+              'YES',
+              style: GoogleFonts.exo2(
+                color: Colors.green,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
-              'CANCEL',
+              'NO',
               style: GoogleFonts.exo2(
                 color: Colors.red,
                 fontWeight: FontWeight.w700,
@@ -1454,83 +1196,6 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildIrrigationMethodOption(
-    String title,
-    String description,
-    IconData icon,
-    String methodId,
-  ) {
-    return InkWell(
-      onTap: () {
-        Navigator.pop(context);
-        setState(() {
-          game.startDrawingIrrigation(methodId);
-        });
-        
-        // Show drawing instruction
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Draw a path from the river to the farms',
-              style: GoogleFonts.exo2(fontWeight: FontWeight.w600),
-            ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      },
-      child: Container(
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.blue.withValues(alpha: 0.3),
-              Colors.cyan.withValues(alpha: 0.3),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.cyan, width: 2),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.cyan.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: Colors.cyan, size: 32),
-            ),
-            SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.exo2(
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: GoogleFonts.exo2(
-                      fontSize: 12,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

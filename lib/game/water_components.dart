@@ -3782,34 +3782,6 @@ class WaterFlowParticleSystem extends ParticleSystemComponent {
         );
 }
 
-class WildlifeComponent extends SpriteAnimationComponent with HasGameReference<WaterPollutionGame> {
-  WildlifeComponent({required super.position, required super.size});
-
-  @override
-  Future<void> onLoad() async {
-    super.onLoad();
-    // Assume 'wildlife.png' has frames for different animals; random type
-    final type = Random().nextInt(3); // 0: bird, 1: frog, 2: cattle
-    final image = await game.images.load('wildlife.png');
-    animation = SpriteAnimation.fromFrameData(
-      image,
-      SpriteAnimationData.sequenced(
-        amount: 4,
-        stepTime: 0.1 + type * 0.05, // Vary speed
-        textureSize: Vector2(32, 32),
-      ),
-    );
-  }
-
-  @override
-  void update(double dt) {
-    super.update(dt);
-    position.x += 50 * dt * (Random().nextBool() ? 1 : -1); // Random wander
-    position.y += sin(position.x * 0.1) * 20 * dt; // Gentle bob
-    if (position.x > game.size.x || position.x < 0) removeFromParent();
-  }
-}
-
 class RiverBackgroundComponent extends PositionComponent {
   double animationOffset = 0.0;
   late List<WaveLayer> waveLayers;
@@ -4442,592 +4414,6 @@ class WaterFlowParticle {
   }
 }
 
-class DraggablePipeComponent extends PositionComponent
-    with DragCallbacks, TapCallbacks, HasGameReference<WaterPollutionGame> {
-  PipeType pipeType;
-  PipeOrientation orientation = PipeOrientation.horizontal;
-  bool isPlaced = false;
-  bool isHighlighted = false;
-  bool isConnectedToSource = false;
-  bool isConnectedToDestination = false;
-  Vector2? ghostPosition;
-  List<ConnectionPoint> connectionPoints = [];
-  
-  // Visual properties
-  late Color pipeColor;
-  bool showWaterFlow = false;
-  double flowAnimationTime = 0.0;
-  
-  DraggablePipeComponent({
-    required super.position,
-    required super.size,
-    required this.pipeType,
-  }) {
-    anchor = Anchor.center;
-    pipeColor = Colors.blueGrey.shade700;
-    _updateConnectionPoints();
-  }
-  
-  @override
-  Future<void> onLoad() async {
-    await super.onLoad();
-    priority = isPlaced ? 10 : 100;
-  }
-  
-  void _updateConnectionPoints() {
-    connectionPoints.clear();
-    
-    switch (pipeType) {
-      case PipeType.straight:
-        if (orientation == PipeOrientation.horizontal) {
-          connectionPoints.add(ConnectionPoint(Vector2(-size.x / 2, 0), Direction.left));
-          connectionPoints.add(ConnectionPoint(Vector2(size.x / 2, 0), Direction.right));
-        } else {
-          connectionPoints.add(ConnectionPoint(Vector2(0, -size.y / 2), Direction.up));
-          connectionPoints.add(ConnectionPoint(Vector2(0, size.y / 2), Direction.down));
-        }
-        break;
-        
-      case PipeType.corner:
-        switch (orientation) {
-          case PipeOrientation.horizontal:
-            connectionPoints.add(ConnectionPoint(Vector2(-size.x / 2, 0), Direction.left));
-            connectionPoints.add(ConnectionPoint(Vector2(0, size.y / 2), Direction.down));
-            break;
-          case PipeOrientation.vertical:
-            connectionPoints.add(ConnectionPoint(Vector2(0, -size.y / 2), Direction.up));
-            connectionPoints.add(ConnectionPoint(Vector2(size.x / 2, 0), Direction.right));
-            break;
-          case PipeOrientation.horizontalFlipped:
-            connectionPoints.add(ConnectionPoint(Vector2(size.x / 2, 0), Direction.right));
-            connectionPoints.add(ConnectionPoint(Vector2(0, size.y / 2), Direction.down));
-            break;
-          case PipeOrientation.verticalFlipped:
-            connectionPoints.add(ConnectionPoint(Vector2(0, -size.y / 2), Direction.up));
-            connectionPoints.add(ConnectionPoint(Vector2(-size.x / 2, 0), Direction.left));
-            break;
-        }
-        break;
-        
-      case PipeType.tJunction:
-        switch (orientation) {
-          case PipeOrientation.horizontal:
-            connectionPoints.add(ConnectionPoint(Vector2(-size.x / 2, 0), Direction.left));
-            connectionPoints.add(ConnectionPoint(Vector2(size.x / 2, 0), Direction.right));
-            connectionPoints.add(ConnectionPoint(Vector2(0, size.y / 2), Direction.down));
-            break;
-          case PipeOrientation.vertical:
-            connectionPoints.add(ConnectionPoint(Vector2(0, -size.y / 2), Direction.up));
-            connectionPoints.add(ConnectionPoint(Vector2(0, size.y / 2), Direction.down));
-            connectionPoints.add(ConnectionPoint(Vector2(size.x / 2, 0), Direction.right));
-            break;
-          case PipeOrientation.horizontalFlipped:
-            connectionPoints.add(ConnectionPoint(Vector2(-size.x / 2, 0), Direction.left));
-            connectionPoints.add(ConnectionPoint(Vector2(size.x / 2, 0), Direction.right));
-            connectionPoints.add(ConnectionPoint(Vector2(0, -size.y / 2), Direction.up));
-            break;
-          case PipeOrientation.verticalFlipped:
-            connectionPoints.add(ConnectionPoint(Vector2(0, -size.y / 2), Direction.up));
-            connectionPoints.add(ConnectionPoint(Vector2(0, size.y / 2), Direction.down));
-            connectionPoints.add(ConnectionPoint(Vector2(-size.x / 2, 0), Direction.left));
-            break;
-        }
-        break;
-    }
-  }
-  
-  @override
-  void update(double dt) {
-    super.update(dt);
-    
-    if (showWaterFlow) {
-      flowAnimationTime += dt * 3;
-    }
-  }
-  
-  @override
-  void render(Canvas canvas) {
-    super.render(canvas);
-    
-    canvas.save();
-    
-    // Draw shadow if dragging
-    if (ghostPosition != null) {
-      _drawShadow(canvas);
-    }
-    
-    // Draw highlight if hovering over valid connection
-    if (isHighlighted) {
-      _drawHighlight(canvas);
-    }
-    
-    // Draw pipe body
-    _drawPipeBody(canvas);
-    
-    // Draw water flow animation if connected
-    if (showWaterFlow) {
-      _drawWaterFlow(canvas);
-    }
-    
-    // Draw connection indicators
-    _drawConnectionIndicators(canvas);
-    
-    canvas.restore();
-  }
-  
-  void _drawShadow(Canvas canvas) {
-    final shadowPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.3)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-    
-    canvas.save();
-    canvas.translate(4, 6);
-    _drawPipeShape(canvas, shadowPaint);
-    canvas.restore();
-  }
-  
-  void _drawHighlight(Canvas canvas) {
-    final highlightPaint = Paint()
-      ..color = Colors.green.withValues(alpha: 0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-    
-    _drawPipeShape(canvas, highlightPaint);
-  }
-  
-  void _drawPipeBody(Canvas canvas) {
-    final bodyGradient = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        pipeColor.lighten(0.2),
-        pipeColor,
-        pipeColor.darken(0.2),
-      ],
-    );
-    
-    final bodyPaint = Paint()
-      ..shader = bodyGradient.createShader(size.toRect())
-      ..style = PaintingStyle.fill;
-    
-    _drawPipeShape(canvas, bodyPaint);
-    
-    // Draw metallic sheen
-    final sheenPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Colors.white.withValues(alpha: 0.3),
-          Colors.transparent,
-          Colors.white.withValues(alpha: 0.1),
-        ],
-      ).createShader(size.toRect())
-      ..style = PaintingStyle.fill;
-    
-    _drawPipeShape(canvas, sheenPaint);
-    
-    // Draw border
-    final borderPaint = Paint()
-      ..color = pipeColor.darken(0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    
-    _drawPipeShape(canvas, borderPaint);
-  }
-  
-  void _drawPipeShape(Canvas canvas, Paint paint) {
-    final pipeWidth = size.x * 0.6;
-    final pipeHeight = size.y * 0.6;
-    
-    switch (pipeType) {
-      case PipeType.straight:
-        final rect = Rect.fromCenter(
-          center: Offset.zero,
-          width: orientation == PipeOrientation.horizontal ? size.x : pipeWidth,
-          height: orientation == PipeOrientation.horizontal ? pipeHeight : size.y,
-        );
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(rect, Radius.circular(pipeWidth * 0.2)),
-          paint,
-        );
-        break;
-        
-      case PipeType.corner:
-        final path = Path();
-        switch (orientation) {
-          case PipeOrientation.horizontal:
-            path.moveTo(-size.x / 2, -pipeHeight / 2);
-            path.lineTo(0, -pipeHeight / 2);
-            path.lineTo(0, size.y / 2);
-            path.lineTo(pipeWidth / 2, size.y / 2);
-            path.lineTo(pipeWidth / 2, pipeHeight / 2);
-            path.lineTo(-pipeWidth / 2, pipeHeight / 2);
-            path.lineTo(-pipeWidth / 2, 0);
-            path.lineTo(-size.x / 2, 0);
-            path.close();
-            break;
-          case PipeOrientation.vertical:
-            path.moveTo(-pipeWidth / 2, -size.y / 2);
-            path.lineTo(pipeWidth / 2, -size.y / 2);
-            path.lineTo(pipeWidth / 2, 0);
-            path.lineTo(size.x / 2, 0);
-            path.lineTo(size.x / 2, pipeHeight / 2);
-            path.lineTo(0, pipeHeight / 2);
-            path.lineTo(0, 0);
-            path.lineTo(-pipeWidth / 2, 0);
-            path.close();
-            break;
-          case PipeOrientation.horizontalFlipped:
-            path.moveTo(size.x / 2, -pipeHeight / 2);
-            path.lineTo(0, -pipeHeight / 2);
-            path.lineTo(0, size.y / 2);
-            path.lineTo(-pipeWidth / 2, size.y / 2);
-            path.lineTo(-pipeWidth / 2, pipeHeight / 2);
-            path.lineTo(pipeWidth / 2, pipeHeight / 2);
-            path.lineTo(pipeWidth / 2, 0);
-            path.lineTo(size.x / 2, 0);
-            path.close();
-            break;
-          case PipeOrientation.verticalFlipped:
-            path.moveTo(-pipeWidth / 2, -size.y / 2);
-            path.lineTo(pipeWidth / 2, -size.y / 2);
-            path.lineTo(pipeWidth / 2, 0);
-            path.lineTo(-size.x / 2, 0);
-            path.lineTo(-size.x / 2, pipeHeight / 2);
-            path.lineTo(0, pipeHeight / 2);
-            path.lineTo(0, 0);
-            path.lineTo(-pipeWidth / 2, 0);
-            path.close();
-            break;
-        }
-        canvas.drawPath(path, paint);
-        break;
-        
-      case PipeType.tJunction:
-        final path = Path();
-        switch (orientation) {
-          case PipeOrientation.horizontal:
-            // Horizontal bar
-            path.addRRect(RRect.fromRectAndRadius(
-              Rect.fromCenter(center: Offset.zero, width: size.x, height: pipeHeight),
-              Radius.circular(pipeHeight * 0.2),
-            ));
-            // Vertical extension down
-            path.addRRect(RRect.fromRectAndRadius(
-              Rect.fromCenter(center: Offset(0, size.y / 4), width: pipeWidth, height: size.y / 2),
-              Radius.circular(pipeWidth * 0.2),
-            ));
-            break;
-          case PipeOrientation.vertical:
-            // Vertical bar
-            path.addRRect(RRect.fromRectAndRadius(
-              Rect.fromCenter(center: Offset.zero, width: pipeWidth, height: size.y),
-              Radius.circular(pipeWidth * 0.2),
-            ));
-            // Horizontal extension right
-            path.addRRect(RRect.fromRectAndRadius(
-              Rect.fromCenter(center: Offset(size.x / 4, 0), width: size.x / 2, height: pipeHeight),
-              Radius.circular(pipeHeight * 0.2),
-            ));
-            break;
-          case PipeOrientation.horizontalFlipped:
-            // Horizontal bar
-            path.addRRect(RRect.fromRectAndRadius(
-              Rect.fromCenter(center: Offset.zero, width: size.x, height: pipeHeight),
-              Radius.circular(pipeHeight * 0.2),
-            ));
-            // Vertical extension up
-            path.addRRect(RRect.fromRectAndRadius(
-              Rect.fromCenter(center: Offset(0, -size.y / 4), width: pipeWidth, height: size.y / 2),
-              Radius.circular(pipeWidth * 0.2),
-            ));
-            break;
-          case PipeOrientation.verticalFlipped:
-            // Vertical bar
-            path.addRRect(RRect.fromRectAndRadius(
-              Rect.fromCenter(center: Offset.zero, width: pipeWidth, height: size.y),
-              Radius.circular(pipeWidth * 0.2),
-            ));
-            // Horizontal extension left
-            path.addRRect(RRect.fromRectAndRadius(
-              Rect.fromCenter(center: Offset(-size.x / 4, 0), width: size.x / 2, height: pipeHeight),
-              Radius.circular(pipeHeight * 0.2),
-            ));
-            break;
-        }
-        canvas.drawPath(path, paint);
-        break;
-    }
-  }
-  
-  void _drawWaterFlow(Canvas canvas) {
-    final flowPaint = Paint()
-      ..color = Colors.blue.shade400.withValues(alpha: 0.6)
-      ..style = PaintingStyle.fill;
-    
-    // Animated flowing particles within pipe
-    for (int i = 0; i < 5; i++) {
-      final progress = (flowAnimationTime + i * 0.2) % 1.0;
-      Vector2 particlePos = Vector2.zero();
-      
-      switch (pipeType) {
-        case PipeType.straight:
-          if (orientation == PipeOrientation.horizontal) {
-            particlePos = Vector2(
-              -size.x / 2 + progress * size.x,
-              0,
-            );
-          } else {
-            particlePos = Vector2(
-              0,
-              -size.y / 2 + progress * size.y,
-            );
-          }
-          break;
-        case PipeType.corner:
-          if (progress < 0.5) {
-            particlePos = Vector2(-size.x / 2 + progress * size.x, 0);
-          } else {
-            particlePos = Vector2(0, (progress - 0.5) * size.y);
-          }
-          break;
-        case PipeType.tJunction:
-          // Multiple flow paths
-          if (i % 2 == 0) {
-            particlePos = Vector2(-size.x / 2 + progress * size.x, 0);
-          } else {
-            particlePos = Vector2(0, -size.y / 2 + progress * size.y);
-          }
-          break;
-      }
-      
-      canvas.drawCircle(
-        Offset(particlePos.x, particlePos.y),
-        3 + sin(flowAnimationTime * 2 + i) * 1,
-        flowPaint,
-      );
-    }
-  }
-  
-  void _drawConnectionIndicators(Canvas canvas) {
-    final indicatorPaint = Paint()
-      ..style = PaintingStyle.fill;
-    
-    for (var connection in connectionPoints) {
-      final worldPos = connection.position;
-      
-      // Color based on connection status
-      if (isConnectedToSource || isConnectedToDestination) {
-        indicatorPaint.color = Colors.green.shade400.withValues(alpha: 0.8);
-      } else if (isHighlighted) {
-        indicatorPaint.color = Colors.yellow.shade400.withValues(alpha: 0.8);
-      } else {
-        indicatorPaint.color = Colors.grey.shade400.withValues(alpha: 0.6);
-      }
-      
-      // Draw connection point
-      canvas.drawCircle(
-        Offset(worldPos.x, worldPos.y),
-        4,
-        indicatorPaint,
-      );
-      
-      // Draw outer ring
-      final ringPaint = Paint()
-        ..color = indicatorPaint.color.withValues(alpha: 0.4)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
-      
-      canvas.drawCircle(
-        Offset(worldPos.x, worldPos.y),
-        6,
-        ringPaint,
-      );
-    }
-  }
-  
-  @override
-  bool onDragStart(DragStartEvent event) {
-    super.onDragStart(event);
-    if (!isPlaced) {
-      ghostPosition = position.clone();
-      priority = 200; // Bring to front while dragging
-      scale = Vector2.all(1.1);
-      return true;
-    }
-    return false;
-  }
-  
-  @override
-  bool onDragUpdate(DragUpdateEvent event) {
-    if (ghostPosition != null) {
-      position += event.localDelta;
-      
-      // Check for valid placement zones
-      _checkPlacementValidity();
-      
-      return true;
-    }
-    return false;
-  }
-  
-  @override
-  bool onDragEnd(DragEndEvent event) {
-    super.onDragEnd(event);
-    if (ghostPosition != null) {
-      // Snap to grid if over valid placement zone
-      final snappedPos = _snapToGrid(position);
-      
-      if (_isValidPlacement(snappedPos)) {
-        position = snappedPos;
-        isPlaced = true;
-        priority = 10;
-        scale = Vector2.all(1.0);
-        
-        // Check connections
-        // game.checkPipelineConnection();
-        
-        // Visual feedback
-        add(ScaleEffect.to(
-          Vector2.all(1.05),
-          EffectController(duration: 0.2, alternate: true),
-        ));
-      } else {
-        // Return to original position
-        position = ghostPosition!;
-        scale = Vector2.all(1.0);
-      }
-      
-      ghostPosition = null;
-      isHighlighted = false;
-      return true;
-    }
-    return false;
-  }
-  
-  void rotatePipe() {
-    switch (orientation) {
-      case PipeOrientation.horizontal:
-        orientation = PipeOrientation.vertical;
-        break;
-      case PipeOrientation.vertical:
-        orientation = PipeOrientation.horizontalFlipped;
-        break;
-      case PipeOrientation.horizontalFlipped:
-        orientation = PipeOrientation.verticalFlipped;
-        break;
-      case PipeOrientation.verticalFlipped:
-        orientation = PipeOrientation.horizontal;
-        break;
-    }
-    
-    _updateConnectionPoints();
-    
-    // Rotation animation
-    add(RotateEffect.by(
-      pi / 2,
-      EffectController(duration: 0.3, curve: Curves.easeInOut),
-    ));
-  }
-  
-  void _checkPlacementValidity() {
-    final snappedPos = _snapToGrid(position);
-    isHighlighted = _isValidPlacement(snappedPos);
-  }
-  
-  Vector2 _snapToGrid(Vector2 pos) {
-    final gridSize = size.x;
-    return Vector2(
-      (pos.x / gridSize).round() * gridSize,
-      (pos.y / gridSize).round() * gridSize,
-    );
-  }
-  
-  bool _isValidPlacement(Vector2 pos) {
-    // Check if within game bounds
-    if (pos.x < 0 || pos.x > game.size.x || pos.y < 0 || pos.y > game.size.y) {
-      return false;
-    }
-    
-    // Check if not overlapping with other pipes
-    final otherPipes = game.children.whereType<DraggablePipeComponent>();
-    for (var pipe in otherPipes) {
-      if (pipe != this && pipe.isPlaced) {
-        final distance = (pipe.position - pos).length;
-        if (distance < size.x * 0.8) {
-          return false;
-        }
-      }
-    }
-    
-    return true;
-  }
-  
-  // Check if this pipe connects to another pipe at a specific connection point
-  bool connectsTo(DraggablePipeComponent other) {
-    for (var myConnection in connectionPoints) {
-      final myWorldPos = position + myConnection.position;
-      
-      for (var otherConnection in other.connectionPoints) {
-        final otherWorldPos = other.position + otherConnection.position;
-        
-        final distance = (myWorldPos - otherWorldPos).length;
-        
-        // Check if connection points are close and directions are compatible
-        if (distance < 10 && _directionsCompatible(myConnection.direction, otherConnection.direction)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-  
-  bool _directionsCompatible(Direction dir1, Direction dir2) {
-    // Opposite directions connect
-    return (dir1 == Direction.left && dir2 == Direction.right) ||
-           (dir1 == Direction.right && dir2 == Direction.left) ||
-           (dir1 == Direction.up && dir2 == Direction.down) ||
-           (dir1 == Direction.down && dir2 == Direction.up);
-  }
-  
-  void setWaterFlow(bool flowing) {
-    showWaterFlow = flowing;
-    if (flowing) {
-      pipeColor = Colors.blue.shade700;
-    }
-  }
-}
-
-// Supporting classes
-enum PipeType {
-  straight,
-  corner,
-  tJunction,
-}
-
-enum PipeOrientation {
-  horizontal,
-  vertical,
-  horizontalFlipped,
-  verticalFlipped,
-}
-
-enum Direction {
-  up,
-  down,
-  left,
-  right,
-}
-
-class ConnectionPoint {
-  final Vector2 position;
-  final Direction direction;
-  
-  ConnectionPoint(this.position, this.direction);
-}
-
 class SortingFacilityBackground extends PositionComponent {
   SortingFacilityBackground({required Vector2 size}) : super(size: size) {
     priority = -10;
@@ -5122,259 +4508,6 @@ class SortingFacilityBackground extends PositionComponent {
   }
 }
 
-// Add this new component class
-class DrawnPipeComponent extends PositionComponent with HasGameReference<WaterPollutionGame> {
-  final List<Vector2> path;
-  final String irrigationType;
-  bool isFlowing = false;
-  double flowAnimationTime = 0.0;
-  List<WaterDroplet> waterDroplets = [];
-  
-  DrawnPipeComponent({
-    required this.path,
-    required this.irrigationType,
-  }) {
-    priority = 15;
-  }
-  
-  void startWaterFlow() {
-    isFlowing = true;
-    
-    // Generate water droplets along path
-    for (int i = 0; i < 20; i++) {
-      waterDroplets.add(WaterDroplet(
-        pathProgress: i / 20.0,
-        irrigationType: irrigationType,
-      ));
-    }
-  }
-  
-  @override
-  void update(double dt) {
-    super.update(dt);
-    
-    if (isFlowing) {
-      flowAnimationTime += dt;
-      
-      for (var droplet in waterDroplets) {
-        droplet.update(dt);
-      }
-    }
-  }
-  
-  @override
-  void render(Canvas canvas) {
-    if (path.length < 2) return;
-    
-    canvas.save();
-    
-    // Draw pipe body
-    final pipePaint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          Colors.grey.shade700,
-          Colors.grey.shade500,
-          Colors.grey.shade700,
-        ],
-      ).createShader(_getPathBounds())
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 12
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    
-    final pipePath = Path();
-    pipePath.moveTo(path.first.x, path.first.y);
-    
-    for (int i = 1; i < path.length; i++) {
-      pipePath.lineTo(path[i].x, path[i].y);
-    }
-    
-    // Shadow
-    canvas.drawPath(
-      pipePath,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.4)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 14
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
-    );
-    
-    canvas.drawPath(pipePath, pipePaint);
-    
-    // Draw inner pipe
-    canvas.drawPath(
-      pipePath,
-      Paint()
-        ..color = Colors.grey.shade800
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 8
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
-    
-    // Draw water flow if active
-    if (isFlowing) {
-      _drawWaterFlow(canvas);
-    }
-    
-    // Draw irrigation-specific details
-    if (irrigationType == 'drip') {
-      _drawDripEmitters(canvas);
-    } else {
-      _drawContourLines(canvas);
-    }
-    
-    canvas.restore();
-  }
-  
-  void _drawWaterFlow(Canvas canvas) {
-    for (var droplet in waterDroplets) {
-      final position = _getPositionOnPath(droplet.pathProgress);
-      
-      // Draw droplet with glow
-      final dropletPaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            Colors.blue.shade300.withValues(alpha: 0.8),
-            Colors.blue.shade500.withValues(alpha: 0.6),
-            Colors.blue.shade700.withValues(alpha: 0),
-          ],
-        ).createShader(
-          Rect.fromCircle(center: Offset(position.x, position.y), radius: 6),
-        );
-      
-      canvas.drawCircle(
-        Offset(position.x, position.y),
-        4 + sin(flowAnimationTime * 3 + droplet.pathProgress * 10) * 1,
-        dropletPaint,
-      );
-    }
-  }
-  
-  void _drawDripEmitters(Canvas canvas) {
-    // Draw emitter points along the pipe
-    final emitterSpacing = 30.0;
-    double currentDistance = 0.0;
-    
-    for (int i = 0; i < path.length - 1; i++) {
-      final segmentLength = (path[i + 1] - path[i]).length;
-      
-      while (currentDistance < segmentLength) {
-        final t = currentDistance / segmentLength;
-        final point = path[i] + (path[i + 1] - path[i]) * t;
-        
-        // Draw emitter
-        canvas.drawCircle(
-          Offset(point.x, point.y),
-          3,
-          Paint()..color = Colors.black87,
-        );
-        
-        // Draw drip
-        if (isFlowing) {
-          final dripPhase = (flowAnimationTime + currentDistance / 10) % 1.0;
-          final dripY = point.y + dripPhase * 15;
-          
-          canvas.drawCircle(
-            Offset(point.x, dripY),
-            2,
-            Paint()..color = Colors.blue.withValues(alpha: 1.0 - dripPhase),
-          );
-        }
-        
-        currentDistance += emitterSpacing;
-      }
-      
-      currentDistance -= segmentLength;
-    }
-  }
-  
-  void _drawContourLines(Canvas canvas) {
-    // Draw wavy contour lines
-    final contourPaint = Paint()
-      ..color = Colors.brown.shade600.withValues(alpha: 0.5)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    
-    for (int i = 0; i < path.length - 1; i++) {
-      final start = path[i];
-      final end = path[i + 1];
-      final direction = (end - start).normalized();
-      final perpendicular = Vector2(-direction.y, direction.x);
-      
-      // Draw contour lines on both sides
-      for (int side = -1; side <= 1; side += 2) {
-        final contourPath = Path();
-        final offset = perpendicular * (side * 20.0);
-        
-        contourPath.moveTo(start.x + offset.x, start.y + offset.y);
-        
-        final segments = 10;
-        for (int j = 1; j <= segments; j++) {
-          final t = j / segments;
-          final point = start + (end - start) * t;
-          final wave = sin(t * pi * 4 + flowAnimationTime) * 3;
-          final finalPoint = point + offset + perpendicular * wave;
-          
-          contourPath.lineTo(finalPoint.x, finalPoint.y);
-        }
-        
-        canvas.drawPath(contourPath, contourPaint);
-      }
-    }
-  }
-  
-  Vector2 _getPositionOnPath(double progress) {
-    if (path.isEmpty) return Vector2.zero();
-    if (path.length == 1) return path.first;
-    
-    final totalLength = _getTotalPathLength();
-    final targetDistance = totalLength * progress;
-    
-    double currentDistance = 0.0;
-    for (int i = 0; i < path.length - 1; i++) {
-      final segmentLength = (path[i + 1] - path[i]).length;
-      
-      if (currentDistance + segmentLength >= targetDistance) {
-        final t = (targetDistance - currentDistance) / segmentLength;
-        return path[i] + (path[i + 1] - path[i]) * t;
-      }
-      
-      currentDistance += segmentLength;
-    }
-    
-    return path.last;
-  }
-  
-  double _getTotalPathLength() {
-    double length = 0.0;
-    for (int i = 0; i < path.length - 1; i++) {
-      length += (path[i + 1] - path[i]).length;
-    }
-    return length;
-  }
-  
-  Rect _getPathBounds() {
-    if (path.isEmpty) return Rect.zero;
-    
-    double minX = path.first.x;
-    double minY = path.first.y;
-    double maxX = path.first.x;
-    double maxY = path.first.y;
-    
-    for (var point in path) {
-      minX = min(minX, point.x);
-      minY = min(minY, point.y);
-      maxX = max(maxX, point.x);
-      maxY = max(maxY, point.y);
-    }
-    
-    return Rect.fromLTRB(minX, minY, maxX, maxY);
-  }
-}
-
 class WaterDroplet {
   double pathProgress;
   final String irrigationType;
@@ -5398,14 +4531,14 @@ class UnifiedAgricultureBackground extends PositionComponent {
 
   @override
   void render(Canvas canvas) {
-    // Single unified gradient background
+    // Unified light brown gradient for tilled land
     final backgroundGradient = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       colors: [
-        const Color(0xFF8BC34A), // Light green
-        const Color(0xFF7CB342), // Medium green
-        const Color(0xFF689F38), // Darker green
+        const Color(0xFFD2B48C), // Tan/light brown
+        const Color(0xFFCD853F), // Peru/medium brown
+        const Color(0xFFA0522D), // Sienna/darker brown
       ],
       stops: [0.0, 0.5, 1.0],
     );
@@ -5417,7 +4550,7 @@ class UnifiedAgricultureBackground extends PositionComponent {
     // Draw full background
     canvas.drawRect(size.toRect(), backgroundPaint);
     
-    // Add subtle texture overlay for depth
+    // Add subtle texture overlay for depth (remains, but adjust color if needed)
     _drawSubtleTexture(canvas);
   }
   
@@ -5437,6 +4570,103 @@ class UnifiedAgricultureBackground extends PositionComponent {
         radius,
         texturePaint,
       );
+    }
+  }
+}
+
+class HoeComponent extends PositionComponent with DragCallbacks, HasGameReference<WaterPollutionGame> {
+  HoeComponent({required super.position, required super.size}) {
+    anchor = Anchor.center;
+    priority = 20;
+  }
+
+  @override
+  Future<void> onLoad() async {
+    // Placeholder: Load sprite if asset added (uncomment and add asset loading)
+    // add(SpriteComponent(sprite: await loadSprite('hoe.png'), size: size));
+
+    // Fallback: Simple drawn hoe shape if no sprite
+  }
+
+  @override
+  void render(Canvas canvas) {
+    // Simple hoe render (brown handle, gray blade)
+    final handlePaint = Paint()..color = Colors.brown;
+    canvas.drawRect(Rect.fromLTWH(size.x / 2 - 5, 0, 10, size.y - 10), handlePaint);
+
+    final bladePaint = Paint()..color = Colors.grey;
+    final bladePath = Path()
+      ..moveTo(size.x / 2 - 15, size.y - 10)
+      ..lineTo(size.x / 2 + 15, size.y - 10)
+      ..lineTo(size.x / 2, size.y)
+      ..close();
+    canvas.drawPath(bladePath, bladePaint);
+  }
+
+  @override
+  void onDragStart(DragStartEvent event) {
+    super.onDragStart(event);
+    game.startDiggingFurrow();
+    game.currentDrawnPath.add(event.localPosition);
+  }
+
+  @override
+  void onDragUpdate(DragUpdateEvent event) {
+    super.onDragUpdate(event);
+    position += event.localDelta; // Move hoe with drag
+    game.updateFurrowPath(event.localDelta);
+  }
+
+  @override
+  void onDragEnd(DragEndEvent event) {
+    super.onDragEnd(event);
+    game.completeFurrowDrag();
+  }
+}
+
+class FurrowComponent extends PositionComponent with HasGameReference<WaterPollutionGame> {
+  @override
+  void render(Canvas canvas) {
+    final dashPaint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke;
+
+    const dashLength = 10.0;
+    const gapLength = 5.0;
+    const lineSeparation = 5.0; // Separation between double lines
+
+    for (int i = 0; i < game.furrowPaths.length; i++) {
+      final path = game.furrowPaths[i];
+      if (path.length < 2) continue;
+
+      final start = path.first;
+      final end = path.last;
+      final direction = (end - start).normalized();
+      final perpendicular = Vector2(-direction.y, direction.x); // For parallel line
+
+      // Draw two parallel dashed lines
+      for (double offset = -lineSeparation / 2; offset <= lineSeparation / 2; offset += lineSeparation) {
+        final offsetVec = perpendicular * offset;
+        double currentLength = 0.0;
+        final totalLength = (end - start).length;
+
+        while (currentLength < totalLength) {
+          final dashStartT = currentLength / totalLength;
+          final dashEndT = min(1.0, (currentLength + dashLength) / totalLength);
+
+          final dashStart = start + (end - start) * dashStartT + offsetVec;
+          final dashEnd = start + (end - start) * dashEndT + offsetVec;
+
+          canvas.drawLine(
+            Offset(dashStart.x, dashStart.y),
+            Offset(dashEnd.x, dashEnd.y),
+            dashPaint,
+          );
+
+          currentLength += dashLength + gapLength;
+        }
+      }
     }
   }
 }
