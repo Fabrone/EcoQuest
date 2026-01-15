@@ -1126,94 +1126,111 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
     
-      return GestureDetector(
-        onPanStart: (details) {
-          final localPosition = details.localPosition;
-          game.onFarmTapDown(Vector2(localPosition.dx, localPosition.dy));
-        },
-        onPanUpdate: (details) {
-          final localPosition = details.localPosition;
-          final delta = details.delta;
-          game.onFarmDragUpdate(
-            Vector2(localPosition.dx, localPosition.dy),
-            Vector2(delta.dx, delta.dy),
-          );
-        },
-        onPanEnd: (details) {
-          final localPosition = details.localPosition;
-          game.onFarmDragEnd(Vector2(localPosition.dx, localPosition.dy));
-        },
-        child: Stack( 
-          children: [
-            // Instructions overlay
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                child: Container(
-                  margin: EdgeInsets.all(isMobile ? 8 : 12),
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isMobile? 12 : 16,
-                    vertical: isMobile ? 10 : 12,
-                    ),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                          Colors.black.withValues(alpha: 0.75),
-                          Colors.black.withValues(alpha: 0.6),
-                          ],
-                      ),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.green, width: 2),
+    return Stack(
+      children: [
+        // ADD: Full-screen gesture detector that sits behind UI overlays
+        // This ensures gestures reach the game canvas
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent, // CRITICAL: Allow gestures to pass through
+            onPanStart: (details) {
+              final localPosition = details.localPosition;
+              game.onFarmTapDown(Vector2(localPosition.dx, localPosition.dy));
+            },
+            onPanUpdate: (details) {
+              final localPosition = details.localPosition;
+              final delta = details.delta;
+              game.onFarmDragUpdate(
+                Vector2(localPosition.dx, localPosition.dy),
+                Vector2(delta.dx, delta.dy),
+              );
+            },
+            onPanEnd: (details) {
+              // Use last known position since onPanEnd doesn't provide localPosition
+              if (game.lastFurrowPoint != null) {
+                game.onFarmDragEnd(game.lastFurrowPoint!.clone());
+              }
+            },
+            onLongPressStart: (details) {
+              final tapPosition = Vector2(details.localPosition.dx, details.localPosition.dy);
+              _checkForFurrowContinuation(tapPosition);
+            },
+          ),
+        ),
+        
+        // Instructions overlay - with pointer events disabled so gestures pass through
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: IgnorePointer( // CRITICAL: Prevent this widget from blocking gestures
+            child: SafeArea(
+              child: Container(
+                margin: EdgeInsets.all(isMobile ? 8 : 12),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isMobile ? 12 : 16,
+                  vertical: isMobile ? 10 : 12,
+                ),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.black.withValues(alpha: 0.75),
+                      Colors.black.withValues(alpha: 0.6),
+                    ],
                   ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green, width: 2),
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.agriculture,
-                        color: Colors.green,
-                        size: isMobile ? 20 : 24,
-                      ),
-                      SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          'IRRIGATION SETUP',
-                          style: GoogleFonts.exo2(
-                            fontSize: isMobile ? 14 : 16,
-                            color: Colors.green,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.2,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.agriculture,
+                          color: Colors.green,
+                          size: isMobile ? 20 : 24,
+                        ),
+                        SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'IRRIGATION SETUP',
+                            style: GoogleFonts.exo2(
+                              fontSize: isMobile ? 14 : 16,
+                              color: Colors.green,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
                             ),
                           ),
                         ),
                       ],
                     ),
                     SizedBox(height: 8),
-                      Text(
+                    Text(
                       isMobile
-                      ? 'Drag to create furrows\nConnect to river for water flow'
-                      : 'Drag across the farm to dig furrows • Connect to the river to enable water flow',
+                          ? 'Drag to create furrows\nConnect to river for water flow'
+                          : 'Drag across the farm to dig furrows • Connect to the river to enable water flow',
                       style: GoogleFonts.exo2(
                         fontSize: isMobile ? 11 : 13,
                         color: Colors.white70,
                         fontWeight: FontWeight.w500,
                       ),
-                    textAlign: TextAlign.center,
+                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
               ),
             ),
           ),
-          // Stats display
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
+        ),
+        
+        // Stats display - with pointer events disabled
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: IgnorePointer( // CRITICAL: Prevent this widget from blocking gestures
             child: SafeArea(
               child: Container(
                 margin: EdgeInsets.all(isMobile ? 8 : 12),
@@ -1256,8 +1273,34 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
               ),
             ),
           ),
-        ],
-      ),
+        ),
+        
+        // Display hint for continuing furrows - with pointer events disabled
+        if (game.completedFurrows.isNotEmpty)
+          Positioned(
+            top: size.height * 0.15,
+            left: 16,
+            right: 16,
+            child: IgnorePointer( // CRITICAL: Prevent this widget from blocking gestures
+              child: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Long press on a furrow end to continue drawing',
+                  style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 10 : 12,
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1289,6 +1332,34 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         ),
       ],
     );
+  }
+
+  void _checkForFurrowContinuation(Vector2 tapPosition) {
+    const threshold = 30.0; // Pixels
+    
+    for (var furrow in game.completedFurrows) {
+      if (furrow.points.isEmpty) continue;
+      
+      // Check if tapping near the end of an existing furrow
+      final endPoint = furrow.points.last;
+      final distance = (endPoint - tapPosition).length;
+      
+      if (distance < threshold && !furrow.isConnectedToRiver) {
+        // Continue drawing this furrow
+        game.resumeFurrowDrawing(furrow);
+        
+        // Show feedback
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Continuing furrow...'),
+            duration: Duration(seconds: 1),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        break;
+      }
+    }
   }
 
   Widget _buildCompletionScreen() {

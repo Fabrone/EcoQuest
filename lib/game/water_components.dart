@@ -4591,58 +4591,83 @@ class UnifiedAgricultureBackground extends PositionComponent {
   }
 }
 
-/// Represents a single furrow path drawn by the user
 class FurrowPath {
+  final String id; // ADD: Unique identifier
   List<Vector2> points;
   bool isConnectedToRiver;
   Vector2? riverConnectionPoint;
   bool hasWater;
+  Set<String> connectedFurrowIds; // ADD: Track connected furrows
+  List<Vector2> intersectionPoints; // ADD: Store intersection points
   
   FurrowPath({
+    String? id, // Make optional for backward compatibility
     required this.points,
     this.isConnectedToRiver = false,
     this.riverConnectionPoint,
     this.hasWater = false,
-  });
+    Set<String>? connectedFurrowIds,
+    List<Vector2>? intersectionPoints,
+  }) : id = id ?? 'furrow_${DateTime.now().millisecondsSinceEpoch}',
+       connectedFurrowIds = connectedFurrowIds ?? {},
+       intersectionPoints = intersectionPoints ?? [];
 }
 
-/// Water flow animation through furrow
-class WaterFlowAnimation {
+// REPLACE: WaterFlowAnimation with ContinuousWaterFlowAnimation
+class ContinuousWaterFlowAnimation {
   final FurrowPath furrowPath;
   final Vector2 startPoint;
+  final Vector2 gameSize;
+  final bool isPropagated; // If water came from another furrow
   double progress = 0.0;
-  final double speed = 0.3; // 30% of furrow per second
+  final double speed = 0.25; // Speed of water flow
   bool isComplete = false;
-  List<WaterDropletParticle> droplets = [];
+  List<ContinuousWaterDroplet> droplets = [];
+  double timeSinceStart = 0.0;
   
-  WaterFlowAnimation({
+  ContinuousWaterFlowAnimation({
     required this.furrowPath,
     required this.startPoint,
+    required this.gameSize,
+    this.isPropagated = false,
   }) {
     _initializeDroplets();
   }
   
   void _initializeDroplets() {
-    // Create water droplets along the path
-    for (int i = 0; i < 20; i++) {
-      droplets.add(WaterDropletParticle(
-        offset: i * 0.05, // Staggered start
+    // Create continuous stream of water droplets
+    for (int i = 0; i < 30; i++) {
+      droplets.add(ContinuousWaterDroplet(
+        offset: -i * 0.03, // Negative offset for staggered spawning
+        furrowLength: furrowPath.points.length.toDouble(),
       ));
     }
   }
   
   void update(double dt) {
-    if (isComplete) return;
+    timeSinceStart += dt;
     
+    // Update progress (loops continuously)
     progress += speed * dt;
+    
+    // Keep progress in range and loop
+    if (progress >= 1.0) {
+      progress = progress % 1.0; // Loop back to start
+    }
     
     // Update all droplets
     for (var droplet in droplets) {
       droplet.update(dt, speed);
+      
+      // Respawn droplets that reach the end
+      if (droplet.localProgress >= 1.2) {
+        droplet.localProgress = -0.1; // Reset to start
+        droplet.lifetime = 0.0;
+      }
     }
     
-    if (progress >= 1.0) {
-      isComplete = true;
+    // Mark as having water after first pass
+    if (timeSinceStart > 0.5) {
       furrowPath.hasWater = true;
     }
   }
@@ -4650,90 +4675,122 @@ class WaterFlowAnimation {
   void render(Canvas canvas, List<Vector2> pathPoints) {
     if (pathPoints.length < 2) return;
     
-    final currentIndex = (progress * (pathPoints.length - 1)).floor();
-    
-    // Draw water flowing along the furrow
-    for (int i = 0; i <= currentIndex && i < pathPoints.length - 1; i++) {
-      final start = pathPoints[i];
-      final end = pathPoints[i + 1];
-      
-      // Draw water line
-      final waterPaint = Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            Colors.blue.shade400.withValues(alpha: 0.7),
-            Colors.cyan.shade300.withValues(alpha: 0.8),
-            Colors.blue.shade400.withValues(alpha: 0.7),
-          ],
-        ).createShader(Rect.fromPoints(
-          Offset(start.x, start.y),
-          Offset(end.x, end.y),
-        ))
-        ..strokeWidth = 8
-        ..strokeCap = StrokeCap.round;
-      
-      canvas.drawLine(
-        Offset(start.x, start.y),
-        Offset(end.x, end.y),
-        waterPaint,
-      );
-    }
+    // MODIFIED: Draw continuous water flow
+    _drawContinuousWaterStream(canvas, pathPoints);
     
     // Render water droplets
     for (var droplet in droplets) {
-      droplet.render(canvas, pathPoints, progress);
+      if (droplet.localProgress >= 0 && droplet.localProgress <= 1.0) {
+        droplet.render(canvas, pathPoints);
+      }
+    }
+  }
+  
+  void _drawContinuousWaterStream(Canvas canvas, List<Vector2> pathPoints) {
+    // Draw water-filled furrow sections
+    for (int i = 0; i < pathPoints.length - 1; i++) {
+      final start = pathPoints[i];
+      final end = pathPoints[i + 1];
+      
+      // Determine if this segment has water based on progress
+      final segmentProgress = i / (pathPoints.length - 1);
+      
+      // MODIFIED: Always draw water (continuous flow)
+      if (timeSinceStart > segmentProgress * 2) { // Gradual fill
+        // Draw water line with flowing effect
+        final waterPaint = Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              Colors.blue.shade400.withValues(alpha: 0.7),
+              Colors.cyan.shade300.withValues(alpha: 0.9),
+              Colors.blue.shade400.withValues(alpha: 0.7),
+            ],
+          ).createShader(Rect.fromPoints(
+            Offset(start.x, start.y),
+            Offset(end.x, end.y),
+          ))
+          ..strokeWidth = 10
+          ..strokeCap = StrokeCap.round;
+        
+        canvas.drawLine(
+          Offset(start.x, start.y),
+          Offset(end.x, end.y),
+          waterPaint,
+        );
+        
+        // Add animated shimmer effect
+        final shimmerOffset = (timeSinceStart * 2) % 1.0;
+        if ((segmentProgress - shimmerOffset).abs() < 0.1) {
+          final shimmerPaint = Paint()
+            ..color = Colors.white.withValues(alpha: 0.5)
+            ..strokeWidth = 8
+            ..strokeCap = StrokeCap.round;
+          
+          canvas.drawLine(
+            Offset(start.x, start.y),
+            Offset(end.x, end.y),
+            shimmerPaint,
+          );
+        }
+      }
     }
   }
 }
-
-/// Individual water droplet particle
-class WaterDropletParticle {
-  double offset; // Start offset along path (0-1)
-  double localProgress = 0.0;
+class ContinuousWaterDroplet {
+  double offset; // Start offset along path
+  double localProgress;
+  double lifetime;
+  final double furrowLength;
+  double size;
   
-  WaterDropletParticle({required this.offset});
+  ContinuousWaterDroplet({
+    required this.offset,
+    required this.furrowLength,
+  }) : localProgress = offset,
+       lifetime = 0.0,
+       size = 3 + Random().nextDouble() * 2;
   
   void update(double dt, double flowSpeed) {
+    lifetime += dt;
     localProgress += flowSpeed * dt;
   }
   
-  void render(Canvas canvas, List<Vector2> pathPoints, double globalProgress) {
-    final dropletProgress = (localProgress + offset).clamp(0.0, 1.0);
-    
-    if (dropletProgress > globalProgress) return; // Don't render ahead of flow
+  void render(Canvas canvas, List<Vector2> pathPoints) {
+    final dropletProgress = localProgress.clamp(0.0, 1.0);
     
     // Find position along path
-    final pathIndex = (dropletProgress * (pathPoints.length - 1)).floor();
-    if (pathIndex >= pathPoints.length - 1) return;
-    
+    final pathIndex = (dropletProgress * (pathPoints.length - 1)).floor().clamp(0, pathPoints.length - 2);
     final start = pathPoints[pathIndex];
     final end = pathPoints[pathIndex + 1];
     final t = (dropletProgress * (pathPoints.length - 1)) - pathIndex;
     
     final position = start + (end - start) * t;
     
-    // Draw droplet
+    // Calculate opacity based on lifetime for twinkling effect
+    final opacity = (0.7 + sin(lifetime * 4) * 0.3).clamp(0.4, 1.0);
+    
+    // Draw droplet with glow
     final dropletPaint = Paint()
       ..shader = RadialGradient(
         colors: [
-          Colors.white.withValues(alpha: 0.9),
-          Colors.cyan.shade200.withValues(alpha: 0.7),
-          Colors.blue.shade400.withValues(alpha: 0.4),
+          Colors.white.withValues(alpha: opacity * 0.9),
+          Colors.cyan.shade200.withValues(alpha: opacity * 0.7),
+          Colors.blue.shade400.withValues(alpha: opacity * 0.4),
         ],
       ).createShader(Rect.fromCircle(
         center: Offset(position.x, position.y),
-        radius: 4,
+        radius: size * 1.5,
       ));
     
-    canvas.drawCircle(Offset(position.x, position.y), 4, dropletPaint);
+    canvas.drawCircle(Offset(position.x, position.y), size, dropletPaint);
     
     // Add highlight
     canvas.drawCircle(
-      Offset(position.x - 1, position.y - 1),
-      1.5,
-      Paint()..color = Colors.white.withValues(alpha: 0.8),
+      Offset(position.x - size * 0.3, position.y - size * 0.3),
+      size * 0.4,
+      Paint()..color = Colors.white.withValues(alpha: opacity * 0.9),
     );
   }
 }
@@ -4923,6 +4980,9 @@ class FurrowRenderComponent extends PositionComponent with HasGameReference<Wate
     // Render completed furrows
     for (var furrow in game.completedFurrows) {
       _renderFurrow(canvas, furrow);
+      
+      // ADD: Render intersection points
+      _renderIntersectionPoints(canvas, furrow);
     }
     
     // Render current furrow being drawn
@@ -4932,7 +4992,43 @@ class FurrowRenderComponent extends PositionComponent with HasGameReference<Wate
     
     // Render water flow animations
     for (var waterFlow in game.activeWaterFlows) {
-      waterFlow.render(canvas, waterFlow.furrowPath.points);
+      if (waterFlow is ContinuousWaterFlowAnimation) {
+        waterFlow.render(canvas, waterFlow.furrowPath.points);
+      }
+    }
+  }
+  
+  // ADD: New method to render intersection points
+  void _renderIntersectionPoints(Canvas canvas, FurrowPath furrow) {
+    for (var intersection in furrow.intersectionPoints) {
+      // Draw pulsing circle at intersection
+      final pulseSize = 8 + sin(DateTime.now().millisecondsSinceEpoch / 300) * 3;
+      
+      final intersectionPaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.yellow.withValues(alpha: 0.8),
+            Colors.orange.withValues(alpha: 0.5),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(
+          center: Offset(intersection.x, intersection.y),
+          radius: pulseSize,
+        ));
+      
+      canvas.drawCircle(
+        Offset(intersection.x, intersection.y),
+        pulseSize,
+        intersectionPaint,
+      );
+      
+      // Draw small water droplet icon
+      final dropletSize = 4.0;
+      canvas.drawCircle(
+        Offset(intersection.x, intersection.y),
+        dropletSize,
+        Paint()..color = Colors.cyan.shade300,
+      );
     }
   }
   

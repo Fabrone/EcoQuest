@@ -59,7 +59,10 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   Vector2? lastFurrowPoint;
   EnhancedRiverComponent? river;
   bool waterFlowing = false;
-  List<WaterFlowAnimation> activeWaterFlows = [];
+  List<dynamic> activeWaterFlows = [];
+  Map<String, FurrowPath> furrowNetwork = {}; // Track all furrows by ID
+  String? activeFurrowId; // Currently drawing furrow
+  bool isPausedDrawing = false;
 
   List<Vector2> currentDrawnPath = [];
   bool isDrawingPipe = false;
@@ -961,10 +964,15 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     debugPrint('♻️ Repositioned agriculture components for new screen size: ${size.x} x ${size.y}');
   }
 
+  // UPDATE: Modified onFarmTapDown method
   void onFarmTapDown(Vector2 position) {
-    if (!isDrawingFurrow && !_isPositionInRiver(position)) {
+    // Allow drawing from anywhere, including river edge
+    if (!isDrawingFurrow) {
       isDrawingFurrow = true;
       lastFurrowPoint = position.clone();
+      
+      // Generate unique ID for this furrow
+      activeFurrowId = 'furrow_${DateTime.now().millisecondsSinceEpoch}';
       
       // Show and position tractor at tap point
       if (tractor != null) {
@@ -974,11 +982,17 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       
       // Start new furrow path
       currentFurrowBeingDrawn = FurrowPath(
+        id: activeFurrowId!, // ADD: Assign ID
         points: [position.clone()],
-        isConnectedToRiver: false,
+        isConnectedToRiver: _isPositionInRiver(position), // Check if starting from river
       );
       
-      debugPrint('🚜 Started drawing furrow at $position');
+      // If starting from river, mark the connection point immediately
+      if (currentFurrowBeingDrawn!.isConnectedToRiver) {
+        currentFurrowBeingDrawn!.riverConnectionPoint = position.clone();
+      }
+      
+      debugPrint('🚜 Started drawing furrow at $position (from river: ${currentFurrowBeingDrawn!.isConnectedToRiver})');
     }
   }
 
@@ -1008,6 +1022,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
   }
 
+  // UPDATE: Modified onFarmDragEnd method
   void onFarmDragEnd(Vector2 endPosition) {
     if (!isDrawingFurrow || currentFurrowBeingDrawn == null) return;
     
@@ -1016,22 +1031,40 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Add final point
     currentFurrowBeingDrawn!.points.add(endPosition.clone());
     
-    // Check if furrow connects to river
-    final connectsToRiver = _checkFurrowRiverConnection(currentFurrowBeingDrawn!);
-    currentFurrowBeingDrawn!.isConnectedToRiver = connectsToRiver;
+    // Check BOTH ends for river connection
+    final startConnectsToRiver = _isPositionInRiver(currentFurrowBeingDrawn!.points.first);
+    final endConnectsToRiver = _isPositionInRiver(endPosition);
     
-    // Save completed furrow
+    currentFurrowBeingDrawn!.isConnectedToRiver = startConnectsToRiver || endConnectsToRiver;
+    
+    // Set connection point to whichever end touches the river
+    if (startConnectsToRiver) {
+      currentFurrowBeingDrawn!.riverConnectionPoint = currentFurrowBeingDrawn!.points.first.clone();
+    } else if (endConnectsToRiver) {
+      currentFurrowBeingDrawn!.riverConnectionPoint = endPosition.clone();
+    } else {
+      // Check if furrow path gets close to river along its length
+      final connectsToRiver = _checkFurrowRiverConnection(currentFurrowBeingDrawn!);
+      currentFurrowBeingDrawn!.isConnectedToRiver = connectsToRiver;
+    }
+    
+    // ADD: Check for connections to other furrows
+    _detectFurrowInterconnections(currentFurrowBeingDrawn!);
+    
+    // Save completed furrow with ID
     completedFurrows.add(currentFurrowBeingDrawn!);
+    furrowNetwork[currentFurrowBeingDrawn!.id] = currentFurrowBeingDrawn!;
     
-    debugPrint('✅ Furrow completed: ${currentFurrowBeingDrawn!.points.length} points, connected to river: $connectsToRiver');
+    debugPrint('✅ Furrow completed: ${currentFurrowBeingDrawn!.points.length} points, connected to river: ${currentFurrowBeingDrawn!.isConnectedToRiver}');
     
-    // If connected to river, trigger water flow
-    if (connectsToRiver) {
-      _startWaterFlowAnimation(currentFurrowBeingDrawn!);
-      onFurrowsComplete?.call(); // Trigger UI prompt
+    // If connected to river, trigger CONTINUOUS water flow
+    if (currentFurrowBeingDrawn!.isConnectedToRiver) {
+      _startContinuousWaterFlow(currentFurrowBeingDrawn!);
+      onFurrowsComplete?.call();
     }
     
     currentFurrowBeingDrawn = null;
+    activeFurrowId = null;
     
     // Hide tractor with delay
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -1039,6 +1072,40 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
         tractor!.visible = false;
       }
     });
+  }
+
+  // ADD: New method to detect furrow interconnections
+  void _detectFurrowInterconnections(FurrowPath newFurrow) {
+    const connectionThreshold = 15.0; // Pixels
+    
+    for (var existingFurrow in completedFurrows) {
+      // Check if any point in new furrow is close to any point in existing furrow
+      for (var newPoint in newFurrow.points) {
+        for (var existingPoint in existingFurrow.points) {
+          final distance = (newPoint - existingPoint).length;
+          
+          if (distance < connectionThreshold) {
+            // Found intersection!
+            newFurrow.connectedFurrowIds.add(existingFurrow.id);
+            existingFurrow.connectedFurrowIds.add(newFurrow.id);
+            
+            // Store intersection point
+            final intersectionPoint = (newPoint + existingPoint) / 2;
+            newFurrow.intersectionPoints.add(intersectionPoint);
+            existingFurrow.intersectionPoints.add(intersectionPoint);
+            
+            debugPrint('🔗 Furrow ${newFurrow.id} connected to ${existingFurrow.id} at $intersectionPoint');
+            
+            // If existing furrow has water, propagate to new furrow
+            if (existingFurrow.hasWater && !newFurrow.hasWater) {
+              _propagateWaterToConnectedFurrow(newFurrow, intersectionPoint);
+            }
+            
+            break; // Found one connection, move to next existing furrow
+          }
+        }
+      }
+    }
   }
 
   bool _isPositionInRiver(Vector2 position) {
@@ -1080,19 +1147,84 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     return false;
   }
 
-  void _startWaterFlowAnimation(FurrowPath furrow) {
+  void _startContinuousWaterFlow(FurrowPath furrow) {
     if (!furrow.isConnectedToRiver || furrow.riverConnectionPoint == null) return;
     
     waterFlowing = true;
+    furrow.hasWater = true;
     
-    final waterFlow = WaterFlowAnimation(
+    // CREATE: Continuous water flow that loops
+    final waterFlow = ContinuousWaterFlowAnimation(
       furrowPath: furrow,
       startPoint: furrow.riverConnectionPoint!,
+      gameSize: size,
     );
     
     activeWaterFlows.add(waterFlow);
     
-    debugPrint('💧 Started water flow animation through furrow');
+    debugPrint('💧 Started CONTINUOUS water flow through furrow ${furrow.id}');
+    
+    // Propagate water to connected furrows
+    _propagateWaterToConnectedFurrows(furrow);
+  }
+
+  void _propagateWaterToConnectedFurrows(FurrowPath sourceFurrow) {
+    for (var connectedId in sourceFurrow.connectedFurrowIds) {
+      final connectedFurrow = furrowNetwork[connectedId];
+      
+      if (connectedFurrow != null && !connectedFurrow.hasWater) {
+        // Find the intersection point to use as start point for water flow
+        Vector2? intersectionPoint;
+        for (var point in sourceFurrow.intersectionPoints) {
+          if (connectedFurrow.intersectionPoints.any((p) => (p - point).length < 5)) {
+            intersectionPoint = point;
+            break;
+          }
+        }
+        
+        if (intersectionPoint != null) {
+          _propagateWaterToConnectedFurrow(connectedFurrow, intersectionPoint);
+        }
+      }
+    }
+  }
+
+  void _propagateWaterToConnectedFurrow(FurrowPath furrow, Vector2 startPoint) {
+    furrow.hasWater = true;
+    
+    // Create water flow starting from intersection point
+    final waterFlow = ContinuousWaterFlowAnimation(
+      furrowPath: furrow,
+      startPoint: startPoint,
+      gameSize: size,
+      isPropagated: true, // Mark as propagated from another furrow
+    );
+    
+    activeWaterFlows.add(waterFlow);
+    
+    debugPrint('🌊 Water propagated to connected furrow ${furrow.id}');
+    
+    // Recursively propagate to furrows connected to this one
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _propagateWaterToConnectedFurrows(furrow);
+    });
+  }
+
+  // ADD: New method to support pausing and resuming furrow drawing
+  void resumeFurrowDrawing(FurrowPath existingFurrow) {
+    if (isDrawingFurrow) return; // Already drawing
+    
+    isDrawingFurrow = true;
+    currentFurrowBeingDrawn = existingFurrow;
+    activeFurrowId = existingFurrow.id;
+    lastFurrowPoint = existingFurrow.points.last.clone();
+    
+    if (tractor != null) {
+      tractor!.position = lastFurrowPoint!.clone();
+      tractor!.visible = true;
+    }
+    
+    debugPrint('▶️ Resumed drawing furrow ${existingFurrow.id}');
   }
 
   @override
@@ -1101,13 +1233,19 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     
     // Update water flow animations
     for (var waterFlow in activeWaterFlows) {
-      waterFlow.update(dt);
+      if (waterFlow is ContinuousWaterFlowAnimation) {
+        waterFlow.update(dt);
+      }
     }
     
-    // Remove completed water flows
-    activeWaterFlows.removeWhere((flow) => flow.isComplete);
+    activeWaterFlows.removeWhere((flow) {
+      if (flow is ContinuousWaterFlowAnimation) {
+        return false; // Never remove continuous flows
+      }
+      // For any old WaterFlowAnimation types (if they exist)
+      return flow.isComplete == true;
+    });
   }
-
 
   int calculateFinalScore() {
     int score = 0;
