@@ -4085,7 +4085,8 @@ class EnhancedRiverComponent extends PositionComponent with HasGameReference<Wat
         ? size.x * 0.65  // 65% of river component width
         : size.y * 0.65; // 65% of river component height
     
-    debugPrint('🌊 River path generated: ${riverPath.length} points, width: $riverWidth');
+    debugPrint('🌊 River generated: ${riverPath.length} points, width: $riverWidth');
+    debugPrint('   Core water radius: ${riverWidth * 0.6}, Connection zone: ${riverWidth * 0.5 + 50}');
   }
 
   void _generateDesktopVerticalPath() {
@@ -4363,74 +4364,6 @@ class EnhancedRiverComponent extends PositionComponent with HasGameReference<Wat
   }
 }
 
-class WaterFlowParticle {
-  Vector2 position = Vector2.zero();
-  List<Vector2> riverPath;
-  double riverWidth;
-  double progress = 0.0;
-  double speed;
-  Color color;
-  double size;
-  double opacity;
-  
-  WaterFlowParticle({required this.riverPath, required this.riverWidth})
-      : speed = 0.15 + Random().nextDouble() * 0.25,
-        size = 2 + Random().nextDouble() * 4,
-        opacity = 0.3 + Random().nextDouble() * 0.4,
-        color = [
-          Colors.white,
-          Colors.lightBlue.shade100,
-          Colors.cyan.shade100,
-        ][Random().nextInt(3)] {
-    progress = Random().nextDouble();
-    _updatePosition();
-  }
-  
-  void update(double dt) {
-    progress += speed * dt;
-    
-    if (progress >= 1.0) {
-      progress = 0.0;
-    }
-    
-    _updatePosition();
-  }
-    
-  void _updatePosition() {
-    final index = (progress * (riverPath.length - 1)).floor();
-    final localProgress = (progress * (riverPath.length - 1)) - index;
-    
-    if (index < riverPath.length - 1) {
-      final start = riverPath[index];
-      final end = riverPath[index + 1];
-      // CHANGED: Manual interpolation
-      final centerPos = start + (end - start) * localProgress;
-      
-      final direction = (end - start).normalized();
-      final perpendicular = Vector2(-direction.y, direction.x);
-      final lateralOffset = (Random().nextDouble() - 0.5) * riverWidth * 0.6;
-      
-      position = centerPos + (perpendicular * lateralOffset);
-    }
-  }
-  
-  void render(Canvas canvas) {
-    final glowPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          color.withValues(alpha: opacity),
-          color.withValues(alpha: opacity * 0.5),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCircle(center: Offset(position.x, position.y), radius: size * 2));
-    
-    canvas.drawCircle(Offset(position.x, position.y), size * 1.5, glowPaint);
-    
-    final corePaint = Paint()..color = color.withValues(alpha: opacity * 1.2);
-    canvas.drawCircle(Offset(position.x, position.y), size * 0.7, corePaint);
-  }
-}
-
 class SortingFacilityBackground extends PositionComponent {
   SortingFacilityBackground({required Vector2 size}) : super(size: size) {
     priority = -10;
@@ -4542,6 +4475,74 @@ class WaterDroplet {
   }
 }
 
+
+class WaterFlowParticle {
+  Vector2 position = Vector2.zero();
+  List<Vector2> riverPath;
+  double riverWidth;
+  double progress = 0.0;
+  double speed;
+  Color color;
+  double size;
+  double opacity;
+  
+  WaterFlowParticle({required this.riverPath, required this.riverWidth})
+      : speed = 0.05 + Random().nextDouble() * 0.10, // CHANGED: Reduced from 0.15-0.40 to 0.05-0.15
+        size = 2 + Random().nextDouble() * 4,
+        opacity = 0.3 + Random().nextDouble() * 0.4,
+        color = [
+          Colors.white,
+          Colors.lightBlue.shade100,
+          Colors.cyan.shade100,
+        ][Random().nextInt(3)] {
+    progress = Random().nextDouble();
+    _updatePosition();
+  }
+  
+  void update(double dt) {
+    progress += speed * dt;
+    
+    if (progress >= 1.0) {
+      progress = 0.0;
+    }
+    
+    _updatePosition();
+  }
+    
+  void _updatePosition() {
+    final index = (progress * (riverPath.length - 1)).floor();
+    final localProgress = (progress * (riverPath.length - 1)) - index;
+    
+    if (index < riverPath.length - 1) {
+      final start = riverPath[index];
+      final end = riverPath[index + 1];
+      // CHANGED: Manual interpolation
+      final centerPos = start + (end - start) * localProgress;
+      
+      final direction = (end - start).normalized();
+      final perpendicular = Vector2(-direction.y, direction.x);
+      final lateralOffset = (Random().nextDouble() - 0.5) * riverWidth * 0.6;
+      
+      position = centerPos + (perpendicular * lateralOffset);
+    }
+  }
+  
+  void render(Canvas canvas) {
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: opacity),
+          color.withValues(alpha: opacity * 0.5),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(center: Offset(position.x, position.y), radius: size * 2));
+    
+    canvas.drawCircle(Offset(position.x, position.y), size * 1.5, glowPaint);
+    
+    final corePaint = Paint()..color = color.withValues(alpha: opacity * 1.2);
+    canvas.drawCircle(Offset(position.x, position.y), size * 0.7, corePaint);
+  }
+}
 class UnifiedAgricultureBackground extends PositionComponent {
   UnifiedAgricultureBackground({required Vector2 size}) 
       : super(size: size, priority: -20); // Lowest priority (render first)
@@ -4618,12 +4619,15 @@ class ContinuousWaterFlowAnimation {
   final FurrowPath furrowPath;
   final Vector2 startPoint;
   final Vector2 gameSize;
-  final bool isPropagated; // If water came from another furrow
+  final bool isPropagated;
   double progress = 0.0;
-  final double speed = 0.25; // Speed of water flow
+  final double speed = 0.12; // CHANGED: Reduced from 0.25 to 0.12
   bool isComplete = false;
   List<ContinuousWaterDroplet> droplets = [];
   double timeSinceStart = 0.0;
+  
+  // NEW: Track which direction water should flow
+  bool flowFromStart = true; // true = flow from start to end, false = reverse
   
   ContinuousWaterFlowAnimation({
     required this.furrowPath,
@@ -4631,38 +4635,61 @@ class ContinuousWaterFlowAnimation {
     required this.gameSize,
     this.isPropagated = false,
   }) {
+    // NEW: Determine flow direction based on start point
+    _determineFlowDirection();
     _initializeDroplets();
+  }
+    
+  void _determineFlowDirection() {
+    if (furrowPath.points.isEmpty) return;
+    
+    final distanceToFirstPoint = (startPoint - furrowPath.points.first).length;
+    final distanceToLastPoint = (startPoint - furrowPath.points.last).length;
+    
+    flowFromStart = distanceToFirstPoint < distanceToLastPoint;
+    
+    debugPrint('💧 Water source at: ${flowFromStart ? "START" : "END"}, flows toward: ${flowFromStart ? "END" : "START"}');
   }
   
   void _initializeDroplets() {
     // Create continuous stream of water droplets
-    for (int i = 0; i < 30; i++) {
+    for (int i = 0; i < 20; i++) { // CHANGED: Reduced from 30 to 20 droplets
       droplets.add(ContinuousWaterDroplet(
-        offset: -i * 0.03, // Negative offset for staggered spawning
+        offset: -i * 0.05, // CHANGED: Increased spacing from 0.03 to 0.05
         furrowLength: furrowPath.points.length.toDouble(),
+        flowFromStart: flowFromStart, // NEW: Pass flow direction
       ));
     }
   }
-  
+    
   void update(double dt) {
     timeSinceStart += dt;
     
-    // Update progress (loops continuously)
-    progress += speed * dt;
+    // Update progress (loops continuously) - SLOWED DOWN
+    progress += (speed * 0.6) * dt; // CHANGED: 40% slower overall flow
     
     // Keep progress in range and loop
     if (progress >= 1.0) {
-      progress = progress % 1.0; // Loop back to start
+      progress = progress % 1.0;
     }
     
-    // Update all droplets
+    // Update all droplets with corrected flow direction
     for (var droplet in droplets) {
-      droplet.update(dt, speed);
+      droplet.update(dt, speed * 0.6); // CHANGED: Match slower speed
       
-      // Respawn droplets that reach the end
-      if (droplet.localProgress >= 1.2) {
-        droplet.localProgress = -0.1; // Reset to start
-        droplet.lifetime = 0.0;
+      // Respawn droplets that reach the end - CORRECTED direction
+      if (flowFromStart) {
+        // Water flows start -> end
+        if (droplet.localProgress >= 1.2) {
+          droplet.localProgress = -0.1;
+          droplet.lifetime = 0.0;
+        }
+      } else {
+        // Water flows end -> start
+        if (droplet.localProgress <= -0.2) {
+          droplet.localProgress = 1.1;
+          droplet.lifetime = 0.0;
+        }
       }
     }
     
@@ -4673,9 +4700,9 @@ class ContinuousWaterFlowAnimation {
   }
   
   void render(Canvas canvas, List<Vector2> pathPoints) {
-    if (pathPoints.length < 2) return;
+    if (pathPoints.isEmpty || pathPoints.length < 2) return;
     
-    // MODIFIED: Draw continuous water flow
+    // Draw continuous water flow
     _drawContinuousWaterStream(canvas, pathPoints);
     
     // Render water droplets
@@ -4685,7 +4712,7 @@ class ContinuousWaterFlowAnimation {
       }
     }
   }
-  
+    
   void _drawContinuousWaterStream(Canvas canvas, List<Vector2> pathPoints) {
     // Draw water-filled furrow sections
     for (int i = 0; i < pathPoints.length - 1; i++) {
@@ -4695,17 +4722,17 @@ class ContinuousWaterFlowAnimation {
       // Determine if this segment has water based on progress
       final segmentProgress = i / (pathPoints.length - 1);
       
-      // MODIFIED: Always draw water (continuous flow)
-      if (timeSinceStart > segmentProgress * 2) { // Gradual fill
-        // Draw water line with flowing effect
+      // Draw water only after gradual fill
+      if (timeSinceStart > segmentProgress * 2) {
+        // Draw water line with subtle flowing effect
         final waterPaint = Paint()
           ..shader = LinearGradient(
             begin: Alignment.centerLeft,
             end: Alignment.centerRight,
             colors: [
-              Colors.blue.shade400.withValues(alpha: 0.7),
-              Colors.cyan.shade300.withValues(alpha: 0.9),
-              Colors.blue.shade400.withValues(alpha: 0.7),
+              Colors.blue.shade700.withValues(alpha: 0.6), // CHANGED: Darker, less vibrant
+              Colors.blue.shade600.withValues(alpha: 0.7),
+              Colors.blue.shade700.withValues(alpha: 0.6),
             ],
           ).createShader(Rect.fromPoints(
             Offset(start.x, start.y),
@@ -4720,41 +4747,34 @@ class ContinuousWaterFlowAnimation {
           waterPaint,
         );
         
-        // Add animated shimmer effect
-        final shimmerOffset = (timeSinceStart * 2) % 1.0;
-        if ((segmentProgress - shimmerOffset).abs() < 0.1) {
-          final shimmerPaint = Paint()
-            ..color = Colors.white.withValues(alpha: 0.5)
-            ..strokeWidth = 8
-            ..strokeCap = StrokeCap.round;
-          
-          canvas.drawLine(
-            Offset(start.x, start.y),
-            Offset(end.x, end.y),
-            shimmerPaint,
-          );
-        }
       }
     }
   }
 }
 class ContinuousWaterDroplet {
-  double offset; // Start offset along path
+  double offset;
   double localProgress;
   double lifetime;
   final double furrowLength;
   double size;
+  final bool flowFromStart; // NEW: Track flow direction
   
   ContinuousWaterDroplet({
     required this.offset,
     required this.furrowLength,
+    required this.flowFromStart, // NEW: Required parameter
   }) : localProgress = offset,
        lifetime = 0.0,
        size = 3 + Random().nextDouble() * 2;
   
   void update(double dt, double flowSpeed) {
     lifetime += dt;
-    localProgress += flowSpeed * dt;
+    
+    if (flowFromStart) {
+      localProgress += flowSpeed * dt; // Flow forward (0 -> 1)
+    } else {
+      localProgress -= flowSpeed * dt; // Flow backward (1 -> 0)
+    }
   }
   
   void render(Canvas canvas, List<Vector2> pathPoints) {

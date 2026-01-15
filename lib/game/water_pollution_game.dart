@@ -964,9 +964,8 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     debugPrint('♻️ Repositioned agriculture components for new screen size: ${size.x} x ${size.y}');
   }
 
-  // UPDATE: Modified onFarmTapDown method
   void onFarmTapDown(Vector2 position) {
-    // Allow drawing from anywhere, including river edge
+    // IMPROVED: More generous detection - allow starting from anywhere including near river
     if (!isDrawingFurrow) {
       isDrawingFurrow = true;
       lastFurrowPoint = position.clone();
@@ -980,32 +979,194 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
         tractor!.visible = true;
       }
       
+      // IMPROVED: Check if starting very close to river (within 40 pixels)
+      final isNearRiver = _isPositionNearRiver(position, threshold: 40.0);
+      
       // Start new furrow path
       currentFurrowBeingDrawn = FurrowPath(
-        id: activeFurrowId!, // ADD: Assign ID
+        id: activeFurrowId!,
         points: [position.clone()],
-        isConnectedToRiver: _isPositionInRiver(position), // Check if starting from river
+        isConnectedToRiver: isNearRiver, // Auto-connect if near river
       );
       
-      // If starting from river, mark the connection point immediately
-      if (currentFurrowBeingDrawn!.isConnectedToRiver) {
-        currentFurrowBeingDrawn!.riverConnectionPoint = position.clone();
+      // If starting near river, mark connection immediately
+      if (isNearRiver) {
+        final closestRiverPoint = _getClosestRiverPoint(position);
+        if (closestRiverPoint != null) {
+          currentFurrowBeingDrawn!.riverConnectionPoint = closestRiverPoint;
+          debugPrint('🌊 Auto-connected to river at start');
+        }
       }
       
-      debugPrint('🚜 Started drawing furrow at $position (from river: ${currentFurrowBeingDrawn!.isConnectedToRiver})');
+      debugPrint('🚜 Started drawing furrow at $position (near river: $isNearRiver)');
     }
+  }
+
+  bool _isPositionNearRiver(Vector2 position, {double threshold = 50.0}) {
+    if (river == null) return false;
+    
+    // Convert position to river's local coordinates
+    final riverLocalPos = position - river!.position;
+    
+    // Check if point is within reasonable bounds
+    if (riverLocalPos.x < -threshold || riverLocalPos.x > river!.size.x + threshold ||
+        riverLocalPos.y < -threshold || riverLocalPos.y > river!.size.y + threshold) {
+      return false;
+    }
+    
+    // Get closest point on river path
+    final closestPoint = river!.getRiverClosestPoint(riverLocalPos);
+    if (closestPoint == null) return false;
+    
+    final distanceToPath = (closestPoint - riverLocalPos).length;
+    
+    // IMPROVED: Check if within connection zone
+    // Connection zone = outer edge of river + threshold
+    final connectionZoneRadius = (river!.riverWidth * 0.5) + threshold;
+    
+    final isNear = distanceToPath <= connectionZoneRadius;
+    
+    if (isNear) {
+      debugPrint('🎯 Position $position is ${distanceToPath.toStringAsFixed(1)}px from river path (threshold: $connectionZoneRadius)');
+    }
+    
+    return isNear;
+  }
+
+  Vector2? _getClosestRiverPoint(Vector2 position) {
+    if (river == null) return null;
+    
+    // Convert position to river's local coordinates
+    final riverLocalPos = position - river!.position;
+    
+    // Get closest point on river centerline
+    final closestLocalPoint = river!.getRiverClosestPoint(riverLocalPos);
+    
+    if (closestLocalPoint != null) {
+      // Calculate direction from river center to position
+      final directionFromCenter = (riverLocalPos - closestLocalPoint).normalized();
+      
+      // Place connection point at edge of river (not center)
+      // Use 45% of river width (slightly inside the visible edge)
+      final connectionOffset = directionFromCenter * (river!.riverWidth * 0.45);
+      final edgePoint = closestLocalPoint + connectionOffset;
+      
+      // Convert back to world coordinates
+      return river!.position + edgePoint;
+    }
+    
+    return null;
+  }
+
+  bool _wouldCrossRiver(Vector2? start, Vector2 end) {
+    if (river == null || start == null) return false;
+    
+    // CRITICAL FIX: Only prevent actual river crossing, not edge touching
+    
+    // Check if BOTH points are clearly inside core water
+    final startInCore = _isPositionInRiver(start);
+    final endInCore = _isPositionInRiver(end);
+    
+    // If both are in core water, definitely crossing
+    if (startInCore && endInCore) {
+      return true;
+    }
+    
+    // If one is in core and one is far outside, might be crossing
+    if (startInCore || endInCore) {
+      final distanceStartToEnd = (end - start).length;
+      
+      // If points are very close (< 15px), allow it (edge touching)
+      if (distanceStartToEnd < 15) {
+        return false;
+      }
+      
+      // Check if the line segment between them crosses river center
+      final crossesCenter = _lineSegmentCrossesRiverCore(start, end);
+      return crossesCenter;
+    }
+    
+    // Neither point is in core water, check if line passes through river
+    return _lineSegmentCrossesRiverCore(start, end);
+  }
+
+  bool _lineSegmentCrossesRiverCore(Vector2 start, Vector2 end) {
+    if (river == null) return false;
+    
+    // Sample points along the line segment
+    final steps = 8;
+    for (int i = 0; i <= steps; i++) {
+      final t = i / steps;
+      final samplePoint = start + (end - start) * t;
+      
+      // Check if this sample point is in river core
+      if (_isPositionInRiver(samplePoint)) {
+        // Additional check: is this point far from both start and end?
+        final distToStart = (samplePoint - start).length;
+        final distToEnd = (samplePoint - end).length;
+        
+        // If sample point is at least 20px from both endpoints, it's crossing
+        if (distToStart > 20 && distToEnd > 20) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  double _getDistanceToRiverEdge(Vector2 position) {
+    if (river == null) return double.infinity;
+    
+    // Convert position to river's local coordinates
+    final riverLocalPos = position - river!.position;
+    
+    // Get closest point on river path centerline
+    final closestPoint = river!.getRiverClosestPoint(riverLocalPos);
+    
+    if (closestPoint != null) {
+      final distanceToCenter = (closestPoint - riverLocalPos).length;
+      
+      // Calculate distance to actual edge (not center)
+      // Edge is at riverWidth * 0.5 from center
+      final riverEdgeRadius = river!.riverWidth * 0.5;
+      final distanceToEdge = (distanceToCenter - riverEdgeRadius).abs();
+      
+      return distanceToEdge;
+    }
+    
+    return double.infinity;
   }
 
   void onFarmDragUpdate(Vector2 newPosition, Vector2 delta) {
     if (!isDrawingFurrow || currentFurrowBeingDrawn == null) return;
     
-    // Check if position is in farm area (not in river)
-    if (_isPositionInRiver(newPosition)) return;
+    // IMPROVED: Only block if clearly crossing river core
+    if (lastFurrowPoint != null) {
+      // Check if this drag would cross through river interior
+      final wouldCross = _wouldCrossRiver(lastFurrowPoint, newPosition);
+      
+      if (wouldCross) {
+        debugPrint('⛔ Prevented furrow from crossing river core');
+        return;
+      }
+    }
+    
+    // Allow drawing near/along river edges
+    // Only block if deep inside river core
+    if (_isPositionInRiver(newPosition)) {
+      final distanceToEdge = _getDistanceToRiverEdge(newPosition);
+      
+      // If more than 30px deep into river, block
+      if (distanceToEdge < -30) {
+        return;
+      }
+    }
     
     // Only add point if moved enough distance (smooth the path)
     if (lastFurrowPoint != null) {
       final distance = (newPosition - lastFurrowPoint!).length;
-      if (distance >= 15) { // Minimum 15 pixels between points
+      if (distance >= 10) { // Reduced from 15 to 10 for better responsiveness
         currentFurrowBeingDrawn!.points.add(newPosition.clone());
         lastFurrowPoint = newPosition.clone();
         
@@ -1018,11 +1179,23 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
             tractor!.updateRotation(delta);
           }
         }
+        
+        // CONTINUOUS CHECK: Auto-connect if dragging near river
+        if (!currentFurrowBeingDrawn!.isConnectedToRiver) {
+          final isNearRiver = _isPositionNearRiver(newPosition, threshold: 60.0);
+          if (isNearRiver) {
+            final closestPoint = _getClosestRiverPoint(newPosition);
+            if (closestPoint != null) {
+              currentFurrowBeingDrawn!.isConnectedToRiver = true;
+              currentFurrowBeingDrawn!.riverConnectionPoint = closestPoint;
+              debugPrint('🌊 Auto-connected to river during drag at $closestPoint');
+            }
+          }
+        }
       }
     }
   }
 
-  // UPDATE: Modified onFarmDragEnd method
   void onFarmDragEnd(Vector2 endPosition) {
     if (!isDrawingFurrow || currentFurrowBeingDrawn == null) return;
     
@@ -1031,33 +1204,45 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Add final point
     currentFurrowBeingDrawn!.points.add(endPosition.clone());
     
-    // Check BOTH ends for river connection
-    final startConnectsToRiver = _isPositionInRiver(currentFurrowBeingDrawn!.points.first);
-    final endConnectsToRiver = _isPositionInRiver(endPosition);
-    
-    currentFurrowBeingDrawn!.isConnectedToRiver = startConnectsToRiver || endConnectsToRiver;
-    
-    // Set connection point to whichever end touches the river
-    if (startConnectsToRiver) {
-      currentFurrowBeingDrawn!.riverConnectionPoint = currentFurrowBeingDrawn!.points.first.clone();
-    } else if (endConnectsToRiver) {
-      currentFurrowBeingDrawn!.riverConnectionPoint = endPosition.clone();
-    } else {
-      // Check if furrow path gets close to river along its length
-      final connectsToRiver = _checkFurrowRiverConnection(currentFurrowBeingDrawn!);
-      currentFurrowBeingDrawn!.isConnectedToRiver = connectsToRiver;
+    // IMPROVED: Check both ends with generous threshold
+    if (!currentFurrowBeingDrawn!.isConnectedToRiver) {
+      final startPoint = currentFurrowBeingDrawn!.points.first;
+      
+      // Check start with 60px threshold
+      final startNearRiver = _isPositionNearRiver(startPoint, threshold: 60.0);
+      
+      // Check end with 60px threshold
+      final endNearRiver = _isPositionNearRiver(endPosition, threshold: 60.0);
+      
+      if (startNearRiver) {
+        final closestPoint = _getClosestRiverPoint(startPoint);
+        if (closestPoint != null) {
+          final distance = (closestPoint - startPoint).length;
+          currentFurrowBeingDrawn!.isConnectedToRiver = true;
+          currentFurrowBeingDrawn!.riverConnectionPoint = closestPoint;
+          debugPrint('✅ Connected to river at START (distance: ${distance.toStringAsFixed(1)}px)');
+        }
+      } else if (endNearRiver) {
+        final closestPoint = _getClosestRiverPoint(endPosition);
+        if (closestPoint != null) {
+          final distance = (closestPoint - endPosition).length;
+          currentFurrowBeingDrawn!.isConnectedToRiver = true;
+          currentFurrowBeingDrawn!.riverConnectionPoint = closestPoint;
+          debugPrint('✅ Connected to river at END (distance: ${distance.toStringAsFixed(1)}px)');
+        }
+      }
     }
     
-    // ADD: Check for connections to other furrows
+    // CHECK: Detect furrow interconnections
     _detectFurrowInterconnections(currentFurrowBeingDrawn!);
     
-    // Save completed furrow with ID
+    // Save completed furrow
     completedFurrows.add(currentFurrowBeingDrawn!);
     furrowNetwork[currentFurrowBeingDrawn!.id] = currentFurrowBeingDrawn!;
     
-    debugPrint('✅ Furrow completed: ${currentFurrowBeingDrawn!.points.length} points, connected to river: ${currentFurrowBeingDrawn!.isConnectedToRiver}');
+    debugPrint('📝 Furrow ${currentFurrowBeingDrawn!.id}: ${currentFurrowBeingDrawn!.points.length} points, connected: ${currentFurrowBeingDrawn!.isConnectedToRiver}');
     
-    // If connected to river, trigger CONTINUOUS water flow
+    // CORRECTED: Start water flow with proper direction
     if (currentFurrowBeingDrawn!.isConnectedToRiver) {
       _startContinuousWaterFlow(currentFurrowBeingDrawn!);
       onFurrowsComplete?.call();
@@ -1074,13 +1259,20 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     });
   }
 
-  // ADD: New method to detect furrow interconnections
   void _detectFurrowInterconnections(FurrowPath newFurrow) {
-    const connectionThreshold = 15.0; // Pixels
+    const connectionThreshold = 25.0; // INCREASED from 20.0 to 25.0 for easier connection
     
     for (var existingFurrow in completedFurrows) {
+      // Skip if already connected
+      if (newFurrow.connectedFurrowIds.contains(existingFurrow.id)) continue;
+      
       // Check if any point in new furrow is close to any point in existing furrow
+      bool foundConnection = false;
+      Vector2? intersectionPoint;
+      
       for (var newPoint in newFurrow.points) {
+        if (foundConnection) break;
+        
         for (var existingPoint in existingFurrow.points) {
           final distance = (newPoint - existingPoint).length;
           
@@ -1089,19 +1281,20 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
             newFurrow.connectedFurrowIds.add(existingFurrow.id);
             existingFurrow.connectedFurrowIds.add(newFurrow.id);
             
-            // Store intersection point
-            final intersectionPoint = (newPoint + existingPoint) / 2;
+            // Store intersection point (average of the two close points)
+            intersectionPoint = (newPoint + existingPoint) / 2;
             newFurrow.intersectionPoints.add(intersectionPoint);
             existingFurrow.intersectionPoints.add(intersectionPoint);
             
             debugPrint('🔗 Furrow ${newFurrow.id} connected to ${existingFurrow.id} at $intersectionPoint');
             
-            // If existing furrow has water, propagate to new furrow
+            // CORRECTED: If existing furrow has water, propagate FROM the intersection point
             if (existingFurrow.hasWater && !newFurrow.hasWater) {
               _propagateWaterToConnectedFurrow(newFurrow, intersectionPoint);
             }
             
-            break; // Found one connection, move to next existing furrow
+            foundConnection = true;
+            break;
           }
         }
       }
@@ -1113,10 +1306,27 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     
     // Convert position to river's local coordinates
     final riverLocalPos = position - river!.position;
-    return river!.containsPoint(riverLocalPos);
+    
+    // Check if point is within river component bounds
+    if (riverLocalPos.x < 0 || riverLocalPos.x > river!.size.x ||
+        riverLocalPos.y < 0 || riverLocalPos.y > river!.size.y) {
+      return false;
+    }
+    
+    // Get closest point on river path
+    final closestPoint = river!.getRiverClosestPoint(riverLocalPos);
+    if (closestPoint == null) return false;
+    
+    final distanceToPath = (closestPoint - riverLocalPos).length;
+    
+    // CRITICAL FIX: Only consider "in river" if within CORE water area
+    // Use 60% of river width (not full width which includes banks/edges)
+    final coreWaterRadius = river!.riverWidth * 0.6;
+    
+    return distanceToPath < coreWaterRadius;
   }
 
-  bool _checkFurrowRiverConnection(FurrowPath furrow) {
+  /*bool _checkFurrowRiverConnection(FurrowPath furrow) {
     if (river == null || furrow.points.isEmpty) return false;
     
     // Check if any point (especially start/end) is close to river
@@ -1145,7 +1355,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
     
     return false;
-  }
+  }*/
 
   void _startContinuousWaterFlow(FurrowPath furrow) {
     if (!furrow.isConnectedToRiver || furrow.riverConnectionPoint == null) return;
@@ -1195,17 +1405,17 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Create water flow starting from intersection point
     final waterFlow = ContinuousWaterFlowAnimation(
       furrowPath: furrow,
-      startPoint: startPoint,
+      startPoint: startPoint, // This is the intersection point - water flows FROM here
       gameSize: size,
-      isPropagated: true, // Mark as propagated from another furrow
+      isPropagated: true,
     );
     
     activeWaterFlows.add(waterFlow);
     
-    debugPrint('🌊 Water propagated to connected furrow ${furrow.id}');
+    debugPrint('🌊 Water propagated to connected furrow ${furrow.id} from intersection at $startPoint');
     
     // Recursively propagate to furrows connected to this one
-    Future.delayed(const Duration(milliseconds: 500), () {
+    Future.delayed(const Duration(milliseconds: 800), () { // CHANGED: Increased delay from 500ms to 800ms
       _propagateWaterToConnectedFurrows(furrow);
     });
   }
