@@ -23,6 +23,7 @@ dependencies:
   cloud_firestore: ^6.1.0
   shared_preferences: ^2.5.3
   vector_math: ^2.2.0
+  device_info_plus: ^12.3.0
 
 dev_dependencies:
   flutter_test:

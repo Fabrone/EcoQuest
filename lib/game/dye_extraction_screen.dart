@@ -5,6 +5,7 @@ import 'package:ecoquest/game/water_pollution_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dye_storage_service.dart';
 
 class DyeExtractionScreen extends StatefulWidget {
   final EcoQuestGame game;
@@ -39,6 +40,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
 
   List<StoredDye> storedDyes = []; // Tracks all stored dyes
   bool _showStorageSuccess = false;
+  bool _isSavingDye = false;
 
   // Dye tracking variables
   int totalDyeProduced = 0;
@@ -87,14 +89,16 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   double filterClothSag = 0.0; // Visual feedback for filter cloth
   int consecutiveSwipes = 0; // Bonus for consistent swiping
   DateTime? lastSwipeTime;
+  final DyeStorageService _dyeStorageService = DyeStorageService();
+  bool _isLoadingDyes = true;
 
   @override
   void initState() {
     super.initState();
     _initializeMaterials();
     _initializeAnimations();
+    _loadSavedDyes(); // ADD THIS
 
-    // ADD THESE NEW CONTROLLERS:
     _bottlePlacementController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -221,28 +225,98 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     }
   }
 
-  void _addDyeToStorage() {
+  Future<void> _loadSavedDyes() async {
     setState(() {
-      storedDyes.add(StoredDye(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+      _isLoadingDyes = true;
+    });
+    
+    try {
+      final savedDyes = await _dyeStorageService.getCraftedDyes();
+      
+      setState(() {
+        storedDyes = savedDyes.map((dyeData) {
+          // Convert hex string back to Color
+          final colorHex = dyeData['colorHex'] as String;
+          final colorValue = int.parse(colorHex.replaceFirst('#', ''), radix: 16);
+          
+          return StoredDye(
+            id: dyeData['id'],
+            name: dyeData['name'],
+            color: Color(colorValue),
+            volume: dyeData['volume'],
+            isNew: false, // Already saved dyes are not new
+          );
+        }).toList();
+        
+        _isLoadingDyes = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading saved dyes: $e');
+      setState(() {
+        _isLoadingDyes = false;
+      });
+    }
+  }
+
+  void _addDyeToStorage() async {
+    // Prevent duplicate saves
+    if (_isSavingDye) {
+      debugPrint('Save already in progress, skipping...');
+      return;
+    }
+    
+    setState(() {
+      _isSavingDye = true;
+    });
+    
+    try {
+      await _dyeStorageService.saveCraftedDye(
         name: dyeType,
         color: dyeColor,
         volume: dyeProduced,
-        isNew: true,
-      ));
-      _showStorageSuccess = true;
-    });
-    
-    _bottlePlacementController.forward(from: 0);
-    
-    // Mark bottle as not new after animation
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted && storedDyes.isNotEmpty) {
+        materialQuality: materialQuality,
+        crushingEfficiency: crushingEfficiency,
+        filteringPurity: filteringPurity,
+      );
+      
+      // Reload dyes from Firebase to get the latest with proper IDs
+      await _loadSavedDyes();
+      
+      setState(() {
+        _showStorageSuccess = true;
+        // Mark the last dye as new for animation
+        if (storedDyes.isNotEmpty) {
+          storedDyes.last.isNew = true;
+        }
+      });
+      
+      _bottlePlacementController.forward(from: 0);
+      
+      // Mark bottle as not new after animation
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted && storedDyes.isNotEmpty) {
+          setState(() {
+            storedDyes.last.isNew = false;
+          });
+        }
+      });
+    } catch (e) {
+      debugPrint('Error saving dye: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save dye. It will be available offline.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
         setState(() {
-          storedDyes.last.isNew = false;
+          _isSavingDye = false;
         });
       }
-    });
+    }
   }
 
   void _startCrushing() {
@@ -576,8 +650,15 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     setState(() {
       currentPhase = 5;
     });
+    
+    // Save dye ONCE when results are calculated
+    // Use a short delay to ensure UI is ready
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted && !_isSavingDye) {
+        _addDyeToStorage();
+      }
+    });
   }
-
 
   bool _hasEnoughMaterialsForAnyCraft() {
     return materials.values.any((amount) => amount >= 5);
@@ -4152,12 +4233,40 @@ Widget _buildCompletionScreen() {
         : constraints.maxHeight * 0.6;
     shelfHeight = shelfHeight.clamp(300.0, 600.0);
 
-    if (!_showStorageSuccess && currentPhase == 5 && storedDyes.isEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_showStorageSuccess) {
-          _addDyeToStorage();
-        }
-      });
+    // ADD LOADING STATE:
+    if (_isLoadingDyes) {
+      return Container(
+        width: shelfWidth,
+        height: shelfHeight,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.brown.shade800.withValues(alpha: 0.3),
+              Colors.brown.shade900.withValues(alpha: 0.5),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFD4AF37), width: 3),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Color(0xFFD4AF37)),
+              SizedBox(height: 16),
+              Text(
+                'Loading your dyes...',
+                style: GoogleFonts.exo2(
+                  color: Color(0xFFD4AF37),
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return Container(
