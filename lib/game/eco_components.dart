@@ -343,15 +343,15 @@ class MatchExplosionEffect extends Component with HasGameReference<EcoQuestGame>
   Color _getParticleColor() {
     switch (itemType) {
       case 'leaf':
-        return const Color(0xFF4CAF50); // Green for leaves
+        return const Color.fromARGB(255, 36, 184, 41); // Green for leaves
       case 'bark':
-        return const Color(0xFF8D6E63); // Brown for bark
+        return const Color.fromRGBO(141, 110, 99, 1); // Brown for bark
       case 'root':
-        return const Color(0xFFFDD835); // Yellow for roots
+        return const Color.fromRGBO(253, 216, 53, 1); // Yellow for roots
       case 'flower':
-        return const Color(0xFFEC407A); // Pink for flowers
+        return const Color.fromRGBO(237, 23, 23, 1); // Pink for flowers
       case 'fruit':
-        return const Color(0xFF9C27B0); // Purple for fruits
+        return const Color.fromRGBO(56, 4, 246, 1); // Purple for fruits
       default:
         return const Color(0xFF4CAF50);
     }
@@ -479,7 +479,7 @@ class TileRestorationEffect extends Component with HasGameReference<EcoQuestGame
     
     final flowerProgress = (progress - 0.5) * 2;
     final flowerPaint = Paint()
-      ..color = Colors.pink.withValues(alpha: 0.7 * flowerProgress)
+      ..color =  const Color.fromRGBO(237, 23, 23, 1).withValues(alpha: 0.7 * flowerProgress)
       ..style = PaintingStyle.fill;
     
     final flowerSize = 4 * flowerProgress;

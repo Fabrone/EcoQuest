@@ -125,31 +125,26 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     int timeRemaining = widget.levelTimeRemaining;
 
     if (timeRemaining >= 100) {
-      // Excellent quality - completed very quickly (100+ seconds remaining)
       materialQuality = 'Premium Harvest';
-      qualityMultiplier = 1.5; // +50% bonus
+      qualityMultiplier = 1.5;
     } else if (timeRemaining > 40 && timeRemaining < 100) {
-      // Good quality - moderate speed (40-99 seconds remaining)
       materialQuality = 'Quality Harvest';
-      qualityMultiplier = 1.25; // +25% bonus
+      qualityMultiplier = 1.25;
     } else {
-      // Basic quality - slow completion (0-40 seconds remaining)
       materialQuality = 'Basic Harvest';
-      qualityMultiplier = 1.0; // No bonus
+      qualityMultiplier = 1.0;
     }
 
-    // Get actual materials from game
     Map<String, int> gameMaterials = widget.game.getMaterialsCollected();
 
     materials = {
       '🍃 Leaves': gameMaterials['leaf'] ?? 0,
       '🪵 Bark': gameMaterials['bark'] ?? 0,
-      '🌿 Roots': gameMaterials['root'] ?? 0,
-      '🌺 Flowers': gameMaterials['flower'] ?? 0,
-      '🫐 Fruits': gameMaterials['fruit'] ?? 0,
+      '🫚 Roots': gameMaterials['root'] ?? 0,
+      '🌹 Flowers': gameMaterials['flower'] ?? 0,
+      '🫐 Berries': gameMaterials['fruit'] ?? 0, // Changed from Fruits to Berries
     };
 
-    // Assign qualities to all materials
     materials.forEach((key, value) {
       materialQualities[key] = materialQuality;
     });
@@ -204,17 +199,23 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
       case 'Brown Dye':
         return {'🪵 Bark': 10};
       case 'Yellow Dye':
-        return {'🌿 Roots': 10};
+        return {'🫚 Roots': 10};
       case 'Red Dye':
-        return {'🌺 Flowers': 10};
-      case 'Purple Dye':
-        return {'🫐 Fruits': 10};
+        return {'🌹 Flowers': 10};
       case 'Blue Dye':
-        return {'🍃 Leaves': 5, '🫐 Fruits': 5};
+        return {'🫐 Berries': 10}; // Changed from Purple to Blue
+      
+      // SCIENTIFICALLY ACCURATE MIXED DYES:
       case 'Orange Dye':
-        return {'🌿 Roots': 5, '🌺 Flowers': 5};
+        return {'🫚 Roots': 5, '🌹 Flowers': 5}; // Yellow + Red = Orange
+      case 'Purple Dye':
+        return {'🌹 Flowers': 5, '🫐 Berries': 5}; // Red + Blue = Purple
       case 'Teal Dye':
-        return {'🍃 Leaves': 5, '🪵 Bark': 5};
+        return {'🍃 Leaves': 5, '🫐 Berries': 5}; // Green + Blue = Teal
+      case 'Olive Dye':
+        return {'🍃 Leaves': 5, '🫚 Roots': 5}; // Green + Yellow = Olive
+      case 'Maroon Dye':
+        return {'🌹 Flowers': 5, '🪵 Bark': 5}; // Red + Brown = Maroon
       default:
         return {};
     }
@@ -587,12 +588,16 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     Map<String, Map<String, int>> allRecipes = {
       'Green Dye': {'🍃 Leaves': 10},
       'Brown Dye': {'🪵 Bark': 10},
-      'Yellow Dye': {'🌿 Roots': 10},
-      'Red Dye': {'🌺 Flowers': 10},
-      'Purple Dye': {'🫐 Fruits': 10},
-      'Blue Dye': {'🍃 Leaves': 5, '🫐 Fruits': 5},
-      'Orange Dye': {'🌿 Roots': 5, '🌺 Flowers': 5},
-      'Teal Dye': {'🍃 Leaves': 5, '🪵 Bark': 5},
+      'Yellow Dye': {'🫚 Roots': 10},
+      'Red Dye': {'🌹 Flowers': 10},
+      'Blue Dye': {'🫐 Berries': 10},
+      
+      // Mixed dyes - scientifically accurate
+      'Orange Dye': {'🫚 Roots': 5, '🌹 Flowers': 5},
+      'Purple Dye': {'🌹 Flowers': 5, '🫐 Berries': 5},
+      'Teal Dye': {'🍃 Leaves': 5, '🫐 Berries': 5},
+      'Olive Dye': {'🍃 Leaves': 5, '🫚 Roots': 5},
+      'Maroon Dye': {'🌹 Flowers': 5, '🪵 Bark': 5},
     };
 
     allRecipes.forEach((recipe, requirements) {
@@ -1020,17 +1025,17 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                       _canCraftRecipe('Red Dye'),
                     ),
                     _buildRecipeButton(
-                      'Purple Dye',
-                      '10 Fruits',
-                      Colors.purple,
-                      _canCraftRecipe('Purple Dye'),
+                      'Blue Dye',
+                      '10 Berries',
+                      Colors.blue,
+                      _canCraftRecipe('Blue Dye'),
                     ),
 
                     const SizedBox(height: 12),
 
-                    // Mixed Dyes
+                    // Mixed Dyes - Scientifically Accurate
                     Text(
-                      'MIXED DYES:',
+                      'MIXED DYES (Color Theory):',
                       style: GoogleFonts.vt323(
                         fontSize: 18,
                         color: Colors.white,
@@ -1038,22 +1043,34 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                       ),
                     ),
                     _buildRecipeButton(
-                      'Blue Dye',
-                      '5 Leaves + 5 Fruits',
-                      Colors.blue,
-                      _canCraftRecipe('Blue Dye'),
-                    ),
-                    _buildRecipeButton(
                       'Orange Dye',
-                      '5 Roots + 5 Flowers',
+                      '5 Roots + 5 Flowers (Yellow + Red)',
                       Colors.orange,
                       _canCraftRecipe('Orange Dye'),
                     ),
                     _buildRecipeButton(
+                      'Purple Dye',
+                      '5 Flowers + 5 Berries (Red + Blue)',
+                      Colors.purple,
+                      _canCraftRecipe('Purple Dye'),
+                    ),
+                    _buildRecipeButton(
                       'Teal Dye',
-                      '5 Leaves + 5 Bark',
+                      '5 Leaves + 5 Berries (Green + Blue)',
                       Colors.teal,
                       _canCraftRecipe('Teal Dye'),
+                    ),
+                    _buildRecipeButton(
+                      'Olive Dye',
+                      '5 Leaves + 5 Roots (Green + Yellow)',
+                      const Color(0xFF808000),
+                      _canCraftRecipe('Olive Dye'),
+                    ),
+                    _buildRecipeButton(
+                      'Maroon Dye',
+                      '5 Flowers + 5 Bark (Red + Brown)',
+                      const Color(0xFF800000),
+                      _canCraftRecipe('Maroon Dye'),
                     ),
                   ],
                 ),

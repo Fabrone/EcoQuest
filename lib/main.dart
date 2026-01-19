@@ -231,11 +231,11 @@ class _GameScreenState extends State<GameScreen> {
   Widget _buildMaterialsPanel(BoxConstraints parentConstraints) {
     // Material type configurations with emojis
     final materials = [
-      {'type': 'leaf', 'emoji': '🍃', 'label': 'Leaves', 'color': const Color(0xFF4CAF50)},
-      {'type': 'bark', 'emoji': '🪵', 'label': 'Bark', 'color': const Color(0xFF8D6E63)},
-      {'type': 'root', 'emoji': '🌱', 'label': 'Roots', 'color': const Color(0xFFFDD835)},
-      {'type': 'flower', 'emoji': '🌸', 'label': 'Flowers', 'color': const Color(0xFFEC407A)},
-      {'type': 'fruit', 'emoji': '🍇', 'label': 'Fruits', 'color': const Color(0xFF9C27B0)},
+      {'type': 'leaf', 'emoji': '🍃', 'label': 'Leaves', 'color': const Color.fromARGB(255, 17, 125, 20)},
+      {'type': 'bark', 'emoji': '🪵', 'label': 'Bark', 'color': const Color.fromARGB(255, 92, 29, 6)},
+      {'type': 'root', 'emoji': '🫚', 'label': 'Roots', 'color': const Color.fromARGB(196, 238, 216, 19)},
+      {'type': 'flower', 'emoji': '🌹', 'label': 'Flowers', 'color': const Color.fromARGB(255, 180, 13, 13)},
+      {'type': 'fruit', 'emoji': '🫐', 'label': 'Fruits', 'color': const Color.fromARGB(255, 43, 22, 166)},
     ];
 
     return LayoutBuilder(
@@ -889,8 +889,6 @@ class _GameScreenState extends State<GameScreen> {
       ),
       child: Stack(
         children: [
-          // REMOVED: Corner ornaments
-          
           // Minimal padding, direct game rendering
           Padding(
             padding: const EdgeInsets.all(8), // Reduced padding
@@ -1045,9 +1043,9 @@ class _GameScreenState extends State<GameScreen> {
                                 children: [
                                   _buildMaterialChip('🍃', game.materialsCollected['leaf'] ?? 0, scale),
                                   _buildMaterialChip('🪵', game.materialsCollected['bark'] ?? 0, scale),
-                                  _buildMaterialChip('🌱', game.materialsCollected['root'] ?? 0, scale),
-                                  _buildMaterialChip('🌸', game.materialsCollected['flower'] ?? 0, scale),
-                                  _buildMaterialChip('🍇', game.materialsCollected['fruit'] ?? 0, scale),
+                                  _buildMaterialChip('🫚', game.materialsCollected['root'] ?? 0, scale),
+                                  _buildMaterialChip('🌹', game.materialsCollected['flower'] ?? 0, scale),
+                                  _buildMaterialChip('🫐', game.materialsCollected['fruit'] ?? 0, scale),
                                 ],
                               ),
                             ],
@@ -1194,9 +1192,9 @@ class _GameScreenState extends State<GameScreen> {
                                 children: [
                                   _buildMaterialDetail('🍃 Leaves', game.materialsCollected['leaf'] ?? 0, scale),
                                   _buildMaterialDetail('🪵 Bark', game.materialsCollected['bark'] ?? 0, scale),
-                                  _buildMaterialDetail('🌱 Roots', game.materialsCollected['root'] ?? 0, scale),
-                                  _buildMaterialDetail('🌸 Flowers', game.materialsCollected['flower'] ?? 0, scale),
-                                  _buildMaterialDetail('🍇 Fruits', game.materialsCollected['fruit'] ?? 0, scale),
+                                  _buildMaterialDetail('🫚 Roots', game.materialsCollected['root'] ?? 0, scale),
+                                  _buildMaterialDetail('🌹 Flowers', game.materialsCollected['flower'] ?? 0, scale),
+                                  _buildMaterialDetail('🫐 Fruits', game.materialsCollected['fruit'] ?? 0, scale),
                                 ],
                               ),
                             ],
@@ -1379,9 +1377,9 @@ class _GameScreenState extends State<GameScreen> {
                                 children: [
                                   _buildMaterialChip('🍃', game.materialsCollected['leaf'] ?? 0, scale),
                                   _buildMaterialChip('🪵', game.materialsCollected['bark'] ?? 0, scale),
-                                  _buildMaterialChip('🌱', game.materialsCollected['root'] ?? 0, scale),
-                                  _buildMaterialChip('🌸', game.materialsCollected['flower'] ?? 0, scale),
-                                  _buildMaterialChip('🍇', game.materialsCollected['fruit'] ?? 0, scale),
+                                  _buildMaterialChip('🫚', game.materialsCollected['root'] ?? 0, scale),
+                                  _buildMaterialChip('🌹', game.materialsCollected['flower'] ?? 0, scale),
+                                  _buildMaterialChip('🫐', game.materialsCollected['fruit'] ?? 0, scale),
                                 ],
                               ),
                             ],
