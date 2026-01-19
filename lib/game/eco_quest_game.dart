@@ -23,6 +23,8 @@ class EcoQuestGame extends FlameGame {
   double boardHeight = 0;
   double startX = 0;
   double startY = 0;
+  // Add this field near the top with other class variables (around line 25)
+  bool _hasStartedPlaying = false;
 
   List<List<EcoItem?>> gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
   List<List<TileBackground?>> tileBackgrounds = List.generate(rows, (_) => List.generate(cols, (_) => null));
@@ -148,10 +150,16 @@ class EcoQuestGame extends FlameGame {
     children.whereType<TimerComponent>().forEach((tc) => tc.removeFromParent());
     _timerComponent = TimerComponent(period: 1.0, repeat: true, onTick: _onTimerTick);
     add(_timerComponent);
-    resumeEngine();
+    
+    // CHANGED: Only pause the TIMER, not the entire engine
+    _timerComponent.timer.pause();
+    // REMOVED: pauseEngine(); - This was preventing sprites from loading!
   }
-  
+    
   void _onTimerTick() {
+    // Only tick if player has started playing
+    if (!_hasStartedPlaying) return;
+    
     if (levelTimeNotifier.value > 0) {
       levelTimeNotifier.value--;
     } else {
@@ -222,7 +230,7 @@ class EcoQuestGame extends FlameGame {
     overlays.remove('PhaseComplete');
     pauseEngine();
   }
-          
+            
   void restartGame() {
     scoreNotifier.value = 0;
     hintsRemaining = 5;
@@ -232,6 +240,9 @@ class EcoQuestGame extends FlameGame {
     plantsCollectedNotifier.value = 0;
     sixtyPercentAchievedTime = null;
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
+    
+    // ADDED: Reset first move tracker
+    _hasStartedPlaying = false;
     
     // Reset materials collection
     materialsCollected = {
@@ -245,22 +256,48 @@ class EcoQuestGame extends FlameGame {
     // Notify UI
     materialsUpdateNotifier.value++;
     
-    children.whereType<EcoItem>().toList().forEach((i) => i.removeFromParent());
+    // CHANGED: More thorough cleanup of sprites
+    // First, remove all items from the grid
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        final item = gridItems[r][c];
+        if (item != null) {
+          item.removeFromParent();
+          gridItems[r][c] = null;
+        }
+      }
+    }
+    
+    // Then remove any orphaned EcoItem components
+    final orphanedItems = children.whereType<EcoItem>().toList();
+    for (var item in orphanedItems) {
+      item.removeFromParent();
+    }
+    
+    // Update tile backgrounds
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
         tileBackgrounds[r][c]?.updateRestorationState(false);
       }
     }
     
+    // Remove effects
     children.whereType<MatchExplosionEffect>().forEach((e) => e.removeFromParent());
     children.whereType<TileRestorationEffect>().forEach((e) => e.removeFromParent());
-    gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
+    
+    // ADDED: Force a layout update before rebuilding grid
+    _updateLayout(size);
+    _repositionTileBackgrounds();
+    
+    // Now rebuild the grid
     if (currentLevel == 1) {
       _buildTutorialGrid();
     } else {
       _buildShuffledGrid();
     }
-    _setupTimer(); 
+    
+    // Setup timer (will be paused until first move)
+    _setupTimer();
     
     currentLevelNotifier.value = currentLevel;
   }
@@ -276,6 +313,9 @@ class EcoQuestGame extends FlameGame {
     sixtyPercentAchievedTime = null;
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
     
+    // ADDED: Reset first move tracker
+    _hasStartedPlaying = false;
+    
     // Reset materials collection
     materialsCollected = {
       'leaf': 0,
@@ -288,7 +328,22 @@ class EcoQuestGame extends FlameGame {
     // Notify UI
     materialsUpdateNotifier.value++;
     
-    children.whereType<EcoItem>().toList().forEach((i) => i.removeFromParent());
+    // CHANGED: More thorough cleanup
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        final item = gridItems[r][c];
+        if (item != null) {
+          item.removeFromParent();
+          gridItems[r][c] = null;
+        }
+      }
+    }
+    
+    final orphanedItems = children.whereType<EcoItem>().toList();
+    for (var item in orphanedItems) {
+      item.removeFromParent();
+    }
+    
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
         tileBackgrounds[r][c]?.updateRestorationState(false);
@@ -297,7 +352,11 @@ class EcoQuestGame extends FlameGame {
     
     children.whereType<MatchExplosionEffect>().forEach((e) => e.removeFromParent());
     children.whereType<TileRestorationEffect>().forEach((e) => e.removeFromParent());
-    gridItems = List.generate(rows, (_) => List.generate(cols, (_) => null));
+    
+    // ADDED: Force layout update
+    _updateLayout(size);
+    _repositionTileBackgrounds();
+    
     _buildShuffledGrid();
     _setupTimer();
     
@@ -422,9 +481,16 @@ class EcoQuestGame extends FlameGame {
     }
     selectedItem = null;
   }
-    
+      
   Future<void> _swapItems(EcoItem item1, EcoItem item2) async {
     isProcessing = true;
+    
+    // ADDED: Start timer on first swap
+    if (!_hasStartedPlaying) {
+      _hasStartedPlaying = true;
+      _timerComponent.timer.resume();
+      resumeEngine();
+    }
     
     // FIXED: Get current center positions
     final pos1 = item1.position.clone();

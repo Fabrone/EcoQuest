@@ -909,71 +909,6 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  /*List<Widget> _buildCornerOrnaments() {
-    return [
-      // Top-left
-      Positioned(
-        top: 4,
-        left: 4,
-        child: _buildOrnament(),
-      ),
-      // Top-right
-      Positioned(
-        top: 4,
-        right: 4,
-        child: Transform.rotate(
-          angle: pi / 2,
-          child: _buildOrnament(),
-        ),
-      ),
-      // Bottom-left
-      Positioned(
-        bottom: 4,
-        left: 4,
-        child: Transform.rotate(
-          angle: -pi / 2,
-          child: _buildOrnament(),
-        ),
-      ),
-      // Bottom-right
-      Positioned(
-        bottom: 4,
-        right: 4,
-        child: Transform.rotate(
-          angle: pi,
-          child: _buildOrnament(),
-        ),
-      ),
-    ];
-  }
-
-  Widget _buildOrnament() {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          colors: [
-            const Color(0xFFD4AF37),
-            const Color(0xFFCD7F32),
-          ],
-        ),
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFD4AF37).withValues(alpha: 0.4),
-            blurRadius: 8,
-          ),
-        ],
-      ),
-      child: const Icon(
-        Icons.spa,
-        color: Color(0xFF2E7D32),
-        size: 18,
-      ),
-    );
-  }*/
-
   Widget _buildMaterialChip(String emoji, int count, double scale) {
     return Container(
       padding: EdgeInsets.symmetric(
@@ -1131,7 +1066,10 @@ class _GameScreenState extends State<GameScreen> {
                                 scale: scale,
                                 onPressed: () {
                                   setState(() => _showGameOver = false);
-                                  game.restartGame();
+                                  // ADDED: Small delay to ensure dialog fully closes before restart
+                                  Future.delayed(const Duration(milliseconds: 100), () {
+                                    game.restartGame();
+                                  });
                                 },
                               ),
                             ),
@@ -1462,7 +1400,10 @@ class _GameScreenState extends State<GameScreen> {
                                 scale: scale,
                                 onPressed: () {
                                   setState(() => _showInsufficientMaterials = false);
-                                  game.restartGame();
+                                  // ADDED: Small delay to ensure dialog fully closes before restart
+                                  Future.delayed(const Duration(milliseconds: 100), () {
+                                    game.restartGame();
+                                  });
                                 },
                               ),
                             ),
