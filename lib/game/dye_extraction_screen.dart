@@ -226,12 +226,16 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   }
 
   Future<void> _loadSavedDyes() async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoadingDyes = true;
     });
     
     try {
       final savedDyes = await _dyeStorageService.getCraftedDyes();
+      
+      if (!mounted) return;
       
       setState(() {
         storedDyes = savedDyes.map((dyeData) {
@@ -252,68 +256,10 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
       });
     } catch (e) {
       debugPrint('Error loading saved dyes: $e');
-      setState(() {
-        _isLoadingDyes = false;
-      });
-    }
-  }
-
-  void _addDyeToStorage() async {
-    // Prevent duplicate saves
-    if (_isSavingDye) {
-      debugPrint('Save already in progress, skipping...');
-      return;
-    }
-    
-    setState(() {
-      _isSavingDye = true;
-    });
-    
-    try {
-      await _dyeStorageService.saveCraftedDye(
-        name: dyeType,
-        color: dyeColor,
-        volume: dyeProduced,
-        materialQuality: materialQuality,
-        crushingEfficiency: crushingEfficiency,
-        filteringPurity: filteringPurity,
-      );
-      
-      // Reload dyes from Firebase to get the latest with proper IDs
-      await _loadSavedDyes();
-      
-      setState(() {
-        _showStorageSuccess = true;
-        // Mark the last dye as new for animation
-        if (storedDyes.isNotEmpty) {
-          storedDyes.last.isNew = true;
-        }
-      });
-      
-      _bottlePlacementController.forward(from: 0);
-      
-      // Mark bottle as not new after animation
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted && storedDyes.isNotEmpty) {
-          setState(() {
-            storedDyes.last.isNew = false;
-          });
-        }
-      });
-    } catch (e) {
-      debugPrint('Error saving dye: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save dye. It will be available offline.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } finally {
       if (mounted) {
         setState(() {
-          _isSavingDye = false;
+          _isLoadingDyes = false;
+          // Keep any existing dyes in case of error
         });
       }
     }
@@ -649,15 +595,121 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
 
     setState(() {
       currentPhase = 5;
+      // REMOVED: Auto-save call - user will click button to save
+    });
+  }
+
+  Future<void> _saveCurrentDye() async {
+    // Prevent duplicate saves
+    if (_isSavingDye) {
+      debugPrint('Save already in progress, skipping...');
+      return;
+    }
+    
+    setState(() {
+      _isSavingDye = true;
     });
     
-    // Save dye ONCE when results are calculated
-    // Use a short delay to ensure UI is ready
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted && !_isSavingDye) {
-        _addDyeToStorage();
+    try {
+      // Show loading indicator
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                SizedBox(width: 16),
+                Text('Saving dye to collection...'),
+              ],
+            ),
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.blue,
+          ),
+        );
       }
-    });
+      
+      await _dyeStorageService.saveCraftedDye(
+        name: dyeType,
+        color: dyeColor,
+        volume: dyeProduced,
+        materialQuality: materialQuality,
+        crushingEfficiency: crushingEfficiency,
+        filteringPurity: filteringPurity,
+      );
+      
+      // Reload dyes from Firebase to get the latest with proper IDs
+      await _loadSavedDyes();
+      
+      if (mounted) {
+        setState(() {
+          _showStorageSuccess = true;
+          // Mark the last dye as new for animation
+          if (storedDyes.isNotEmpty) {
+            storedDyes.last.isNew = true;
+          }
+        });
+        
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Text('${dyeProduced}ml of $dyeType saved successfully!'),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        
+        _bottlePlacementController.forward(from: 0);
+        
+        // Mark bottle as not new after animation
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted && storedDyes.isNotEmpty) {
+            setState(() {
+              storedDyes.last.isNew = false;
+            });
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error saving dye: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.warning, color: Colors.white),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Text('Saved offline. Will sync when online.'),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSavingDye = false;
+        });
+      }
+    }
   }
 
   bool _hasEnoughMaterialsForAnyCraft() {
@@ -3914,68 +3966,170 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     );
   }
 
-Widget _buildCompletionScreen() {
-  return Container(
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [const Color(0xFF1B3A1B), const Color(0xFF0D1F0D)],
+  Widget _buildCompletionScreen() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [const Color(0xFF1B3A1B), const Color(0xFF0D1F0D)],
+        ),
       ),
-    ),
-    child: SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // Responsive sizing
-          bool isPortrait = constraints.maxHeight > constraints.maxWidth;
-          bool isTablet = constraints.maxWidth >= 600;
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            bool isPortrait = constraints.maxHeight > constraints.maxWidth;
+            bool isTablet = constraints.maxWidth >= 600;
 
-          return SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            padding: EdgeInsets.all(constraints.maxWidth * 0.04),
-            child: ConstrainedBox(
-              // FIXED: Add minimum height constraint to prevent overflow
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight - (constraints.maxWidth * 0.08),
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.all(constraints.maxWidth * 0.04),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - (constraints.maxWidth * 0.08),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Success Header
+                    _buildSuccessHeader(constraints),
+
+                    SizedBox(height: constraints.maxHeight * 0.03),
+
+                    // Extraction Summary Card
+                    _buildExtractionSummary(constraints),
+
+                    SizedBox(height: constraints.maxHeight * 0.03),
+
+                    // SAVE BUTTON - Only show if not yet saved
+                    if (!_showStorageSuccess && !_isSavingDye)
+                      _buildSaveButton(constraints),
+
+                    SizedBox(height: constraints.maxHeight * 0.02),
+
+                    // 3D Shelf Display
+                    _build3DShelfDisplay(constraints, isPortrait, isTablet),
+
+                    SizedBox(height: constraints.maxHeight * 0.03),
+
+                    // Storage Success Message - only after save
+                    if (_showStorageSuccess)
+                      _buildStorageSuccessMessage(constraints),
+
+                    SizedBox(height: constraints.maxHeight * 0.03),
+
+                    // Action Buttons
+                    _buildActionButtons(constraints),
+                    
+                    SizedBox(height: 20),
+                  ],
+                ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min, // FIXED: Changed from max to min
-                children: [
-                  // Success Header
-                  _buildSuccessHeader(constraints),
+            );
+          },
+        ),
+      ),
+    );
+  }
 
-                  SizedBox(height: constraints.maxHeight * 0.03),
+  Widget _buildSaveButton(BoxConstraints constraints) {
+    double fontSize = (constraints.maxWidth * 0.032).clamp(16.0, 24.0);
+    double buttonHeight = (constraints.maxHeight * 0.1).clamp(60.0, 80.0);
 
-                  // Extraction Summary Card
-                  _buildExtractionSummary(constraints),
-
-                  SizedBox(height: constraints.maxHeight * 0.04),
-
-                  // 3D Shelf Display
-                  _build3DShelfDisplay(constraints, isPortrait, isTablet),
-
-                  SizedBox(height: constraints.maxHeight * 0.03),
-
-                  // Storage Success Message
-                  if (_showStorageSuccess)
-                    _buildStorageSuccessMessage(constraints),
-
-                  SizedBox(height: constraints.maxHeight * 0.03),
-
-                  // Action Buttons
-                  _buildActionButtons(constraints),
-                  
-                  // FIXED: Add bottom padding to ensure no overflow
-                  SizedBox(height: 20),
-                ],
+    return TweenAnimationBuilder(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 800),
+      builder: (context, double value, child) {
+        return Transform.scale(
+          scale: 0.8 + (value * 0.2),
+          child: Opacity(
+            opacity: value.clamp(0.0, 1.0),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _isSavingDye ? null : _saveCurrentDye,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  height: buttonHeight,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: constraints.maxWidth * 0.08,
+                    vertical: constraints.maxHeight * 0.02,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: _isSavingDye
+                          ? [Colors.grey, Colors.grey.shade700]
+                          : [Color(0xFF2E7D32), Color(0xFF4CAF50)],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _isSavingDye ? Colors.grey : Colors.greenAccent,
+                      width: 3,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (_isSavingDye ? Colors.grey : Colors.green)
+                            .withValues(alpha: 0.4),
+                        blurRadius: 20,
+                        spreadRadius: 2,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_isSavingDye)
+                        SizedBox(
+                          width: fontSize * 1.5,
+                          height: fontSize * 1.5,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      else
+                        Icon(
+                          Icons.save,
+                          color: Colors.white,
+                          size: fontSize * 1.8,
+                        ),
+                      SizedBox(width: fontSize * 0.6),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isSavingDye ? 'SAVING...' : 'SAVE TO COLLECTION',
+                            style: GoogleFonts.exo2(
+                              fontSize: fontSize,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                          if (!_isSavingDye)
+                            Text(
+                              'Store ${dyeProduced}ml of $dyeType',
+                              style: GoogleFonts.exo2(
+                                fontSize: fontSize * 0.6,
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          );
-        },
-      ),
-    ),
-  );
-}
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildSuccessHeader(BoxConstraints constraints) {
     double iconSize = (constraints.maxWidth * 0.15).clamp(60.0, 120.0);
@@ -4224,7 +4378,6 @@ Widget _buildCompletionScreen() {
     bool isPortrait,
     bool isTablet,
   ) {
-    // Calculate responsive dimensions
     double shelfWidth = constraints.maxWidth * (isPortrait ? 0.92 : 0.85);
     shelfWidth = shelfWidth.clamp(300.0, 800.0);
 
@@ -4233,7 +4386,7 @@ Widget _buildCompletionScreen() {
         : constraints.maxHeight * 0.6;
     shelfHeight = shelfHeight.clamp(300.0, 600.0);
 
-    // ADD LOADING STATE:
+    // Loading state
     if (_isLoadingDyes) {
       return Container(
         width: shelfWidth,
@@ -4257,7 +4410,7 @@ Widget _buildCompletionScreen() {
               CircularProgressIndicator(color: Color(0xFFD4AF37)),
               SizedBox(height: 16),
               Text(
-                'Loading your dyes...',
+                'Loading your collection...',
                 style: GoogleFonts.exo2(
                   color: Color(0xFFD4AF37),
                   fontSize: 16,
@@ -4269,6 +4422,117 @@ Widget _buildCompletionScreen() {
       );
     }
 
+    // Empty state
+    if (storedDyes.isEmpty) {
+      return Container(
+        width: shelfWidth,
+        height: shelfHeight,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.brown.shade800.withValues(alpha: 0.3),
+              Colors.brown.shade900.withValues(alpha: 0.5),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFD4AF37), width: 3),
+        ),
+        child: Stack(
+          children: [
+            // Background wood texture
+            Positioned.fill(child: CustomPaint(painter: WoodTexturePainter())),
+            
+            // Shelf structure
+            Positioned.fill(
+              child: CustomPaint(
+                painter: ShelfPainter(shelfCount: _calculateShelfCount(shelfHeight)),
+              ),
+            ),
+            
+            // Empty message
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.inventory_2_outlined,
+                    size: 64,
+                    color: Color(0xFFD4AF37).withValues(alpha: 0.5),
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    'No dyes saved yet',
+                    style: GoogleFonts.exo2(
+                      color: Color(0xFFD4AF37).withValues(alpha: 0.7),
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    _showStorageSuccess 
+                        ? 'Your dye will appear here'
+                        : 'Click "SAVE TO COLLECTION" to store your dye',
+                    style: GoogleFonts.exo2(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      fontSize: 14,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            
+            // Storage label
+            Positioned(
+              top: 12,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: const Color(0xFFD4AF37),
+                      width: 2,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.inventory_2,
+                        color: const Color(0xFFD4AF37),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'DYE STORAGE CABINET',
+                        style: GoogleFonts.exo2(
+                          fontSize: (constraints.maxWidth * 0.025).clamp(12.0, 16.0),
+                          color: const Color(0xFFD4AF37),
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Display with dyes
     return Container(
       width: shelfWidth,
       height: shelfHeight,
@@ -4331,7 +4595,7 @@ Widget _buildCompletionScreen() {
               ),
             ),
 
-            // Storage label
+            // Storage label with count
             Positioned(
               top: 12,
               left: 0,
@@ -4360,7 +4624,7 @@ Widget _buildCompletionScreen() {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        'DYE STORAGE CABINET',
+                        'DYE COLLECTION (${storedDyes.length})',
                         style: GoogleFonts.exo2(
                           fontSize: (constraints.maxWidth * 0.025).clamp(
                             12.0,
