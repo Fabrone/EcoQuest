@@ -1,7 +1,12 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:ecoquest/game/crafted_dye_model.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+// ignore: deprecated_member_use, avoid_web_libraries_in_flutter
+import 'dart:html' as html show window;
 import 'dart:io';
 import 'dart:convert';
 import 'dart:developer' as developer;
@@ -10,83 +15,126 @@ class DyeStorageService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // UPDATED: Get current user UID with logging
   Future<String?> _getUserId() async {
     try {
       final user = _auth.currentUser;
-      developer.log('🔍 Getting user ID...', name: 'DyeStorageService');
+      if (user != null) return user.uid;
       
-      if (user != null) {
-        developer.log('✅ User authenticated: ${user.uid}', name: 'DyeStorageService');
-        return user.uid;
-      }
-      
-      // If no user is logged in, try to get cached UID
       final prefs = await SharedPreferences.getInstance();
-      final cachedUid = prefs.getString('cached_user_uid');
-      developer.log('⚠️ No authenticated user, cached UID: $cachedUid', name: 'DyeStorageService');
-      return cachedUid;
+      return prefs.getString('cached_user_uid');
     } catch (e) {
-      developer.log('❌ Error getting user ID: $e', name: 'DyeStorageService', error: e);
+      developer.log('❌ Error getting user ID: $e', name: 'DyeStorage');
       return null;
     }
   }
   
-  // UPDATED: Get user's display name with logging
   Future<String> _getUserName() async {
     try {
       final user = _auth.currentUser;
-      developer.log('🔍 Getting user name...', name: 'DyeStorageService');
-      
       if (user != null) {
-        String userName = user.displayName ?? user.email ?? user.uid;
-        developer.log('✅ User name: $userName', name: 'DyeStorageService');
-        return userName;
+        return user.displayName ?? user.email ?? user.uid;
       }
       
-      // Fallback to cached name
       final prefs = await SharedPreferences.getInstance();
-      final cachedName = prefs.getString('cached_user_name') ?? 'Unknown User';
-      developer.log('⚠️ Using cached user name: $cachedName', name: 'DyeStorageService');
-      return cachedName;
+      return prefs.getString('cached_user_name') ?? 'Unknown User';
     } catch (e) {
-      developer.log('❌ Error getting user name: $e', name: 'DyeStorageService', error: e);
       return 'Unknown User';
     }
   }
   
-  // Cache user info for offline use
   Future<void> _cacheUserInfo() async {
     try {
       final user = _auth.currentUser;
       if (user != null) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_user_uid', user.uid);
-        await prefs.setString(
-          'cached_user_name',
-          user.displayName ?? user.email ?? user.uid,
-        );
-        developer.log('✅ Cached user info', name: 'DyeStorageService');
+        await prefs.setString('cached_user_name', 
+            user.displayName ?? user.email ?? user.uid);
       }
     } catch (e) {
-      developer.log('❌ Error caching user info: $e', name: 'DyeStorageService', error: e);
+      developer.log('❌ Cache user error: $e', name: 'DyeStorage');
     }
   }
-  
+    
   Future<bool> _hasInternetConnection() async {
     try {
-      final result = await InternetAddress.lookup('google.com')
-          .timeout(Duration(seconds: 3));
-      bool hasConnection = result.isNotEmpty && result[0].rawAddress.isNotEmpty;
-      developer.log('🌐 Internet connection: $hasConnection', name: 'DyeStorageService');
-      return hasConnection;
+      // WEB PLATFORM: Check using browser's navigator.onLine
+      if (kIsWeb) {
+        try {
+          // Check browser's online status
+          final isOnline = html.window.navigator.onLine ?? true;
+          developer.log('🌐 Web platform - Navigator.onLine: $isOnline', name: 'DyeStorage');
+          
+          // Additional check: try to access Firestore directly
+          if (isOnline) {
+            try {
+              // Quick Firestore ping to verify actual connectivity
+              await _firestore
+                  .collection('CraftedDyes')
+                  .limit(1)
+                  .get(const GetOptions(source: Source.server))
+                  .timeout(const Duration(seconds: 5));
+              
+              developer.log('✅ Web: Firestore accessible', name: 'DyeStorage');
+              return true;
+            } catch (e) {
+              developer.log('⚠️ Web: Firestore not accessible: $e', name: 'DyeStorage');
+              return false;
+            }
+          }
+          
+          return isOnline;
+        } catch (e) {
+          developer.log('⚠️ Web check failed: $e - Assuming online', name: 'DyeStorage');
+          // If check fails, assume online for web
+          return true;
+        }
+      }
+      
+      // MOBILE PLATFORM: Use InternetAddress lookup
+      else {
+        try {
+          final result = await InternetAddress.lookup('google.com')
+              .timeout(const Duration(seconds: 5));
+          final isConnected = result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+          developer.log('📱 Mobile platform - Connected: $isConnected', name: 'DyeStorage');
+          return isConnected;
+        } on SocketException catch (_) {
+          developer.log('📱 Mobile: No internet (SocketException)', name: 'DyeStorage');
+          return false;
+        } catch (e) {
+          developer.log('⚠️ Mobile check failed: $e - Assuming online', name: 'DyeStorage');
+          return true;
+        }
+      }
     } catch (e) {
-      developer.log('⚠️ No internet connection: $e', name: 'DyeStorageService');
-      return false;
+      developer.log('❌ Connection check error: $e - Defaulting to online', name: 'DyeStorage');
+      // Default to true (online) if check fails to prevent blocking saves
+      return true;
     }
   }
-  
-  // UPDATED: Save with comprehensive logging
+
+  Future<void> verifyFirebaseSetup() async {
+    developer.log('🔍 VERIFYING FIREBASE', name: 'DyeStorage');
+    try {
+      developer.log('📱 App: ${_firestore.app.name}', name: 'DyeStorage');
+      developer.log('📱 Project: ${_firestore.app.options.projectId}', name: 'DyeStorage');
+      
+      final user = _auth.currentUser;
+      if (user != null) {
+        developer.log('✅ User: ${user.uid}', name: 'DyeStorage');
+      } else {
+        developer.log('❌ No user signed in', name: 'DyeStorage');
+      }
+      
+      final test = await _firestore.collection('CraftedDyes').limit(1)
+          .get(const GetOptions(source: Source.server));
+      developer.log('✅ Firestore OK (${test.docs.length} docs)', name: 'DyeStorage');
+    } catch (e) {
+      developer.log('❌ Verification failed: $e', name: 'DyeStorage');
+    }
+  }
+
   Future<void> saveCraftedDye({
     required String name,
     required Color color,
@@ -95,334 +143,368 @@ class DyeStorageService {
     required double crushingEfficiency,
     required double filteringPurity,
   }) async {
-    developer.log('🚀 Starting save process for dye: $name', name: 'DyeStorageService');
+    developer.log('🚀 SAVING DYE: $name', name: 'DyeStorage');
+    developer.log('⏰ Starting save at: ${DateTime.now()}', name: 'DyeStorage');
+    developer.log('🖥️ Platform: ${kIsWeb ? "Web" : "Mobile"}', name: 'DyeStorage');
     
+    // Get user info
     final userId = await _getUserId();
-    
     if (userId == null) {
-      developer.log('❌ No user ID - user not authenticated', name: 'DyeStorageService');
-      throw Exception('User not authenticated. Please login first.');
+      throw Exception('User not authenticated. Please log in.');
     }
-    
-    developer.log('✅ User ID obtained: $userId', name: 'DyeStorageService');
     
     await _cacheUserInfo();
-    
     final userName = await _getUserName();
-    developer.log('👤 User name: $userName', name: 'DyeStorageService');
     
-    final timestamp = DateTime.now();
+    developer.log('👤 User: $userName (ID: $userId)', name: 'DyeStorage');
     
-    // Convert color to hex
-    String colorHex = '#${color.toARGB32().toRadixString(16).padLeft(8, '0')}';
-    developer.log('🎨 Color hex: $colorHex', name: 'DyeStorageService');
+    // Create the dye model
+    final now = DateTime.now();
+    final dyeModel = CraftedDyeModel(
+      userName: userName,
+      userId: userId,
+      dyeName: name,
+      colorHex: CraftedDyeModel.colorToHex(color),
+      volume: volume,
+      materialQuality: materialQuality,
+      crushingEfficiency: crushingEfficiency,
+      filteringPurity: filteringPurity,
+      craftedAt: now,
+      updatedAt: now,
+    );
     
-    final dyeData = {
-      'userId': userId,
-      'userName': userName,
-      'dyeName': name,
-      'color': colorHex,
-      'volume': volume,
-      'materialQuality': materialQuality,
-      'crushingEfficiency': crushingEfficiency,
-      'filteringPurity': filteringPurity,
-      'createdAt': timestamp.toIso8601String(),
-      'updatedAt': timestamp.toIso8601String(),
-    };
+    developer.log('🎨 Color: ${dyeModel.colorHex}', name: 'DyeStorage');
     
-    developer.log('📦 Dye data prepared: ${json.encode(dyeData)}', name: 'DyeStorageService');
-    
-    // Always cache locally first
-    final tempId = 'temp_${timestamp.millisecondsSinceEpoch}';
-    await _cacheDyeLocally(tempId, dyeData);
-    
-    // Try to save to Firestore
-    final hasInternet = await _hasInternetConnection();
-    
-    if (hasInternet) {
-      try {
-        developer.log('📡 Attempting to save to Firestore...', name: 'DyeStorageService');
-        developer.log('📍 Collection: CraftedDyes, Document: $userName', name: 'DyeStorageService');
+    // ATTEMPT FIRESTORE SAVE DIRECTLY (let Firestore SDK handle connectivity)
+    try {
+      developer.log('📡 Attempting Firestore save...', name: 'DyeStorage');
+      developer.log('📁 Path: CraftedDyes/{auto-generated-id}', name: 'DyeStorage');
+      
+      // Save to Firestore with timeout
+      final docRef = await _firestore
+          .collection('CraftedDyes')
+          .add(dyeModel.toFirestore())
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw TimeoutException('Firestore save timed out after 10 seconds');
+            },
+          );
+      
+      developer.log('🎉 FIRESTORE SUCCESS!', name: 'DyeStorage');
+      developer.log('📄 Document ID: ${docRef.id}', name: 'DyeStorage');
+      developer.log('📍 Full path: ${docRef.path}', name: 'DyeStorage');
+      
+      // Update model with Firestore ID
+      final savedDye = dyeModel.copyWith(id: docRef.id);
+      
+      // Cache AFTER successful Firestore save
+      await _cacheDyeLocally(savedDye);
+      developer.log('✅ Cached locally after Firestore save', name: 'DyeStorage');
+      
+      // Success - return without throwing
+      return;
+      
+    } on FirebaseException catch (e) {
+      developer.log('❌ Firebase Error Code: ${e.code}', name: 'DyeStorage');
+      developer.log('❌ Firebase Message: ${e.message}', name: 'DyeStorage');
+      
+      if (e.code == 'permission-denied') {
+        developer.log('🔒 PERMISSION DENIED - Check Firestore rules', name: 'DyeStorage');
         
-        // Use user's name as document name in "CraftedDyes" collection
-        final docRef = await _firestore
-            .collection('CraftedDyes')
-            .doc(userName)
-            .collection('dyes')
-            .add({
-          ...dyeData,
-          'createdAt': timestamp,
-          'updatedAt': timestamp,
-        });
+        // Queue for retry but don't throw - cache locally
+        await _addToOfflineQueue(dyeModel);
         
-        developer.log('✅ Dye saved to Firestore with ID: ${docRef.id}', name: 'DyeStorageService');
+        throw Exception(
+          'Permission denied. Your dye has been saved locally and will sync when permissions are fixed.'
+        );
+      } else if (e.code == 'unavailable') {
+        // Network error - queue for sync
+        developer.log('🌐 Network unavailable - queuing for sync', name: 'DyeStorage');
+        await _addToOfflineQueue(dyeModel);
         
-        // Update local cache with real Firestore ID
-        await _updateCachedDyeId(tempId, docRef.id);
+        throw Exception(
+          'Network unavailable. Your dye has been saved locally and will sync when you\'re back online.'
+        );
+      } else {
+        // Other Firebase errors
+        developer.log('📤 Queuing for offline sync due to error', name: 'DyeStorage');
+        await _addToOfflineQueue(dyeModel);
         
-        developer.log('🎉 Save process completed successfully!', name: 'DyeStorageService');
-      } catch (e, stackTrace) {
-        developer.log('❌ Firestore save failed: $e', name: 'DyeStorageService', error: e, stackTrace: stackTrace);
-        developer.log('📥 Queuing for offline sync', name: 'DyeStorageService');
-        
-        // Add to offline queue
-        await _addToOfflineQueue(tempId, dyeData);
+        throw Exception(
+          'Save error: ${e.message}. Your dye has been saved locally and will sync later.'
+        );
       }
-    } else {
-      developer.log('📥 No internet - queuing for offline sync', name: 'DyeStorageService');
-      await _addToOfflineQueue(tempId, dyeData);
+      
+    } on TimeoutException catch (e) {
+      developer.log('⏱️ Firestore save timed out: $e', name: 'DyeStorage');
+      
+      // Timeout - likely network issue, queue for sync
+      await _addToOfflineQueue(dyeModel);
+      
+      throw Exception(
+        'Connection timeout. Your dye has been saved locally and will sync when connection improves.'
+      );
+      
+    } catch (e, stackTrace) {
+      developer.log('❌ Unexpected error: $e', name: 'DyeStorage');
+      developer.log('❌ Stack: $stackTrace', name: 'DyeStorage');
+      
+      // Unknown error - queue for sync
+      await _addToOfflineQueue(dyeModel);
+      
+      throw Exception(
+        'Unexpected error: ${e.toString()}. Your dye has been saved locally and will sync later.'
+      );
     }
   }
-  
-  // UPDATED: Retrieve with comprehensive logging and null safety
+
+  Future<void> retryFailedSaves() async {
+    developer.log('🔄 Attempting to retry failed saves...', name: 'DyeStorage');
+    
+    if (!await _hasInternetConnection()) {
+      developer.log('🔴 Still offline - skipping retry', name: 'DyeStorage');
+      return;
+    }
+    
+    try {
+      await _syncOfflineQueue();
+      await _processPendingDeletions();
+      developer.log('✅ Retry completed successfully', name: 'DyeStorage');
+    } catch (e) {
+      developer.log('❌ Retry failed: $e', name: 'DyeStorage');
+    }
+  }
+      
   Future<List<Map<String, dynamic>>> getCraftedDyes() async {
-    developer.log('🔍 Starting to fetch crafted dyes', name: 'DyeStorageService');
+    developer.log('📖 Fetching dyes', name: 'DyeStorage');
     
     final userId = await _getUserId();
-    
     if (userId == null) {
-      developer.log('⚠️ No user ID - returning cached dyes', name: 'DyeStorageService');
+      developer.log('⚠️ No user ID - returning cached', name: 'DyeStorage');
       return await _getCachedDyes();
     }
     
-    developer.log('✅ User ID: $userId', name: 'DyeStorageService');
-    
     final userName = await _getUserName();
-    developer.log('👤 User name: $userName', name: 'DyeStorageService');
-    
     final hasInternet = await _hasInternetConnection();
+    
+    developer.log('👤 User: $userName', name: 'DyeStorage');
+    developer.log('🌐 Internet: $hasInternet', name: 'DyeStorage');
     
     if (hasInternet) {
       try {
-        developer.log('🔄 Syncing offline queue first...', name: 'DyeStorageService');
+        // Try to sync offline queue first
         await _syncOfflineQueue();
         
-        developer.log('📡 Fetching from Firestore: CraftedDyes/$userName/dyes', name: 'DyeStorageService');
+        developer.log('📡 Querying Firestore...', name: 'DyeStorage');
+        developer.log('🔍 Filter: userName == $userName', name: 'DyeStorage');
         
-        // Get from Firestore using user's document
+        // Query Firestore for this user's dyes
         final snapshot = await _firestore
             .collection('CraftedDyes')
-            .doc(userName)
-            .collection('dyes')
-            .orderBy('createdAt', descending: true)
-            .get();
+            .where('userName', isEqualTo: userName)
+            .orderBy('craftedAt', descending: true)
+            .get(const GetOptions(source: Source.server));
         
-        developer.log('📊 Fetched ${snapshot.docs.length} documents from Firestore', name: 'DyeStorageService');
+        developer.log('📊 Firestore returned ${snapshot.docs.length} documents', name: 'DyeStorage');
         
         final dyes = <Map<String, dynamic>>[];
         
         for (var doc in snapshot.docs) {
           try {
-            final data = doc.data();
-            developer.log('📄 Processing document ${doc.id}: ${json.encode(data)}', name: 'DyeStorageService');
+            final dyeModel = CraftedDyeModel.fromFirestore(doc);
             
-            // FIXED: Add null safety checks
-            final colorHex = data['color'] as String?;
-            if (colorHex == null || colorHex.isEmpty) {
-              developer.log('⚠️ Skipping document ${doc.id}: missing color', name: 'DyeStorageService');
-              continue;
-            }
+            dyes.add({
+              'id': dyeModel.id,
+              'name': dyeModel.dyeName,
+              'colorHex': dyeModel.colorHex,
+              'volume': dyeModel.volume,
+              'materialQuality': dyeModel.materialQuality,
+              'crushingEfficiency': dyeModel.crushingEfficiency,
+              'filteringPurity': dyeModel.filteringPurity,
+              'createdAt': dyeModel.craftedAt,
+            });
             
-            // FIXED: Safely parse color
-            String cleanHex = colorHex.replaceFirst('#', '');
-            if (cleanHex.length < 6) {
-              developer.log('⚠️ Invalid color hex in document ${doc.id}: $colorHex', name: 'DyeStorageService');
-              continue;
-            }
-            
-            // Ensure we have 8 characters (ARGB) by padding with FF if needed
-            if (cleanHex.length == 6) {
-              cleanHex = 'FF$cleanHex'; // Add alpha channel
-            }
-            
-            final dyeMap = {
-              'id': doc.id,
-              'name': data['dyeName'] ?? data['name'] ?? 'Unknown Dye',
-              'colorHex': colorHex,
-              'volume': data['volume'] ?? 0,
-              'materialQuality': data['materialQuality'] ?? 'Good',
-              'crushingEfficiency': (data['crushingEfficiency'] ?? 1.0).toDouble(),
-              'filteringPurity': (data['filteringPurity'] ?? 1.0).toDouble(),
-              'createdAt': (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-            };
-            
-            dyes.add(dyeMap);
-            developer.log('✅ Successfully processed document ${doc.id}', name: 'DyeStorageService');
-          } catch (e, stackTrace) {
-            developer.log('❌ Error processing document ${doc.id}: $e', 
-                name: 'DyeStorageService', error: e, stackTrace: stackTrace);
+            developer.log('✅ Added: ${dyeModel.dyeName}', name: 'DyeStorage');
+          } catch (e) {
+            developer.log('⚠️ Skip doc ${doc.id}: $e', name: 'DyeStorage');
           }
         }
         
-        // Update cache
+        // Update cache with Firestore data
         await _cacheAllDyes(dyes);
+        developer.log('✅ Successfully loaded ${dyes.length} dyes from Firestore', name: 'DyeStorage');
         
-        developer.log('🎉 Loaded ${dyes.length} dyes from Firestore', name: 'DyeStorageService');
         return dyes;
+        
       } catch (e, stackTrace) {
-        developer.log('❌ Error fetching from Firestore: $e', 
-            name: 'DyeStorageService', error: e, stackTrace: stackTrace);
-        developer.log('📂 Falling back to cached dyes', name: 'DyeStorageService');
+        developer.log('❌ Firestore fetch failed: $e', name: 'DyeStorage');
+        developer.log('❌ Stack: $stackTrace', name: 'DyeStorage');
+        developer.log('📦 Falling back to cache', name: 'DyeStorage');
         return await _getCachedDyes();
       }
     } else {
-      developer.log('📂 No internet - using cached dyes', name: 'DyeStorageService');
+      developer.log('🔴 Offline - using cache', name: 'DyeStorage');
       return await _getCachedDyes();
     }
   }
-  
-  // UPDATED: Sync with logging
+      
   Future<void> _syncOfflineQueue() async {
     try {
       final userId = await _getUserId();
-      if (userId == null) {
-        developer.log('⚠️ Cannot sync: No user ID', name: 'DyeStorageService');
-        return;
-      }
+      if (userId == null) return;
       
-      final userName = await _getUserName();
       final prefs = await SharedPreferences.getInstance();
       final queueJson = prefs.getString('offline_queue') ?? '[]';
       List<dynamic> queue = json.decode(queueJson);
       
-      if (queue.isEmpty) {
-        developer.log('✅ Offline queue is empty', name: 'DyeStorageService');
-        return;
-      }
+      if (queue.isEmpty) return;
       
-      developer.log('🔄 Syncing ${queue.length} offline dyes', name: 'DyeStorageService');
+      developer.log('🔄 Syncing ${queue.length} items', name: 'DyeStorage');
       
-      List<String> syncedIds = [];
+      List<int> syncedIndices = [];
       
-      for (var item in queue) {
+      for (int i = 0; i < queue.length; i++) {
         try {
-          final tempId = item['tempId'];
-          final dyeData = item['data'];
+          final item = queue[i];
+          final dyeModel = CraftedDyeModel.fromCache(item);
           
-          developer.log('⬆️ Syncing dye: $tempId', name: 'DyeStorageService');
+          developer.log('📤 Syncing: ${dyeModel.dyeName}', name: 'DyeStorage');
           
-          final createdAt = DateTime.parse(dyeData['createdAt']);
-          final updatedAt = DateTime.parse(dyeData['updatedAt']);
-          
+          // Save to Firestore
           final docRef = await _firestore
               .collection('CraftedDyes')
-              .doc(userName)
-              .collection('dyes')
-              .add({
-            ...dyeData,
-            'userId': userId,
-            'userName': userName,
-            'createdAt': createdAt,
-            'updatedAt': updatedAt,
-          });
+              .add(dyeModel.toFirestore());
           
-          await _updateCachedDyeId(tempId, docRef.id);
-          syncedIds.add(tempId);
+          developer.log('✅ Synced to Firestore: ${docRef.id}', name: 'DyeStorage');
           
-          developer.log('✅ Synced: $tempId -> ${docRef.id}', name: 'DyeStorageService');
-        } catch (e) {
-          developer.log('❌ Failed to sync item: $e', name: 'DyeStorageService', error: e);
+          // Update cache with real Firestore ID
+          final updatedDye = dyeModel.copyWith(id: docRef.id);
+          await _updateCachedDyeWithFirestoreId(dyeModel.id, updatedDye);
+          
+          syncedIndices.add(i);
+          
+        } catch (e, stackTrace) {
+          developer.log('❌ Sync item failed: $e', name: 'DyeStorage');
+          developer.log('Stack: $stackTrace', name: 'DyeStorage');
         }
       }
       
-      if (syncedIds.isNotEmpty) {
-        queue.removeWhere((item) => syncedIds.contains(item['tempId']));
+      // Remove synced items from queue
+      if (syncedIndices.isNotEmpty) {
+        for (int i = syncedIndices.length - 1; i >= 0; i--) {
+          queue.removeAt(syncedIndices[i]);
+        }
         await prefs.setString('offline_queue', json.encode(queue));
-        developer.log('🎉 Synced ${syncedIds.length} items', name: 'DyeStorageService');
+        developer.log('✅ Removed ${syncedIndices.length} synced items from queue', name: 'DyeStorage');
       }
     } catch (e, stackTrace) {
-      developer.log('❌ Error syncing offline queue: $e', 
-          name: 'DyeStorageService', error: e, stackTrace: stackTrace);
+      developer.log('❌ Queue sync error: $e', name: 'DyeStorage');
+      developer.log('Stack: $stackTrace', name: 'DyeStorage');
     }
   }
 
-  // Rest of the methods remain the same...
-  Future<void> _addToOfflineQueue(String tempId, Map<String, dynamic> dyeData) async {
+  Future<void> _addToOfflineQueue(CraftedDyeModel dyeModel) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final queueJson = prefs.getString('offline_queue') ?? '[]';
       List<dynamic> queue = json.decode(queueJson);
       
-      queue.add({
-        'tempId': tempId,
-        'data': dyeData,
-        'queuedAt': DateTime.now().toIso8601String(),
-      });
+      // Generate temporary ID if not present
+      final tempId = dyeModel.id ?? 'temp_${DateTime.now().millisecondsSinceEpoch}';
+      final modelWithId = dyeModel.copyWith(id: tempId);
+      
+      queue.add(modelWithId.toCache());
       
       await prefs.setString('offline_queue', json.encode(queue));
-      developer.log('📥 Added to offline queue: $tempId', name: 'DyeStorageService');
+      
+      // Also cache locally for immediate display
+      await _cacheDyeLocally(modelWithId);
+      
+      developer.log('📥 Added to offline queue: ${modelWithId.dyeName}', name: 'DyeStorage');
     } catch (e) {
-      developer.log('❌ Error adding to offline queue: $e', 
-          name: 'DyeStorageService', error: e);
+      developer.log('❌ Queue error: $e', name: 'DyeStorage');
     }
   }
-  
-  Future<void> _updateCachedDyeId(String tempId, String realId) async {
+
+  Future<void> _updateCachedDyeWithFirestoreId(String? oldId, CraftedDyeModel updatedDye) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final cachedDyesJson = prefs.getString('cached_dyes') ?? '[]';
-      List<dynamic> cachedDyes = json.decode(cachedDyesJson);
+      final cachedJson = prefs.getString('cached_dyes') ?? '[]';
+      List<dynamic> cached = json.decode(cachedJson);
       
-      for (var dye in cachedDyes) {
-        if (dye['id'] == tempId) {
-          dye['id'] = realId;
-          developer.log('🔄 Updated cache ID: $tempId -> $realId', name: 'DyeStorageService');
+      // Find and update the dye
+      bool found = false;
+      for (int i = 0; i < cached.length; i++) {
+        if (cached[i]['id'] == oldId) {
+          cached[i] = updatedDye.toCache();
+          found = true;
           break;
         }
       }
       
-      await prefs.setString('cached_dyes', json.encode(cachedDyes));
+      // If not found, add it
+      if (!found) {
+        cached.add(updatedDye.toCache());
+      }
+      
+      await prefs.setString('cached_dyes', json.encode(cached));
+      developer.log('🔄 Updated cache with Firestore ID: ${updatedDye.id}', name: 'DyeStorage');
     } catch (e) {
-      developer.log('❌ Error updating cached ID: $e', 
-          name: 'DyeStorageService', error: e);
+      developer.log('❌ Update cache error: $e', name: 'DyeStorage');
     }
   }
-  
-  Future<void> deleteCraftedDye(String dyeId) async {
+
+  /*Future<void> _updateCachedDyeId(String tempId, String realId) async {
     try {
-      developer.log('🗑️ Deleting dye: $dyeId', name: 'DyeStorageService');
+      final prefs = await SharedPreferences.getInstance();
+      final cachedJson = prefs.getString('cached_dyes') ?? '[]';
+      List<dynamic> cached = json.decode(cachedJson);
       
-      final userId = await _getUserId();
-      if (userId == null) {
-        throw Exception('User not authenticated. Cannot delete dye.');
-      }
-      
-      final userName = await _getUserName();
-      final hasInternet = await _hasInternetConnection();
-      
-      await _removeCachedDye(dyeId);
-      
-      if (hasInternet) {
-        if (!dyeId.startsWith('temp_')) {
-          await _firestore
-              .collection('CraftedDyes')
-              .doc(userName)
-              .collection('dyes')
-              .doc(dyeId)
-              .delete();
-          developer.log('✅ Deleted from Firestore: $dyeId', name: 'DyeStorageService');
+      for (var dye in cached) {
+        if (dye['id'] == tempId) {
+          dye['id'] = realId;
+          break;
         }
-      } else {
-        await _queueDeletion(dyeId);
       }
+      
+      await prefs.setString('cached_dyes', json.encode(cached));
     } catch (e) {
-      developer.log('❌ Error deleting dye: $e', name: 'DyeStorageService', error: e);
-      rethrow;
+      developer.log('❌ Update ID error: $e', name: 'DyeStorage');
+    }
+  }*/
+      
+  Future<void> deleteCraftedDye(String dyeId) async {
+    final userId = await _getUserId();
+    if (userId == null) throw Exception('Not authenticated');
+    
+    developer.log('🗑️ Deleting dye: $dyeId', name: 'DyeStorage');
+    
+    // Remove from cache first
+    await _removeCachedDye(dyeId);
+    
+    // Remove from Firestore if online and not a temp ID
+    if (await _hasInternetConnection() && !dyeId.startsWith('temp_')) {
+      try {
+        await _firestore
+            .collection('CraftedDyes')
+            .doc(dyeId)
+            .delete();
+        
+        developer.log('✅ Deleted from Firestore: $dyeId', name: 'DyeStorage');
+      } catch (e) {
+        developer.log('❌ Firestore delete failed: $e', name: 'DyeStorage');
+        // Queue for deletion when online
+        await _queueDeletionForSync(dyeId);
+      }
+    } else if (!dyeId.startsWith('temp_')) {
+      // Offline - queue for deletion
+      await _queueDeletionForSync(dyeId);
     }
   }
 
-  Future<bool> isUserAuthenticated() async {
-    final userId = await _getUserId();
-    bool isAuth = userId != null;
-    developer.log('🔐 User authenticated: $isAuth', name: 'DyeStorageService');
-    return isAuth;
-  }
-  
-  Future<String?> getCurrentUserName() async {
-    return await _getUserName();
-  }
-
-  Future<void> _queueDeletion(String dyeId) async {
+  /// NEW: Queue deletion for when device goes online
+  Future<void> _queueDeletionForSync(String dyeId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final deletionsJson = prefs.getString('pending_deletions') ?? '[]';
@@ -431,96 +513,127 @@ class DyeStorageService {
       if (!deletions.contains(dyeId)) {
         deletions.add(dyeId);
         await prefs.setString('pending_deletions', json.encode(deletions));
-        developer.log('📥 Queued deletion: $dyeId', name: 'DyeStorageService');
+        developer.log('📝 Queued deletion: $dyeId', name: 'DyeStorage');
       }
     } catch (e) {
-      developer.log('❌ Error queuing deletion: $e', name: 'DyeStorageService', error: e);
+      developer.log('❌ Queue deletion error: $e', name: 'DyeStorage');
     }
   }
+
+  /// NEW: Process pending deletions when online
+  // ignore: unused_element
+  Future<void> _processPendingDeletions() async {
+    try {
+      if (!await _hasInternetConnection()) return;
+      
+      final prefs = await SharedPreferences.getInstance();
+      final deletionsJson = prefs.getString('pending_deletions') ?? '[]';
+      List<dynamic> deletions = json.decode(deletionsJson);
+      
+      if (deletions.isEmpty) return;
+      
+      developer.log('🗑️ Processing ${deletions.length} pending deletions', name: 'DyeStorage');
+      
+      List<String> processed = [];
+      
+      for (String dyeId in deletions) {
+        try {
+          await _firestore
+              .collection('CraftedDyes')
+              .doc(dyeId)
+              .delete();
+          
+          processed.add(dyeId);
+          developer.log('✅ Deleted from Firestore: $dyeId', name: 'DyeStorage');
+        } catch (e) {
+          developer.log('❌ Delete failed: $dyeId - $e', name: 'DyeStorage');
+        }
+      }
+      
+      if (processed.isNotEmpty) {
+        deletions.removeWhere((id) => processed.contains(id));
+        await prefs.setString('pending_deletions', json.encode(deletions));
+      }
+    } catch (e) {
+      developer.log('❌ Process deletions error: $e', name: 'DyeStorage');
+    }
+  }
+
+  Future<bool> isUserAuthenticated() async {
+    return await _getUserId() != null;
+  }
   
-  Future<void> _cacheDyeLocally(String id, Map<String, dynamic> dyeData) async {
+  Future<String?> getCurrentUserName() async {
+    return await _getUserName();
+  }
+
+  Future<void> _cacheDyeLocally(CraftedDyeModel dyeModel) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final cachedDyesJson = prefs.getString('cached_dyes') ?? '[]';
-      List<dynamic> cachedDyes = json.decode(cachedDyesJson);
+      final cachedJson = prefs.getString('cached_dyes') ?? '[]';
+      List<dynamic> cached = json.decode(cachedJson);
       
-      final cacheEntry = {
-        'id': id,
-        ...dyeData,
-      };
+      // Check if dye already exists
+      cached.removeWhere((item) => item['id'] == dyeModel.id);
       
-      cachedDyes.add(cacheEntry);
-      await prefs.setString('cached_dyes', json.encode(cachedDyes));
-      developer.log('💾 Cached dye locally: $id', name: 'DyeStorageService');
+      // Add the dye
+      cached.add(dyeModel.toCache());
+      
+      await prefs.setString('cached_dyes', json.encode(cached));
+      developer.log('💾 Cached dye: ${dyeModel.dyeName}', name: 'DyeStorage');
     } catch (e) {
-      developer.log('❌ Error caching dye locally: $e', 
-          name: 'DyeStorageService', error: e);
+      developer.log('❌ Cache error: $e', name: 'DyeStorage');
     }
   }
   
   Future<void> _cacheAllDyes(List<Map<String, dynamic>> dyes) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
-      final serializedDyes = dyes.map((dye) {
-        return {
-          ...dye,
-          'createdAt': dye['createdAt'] is DateTime
-              ? (dye['createdAt'] as DateTime).toIso8601String()
-              : dye['createdAt'],
-        };
+      final serialized = dyes.map((dye) => {
+        ...dye,
+        'createdAt': dye['createdAt'] is DateTime
+            ? (dye['createdAt'] as DateTime).toIso8601String()
+            : dye['createdAt'],
       }).toList();
       
-      await prefs.setString('cached_dyes', json.encode(serializedDyes));
-      developer.log('💾 Cached ${dyes.length} dyes locally', name: 'DyeStorageService');
+      await prefs.setString('cached_dyes', json.encode(serialized));
     } catch (e) {
-      developer.log('❌ Error caching all dyes: $e', 
-          name: 'DyeStorageService', error: e);
+      developer.log('❌ Cache all error: $e', name: 'DyeStorage');
     }
   }
   
   Future<List<Map<String, dynamic>>> _getCachedDyes() async {
     try {
-      developer.log('📂 Retrieving cached dyes', name: 'DyeStorageService');
-      
       final prefs = await SharedPreferences.getInstance();
-      final cachedDyesJson = prefs.getString('cached_dyes') ?? '[]';
-      
-      List<dynamic> cachedDyes = json.decode(cachedDyesJson);
+      final cachedJson = prefs.getString('cached_dyes') ?? '[]';
+      List<dynamic> cached = json.decode(cachedJson);
       
       final dyes = <Map<String, dynamic>>[];
       
-      for (var dye in cachedDyes) {
+      for (var dye in cached) {
         try {
-          // FIXED: Add null safety
           final colorHex = dye['color'] ?? dye['colorHex'];
-          if (colorHex == null || colorHex.isEmpty) {
-            developer.log('⚠️ Skipping cached dye: missing color', name: 'DyeStorageService');
-            continue;
-          }
+          if (colorHex == null || colorHex.isEmpty) continue;
           
-          final dyeMap = {
+          dyes.add({
             'id': dye['id'] ?? 'unknown',
-            'name': dye['dyeName'] ?? dye['name'] ?? 'Unknown Dye',
+            'name': dye['dyeName'] ?? dye['name'] ?? 'Unknown',
             'colorHex': colorHex,
             'volume': dye['volume'] ?? 0,
             'materialQuality': dye['materialQuality'] ?? 'Good',
             'crushingEfficiency': (dye['crushingEfficiency'] ?? 1.0).toDouble(),
             'filteringPurity': (dye['filteringPurity'] ?? 1.0).toDouble(),
-            'createdAt': DateTime.parse(dye['createdAt'] ?? DateTime.now().toIso8601String()),
-          };
-          
-          dyes.add(dyeMap);
+            'createdAt': DateTime.parse(
+              dye['createdAt'] ?? DateTime.now().toIso8601String()
+            ),
+          });
         } catch (e) {
-          developer.log('⚠️ Error parsing cached dye: $e', name: 'DyeStorageService', error: e);
+          developer.log('⚠️ Skip cached dye: $e', name: 'DyeStorage');
         }
       }
       
-      developer.log('📂 Retrieved ${dyes.length} cached dyes', name: 'DyeStorageService');
       return dyes;
     } catch (e) {
-      developer.log('❌ Error getting cached dyes: $e', 
-          name: 'DyeStorageService', error: e);
       return [];
     }
   }
@@ -528,16 +641,12 @@ class DyeStorageService {
   Future<void> _removeCachedDye(String dyeId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final cachedDyesJson = prefs.getString('cached_dyes') ?? '[]';
-      
-      List<dynamic> cachedDyes = json.decode(cachedDyesJson);
-      cachedDyes.removeWhere((dye) => dye['id'] == dyeId);
-      
-      await prefs.setString('cached_dyes', json.encode(cachedDyes));
-      developer.log('🗑️ Removed cached dye: $dyeId', name: 'DyeStorageService');
+      final cachedJson = prefs.getString('cached_dyes') ?? '[]';
+      List<dynamic> cached = json.decode(cachedJson);
+      cached.removeWhere((dye) => dye['id'] == dyeId);
+      await prefs.setString('cached_dyes', json.encode(cached));
     } catch (e) {
-      developer.log('❌ Error removing cached dye: $e', 
-          name: 'DyeStorageService', error: e);
+      developer.log('❌ Remove cache error: $e', name: 'DyeStorage');
     }
   }
   
@@ -545,8 +654,7 @@ class DyeStorageService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final queueJson = prefs.getString('offline_queue') ?? '[]';
-      List<dynamic> queue = json.decode(queueJson);
-      return queue.length;
+      return (json.decode(queueJson) as List).length;
     } catch (e) {
       return 0;
     }
@@ -557,6 +665,5 @@ class DyeStorageService {
     await prefs.remove('cached_dyes');
     await prefs.remove('offline_queue');
     await prefs.remove('pending_deletions');
-    developer.log('🧹 Cleared all cache', name: 'DyeStorageService');
   }
 }

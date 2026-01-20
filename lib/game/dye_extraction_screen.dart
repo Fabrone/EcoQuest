@@ -635,7 +635,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   Future<void> _saveCurrentDye() async {
     // Prevent duplicate saves
     if (_isSavingDye) {
-      debugPrint('Save already in progress, skipping...');
+      debugPrint('⚠️ Save already in progress, skipping...');
       return;
     }
     
@@ -644,6 +644,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     });
     
     try {
+      debugPrint('🎯 ===== USER INITIATED SAVE =====');
+      
+      // VERIFY FIREBASE SETUP FIRST
+      debugPrint('🔍 Verifying Firebase setup...');
+      await _dyeStorageService.verifyFirebaseSetup();
+      
       // Show loading indicator
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -668,6 +674,7 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
         );
       }
       
+      debugPrint('💾 Calling saveCraftedDye...');
       await _dyeStorageService.saveCraftedDye(
         name: dyeType,
         color: dyeColor,
@@ -677,7 +684,10 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
         filteringPurity: filteringPurity,
       );
       
+      debugPrint('✅ saveCraftedDye completed');
+      
       // Reload dyes from Firebase to get the latest with proper IDs
+      debugPrint('🔄 Reloading dyes...');
       await _loadSavedDyes();
       
       if (mounted) {
@@ -717,8 +727,11 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
           }
         });
       }
-    } catch (e) {
-      debugPrint('Error saving dye: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ ===== SAVE ERROR =====');
+      debugPrint('Error: $e');
+      debugPrint('Stack trace: $stackTrace');
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -727,12 +740,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                 Icon(Icons.warning, color: Colors.white),
                 SizedBox(width: 16),
                 Expanded(
-                  child: Text('Saved offline. Will sync when online.'),
+                  child: Text('Error: ${e.toString()}'),
                 ),
               ],
             ),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 3),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
           ),
         );
       }
