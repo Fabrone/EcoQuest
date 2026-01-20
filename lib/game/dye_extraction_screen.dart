@@ -4033,8 +4033,13 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
   }
 
   Widget _buildSaveButton(BoxConstraints constraints) {
-    double fontSize = (constraints.maxWidth * 0.032).clamp(16.0, 24.0);
-    double buttonHeight = (constraints.maxHeight * 0.1).clamp(60.0, 80.0);
+    // Responsive sizing with better constraints
+    double fontSize = (constraints.maxWidth * 0.032).clamp(14.0, 20.0);
+    double buttonHeight = (constraints.maxHeight * 0.1).clamp(56.0, 80.0);
+    double horizontalPadding = (constraints.maxWidth * 0.06).clamp(16.0, 32.0);
+    double verticalPadding = (constraints.maxHeight * 0.015).clamp(8.0, 16.0);
+    double iconSize = (fontSize * 1.5).clamp(20.0, 30.0);
+    double spacing = (fontSize * 0.5).clamp(6.0, 12.0);
 
     return TweenAnimationBuilder(
       tween: Tween<double>(begin: 0, end: 1),
@@ -4050,10 +4055,13 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                 onTap: _isSavingDye ? null : _saveCurrentDye,
                 borderRadius: BorderRadius.circular(20),
                 child: Container(
-                  height: buttonHeight,
+                  constraints: BoxConstraints(
+                    minHeight: buttonHeight,
+                    maxHeight: buttonHeight * 1.2, // Allow slight expansion
+                  ),
                   padding: EdgeInsets.symmetric(
-                    horizontal: constraints.maxWidth * 0.08,
-                    vertical: constraints.maxHeight * 0.02,
+                    horizontal: horizontalPadding,
+                    vertical: verticalPadding,
                   ),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -4080,10 +4088,11 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // Icon/Loading indicator
                       if (_isSavingDye)
                         SizedBox(
-                          width: fontSize * 1.5,
-                          height: fontSize * 1.5,
+                          width: iconSize,
+                          height: iconSize,
                           child: CircularProgressIndicator(
                             strokeWidth: 3,
                             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
@@ -4093,32 +4102,54 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                         Icon(
                           Icons.save,
                           color: Colors.white,
-                          size: fontSize * 1.8,
+                          size: iconSize,
                         ),
-                      SizedBox(width: fontSize * 0.6),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _isSavingDye ? 'SAVING...' : 'SAVE TO COLLECTION',
-                            style: GoogleFonts.exo2(
-                              fontSize: fontSize,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                          if (!_isSavingDye)
-                            Text(
-                              'Store ${dyeProduced}ml of $dyeType',
-                              style: GoogleFonts.exo2(
-                                fontSize: fontSize * 0.6,
-                                color: Colors.white70,
-                                fontWeight: FontWeight.w500,
+                      
+                      SizedBox(width: spacing),
+                      
+                      // Text content - wrapped in Flexible to prevent overflow
+                      Flexible(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Main button text - single line with ellipsis if needed
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                _isSavingDye ? 'SAVING...' : 'SAVE TO COLLECTION',
+                                style: GoogleFonts.exo2(
+                                  fontSize: fontSize,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.2,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                        ],
+                            
+                            // Subtitle - only show if not saving and if there's space
+                            if (!_isSavingDye && buttonHeight >= 60)
+                              Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    'Store ${dyeProduced}ml of $dyeType',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: (fontSize * 0.65).clamp(10.0, 14.0),
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
