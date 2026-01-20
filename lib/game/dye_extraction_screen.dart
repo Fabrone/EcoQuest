@@ -233,33 +233,66 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
     });
     
     try {
+      debugPrint('🔍 Starting to load saved dyes...');
+      
       final savedDyes = await _dyeStorageService.getCraftedDyes();
+      debugPrint('📊 Received ${savedDyes.length} dyes from service');
       
       if (!mounted) return;
       
       setState(() {
         storedDyes = savedDyes.map((dyeData) {
-          // Convert hex string back to Color
-          final colorHex = dyeData['colorHex'] as String;
-          final colorValue = int.parse(colorHex.replaceFirst('#', ''), radix: 16);
-          
-          return StoredDye(
-            id: dyeData['id'],
-            name: dyeData['name'],
-            color: Color(colorValue),
-            volume: dyeData['volume'],
-            isNew: false, // Already saved dyes are not new
-          );
-        }).toList();
+          try {
+            debugPrint('📄 Processing dye: ${dyeData['name']}');
+            
+            // Convert hex string back to Color with null safety
+            final colorHex = dyeData['colorHex'] as String?;
+            
+            if (colorHex == null || colorHex.isEmpty) {
+              debugPrint('⚠️ Skipping dye - no color hex');
+              return null;
+            }
+            
+            // Clean hex string
+            String cleanHex = colorHex.replaceFirst('#', '');
+            
+            // Ensure we have 8 characters (ARGB)
+            if (cleanHex.length == 6) {
+              cleanHex = 'FF$cleanHex'; // Add alpha
+            }
+            
+            if (cleanHex.length != 8) {
+              debugPrint('⚠️ Invalid hex length: ${cleanHex.length}');
+              return null;
+            }
+            
+            final colorValue = int.parse(cleanHex, radix: 16);
+            debugPrint('🎨 Color value: $colorValue');
+            
+            return StoredDye(
+              id: dyeData['id'] ?? 'unknown',
+              name: dyeData['name'] ?? 'Unknown Dye',
+              color: Color(colorValue),
+              volume: dyeData['volume'] ?? 0,
+              isNew: false,
+            );
+          } catch (e, stackTrace) {
+            debugPrint('❌ Error processing dye: $e');
+            debugPrint('Stack trace: $stackTrace');
+            return null;
+          }
+        }).where((dye) => dye != null).cast<StoredDye>().toList();
         
+        debugPrint('✅ Loaded ${storedDyes.length} dyes successfully');
         _isLoadingDyes = false;
       });
-    } catch (e) {
-      debugPrint('Error loading saved dyes: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error loading saved dyes: $e');
+      debugPrint('Stack trace: $stackTrace');
+      
       if (mounted) {
         setState(() {
           _isLoadingDyes = false;
-          // Keep any existing dyes in case of error
         });
       }
     }
