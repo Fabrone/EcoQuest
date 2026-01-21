@@ -63,6 +63,10 @@ class RegistrationScreenState extends State<RegistrationScreen> {
         throw Exception('User creation failed');
       }
 
+      // ✨ ADD THIS: Update the Firebase Auth profile with the username as displayName
+      await user.updateDisplayName(username);
+      await user.reload(); // Reload to get updated user info
+      
       // Create document in 'Users' with ID = username
       final userData = {
         'Username': username,
