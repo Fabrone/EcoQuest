@@ -5,11 +5,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-// ignore: deprecated_member_use, avoid_web_libraries_in_flutter
-import 'dart:html' as html show window;
-import 'dart:io';
 import 'dart:convert';
 import 'dart:developer' as developer;
+
+// Conditional import: use mobile version by default, web version when dart:html is available
+import 'connectivity_mobile.dart'
+    if (dart.library.html) 'connectivity_web.dart';
 
 class DyeStorageService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -58,55 +59,13 @@ class DyeStorageService {
     
   Future<bool> _hasInternetConnection() async {
     try {
-      // WEB PLATFORM: Check using browser's navigator.onLine
-      if (kIsWeb) {
-        try {
-          // Check browser's online status
-          final isOnline = html.window.navigator.onLine ?? true;
-          developer.log('🌐 Web platform - Navigator.onLine: $isOnline', name: 'DyeStorage');
-          
-          // Additional check: try to access Firestore directly
-          if (isOnline) {
-            try {
-              // Quick Firestore ping to verify actual connectivity
-              await _firestore
-                  .collection('CraftedDyes')
-                  .limit(1)
-                  .get(const GetOptions(source: Source.server))
-                  .timeout(const Duration(seconds: 5));
-              
-              developer.log('✅ Web: Firestore accessible', name: 'DyeStorage');
-              return true;
-            } catch (e) {
-              developer.log('⚠️ Web: Firestore not accessible: $e', name: 'DyeStorage');
-              return false;
-            }
-          }
-          
-          return isOnline;
-        } catch (e) {
-          developer.log('⚠️ Web check failed: $e - Assuming online', name: 'DyeStorage');
-          // If check fails, assume online for web
-          return true;
-        }
-      }
+      developer.log('🌐 Checking internet connection...', name: 'DyeStorage');
+      developer.log('🖥️ Platform: ${kIsWeb ? "Web" : "Mobile"}', name: 'DyeStorage');
       
-      // MOBILE PLATFORM: Use InternetAddress lookup
-      else {
-        try {
-          final result = await InternetAddress.lookup('google.com')
-              .timeout(const Duration(seconds: 5));
-          final isConnected = result.isNotEmpty && result[0].rawAddress.isNotEmpty;
-          developer.log('📱 Mobile platform - Connected: $isConnected', name: 'DyeStorage');
-          return isConnected;
-        } on SocketException catch (_) {
-          developer.log('📱 Mobile: No internet (SocketException)', name: 'DyeStorage');
-          return false;
-        } catch (e) {
-          developer.log('⚠️ Mobile check failed: $e - Assuming online', name: 'DyeStorage');
-          return true;
-        }
-      }
+      // Use the platform-specific implementation
+      final isConnected = await checkInternetConnection(_firestore);
+      developer.log('📡 Connection status: $isConnected', name: 'DyeStorage');
+      return isConnected;
     } catch (e) {
       developer.log('❌ Connection check error: $e - Defaulting to online', name: 'DyeStorage');
       // Default to true (online) if check fails to prevent blocking saves
@@ -454,25 +413,6 @@ class DyeStorageService {
       developer.log('❌ Update cache error: $e', name: 'DyeStorage');
     }
   }
-
-  /*Future<void> _updateCachedDyeId(String tempId, String realId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final cachedJson = prefs.getString('cached_dyes') ?? '[]';
-      List<dynamic> cached = json.decode(cachedJson);
-      
-      for (var dye in cached) {
-        if (dye['id'] == tempId) {
-          dye['id'] = realId;
-          break;
-        }
-      }
-      
-      await prefs.setString('cached_dyes', json.encode(cached));
-    } catch (e) {
-      developer.log('❌ Update ID error: $e', name: 'DyeStorage');
-    }
-  }*/
       
   Future<void> deleteCraftedDye(String dyeId) async {
     final userId = await _getUserId();
@@ -503,7 +443,6 @@ class DyeStorageService {
     }
   }
 
-  /// NEW: Queue deletion for when device goes online
   Future<void> _queueDeletionForSync(String dyeId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -520,8 +459,6 @@ class DyeStorageService {
     }
   }
 
-  /// NEW: Process pending deletions when online
-  // ignore: unused_element
   Future<void> _processPendingDeletions() async {
     try {
       if (!await _hasInternetConnection()) return;
