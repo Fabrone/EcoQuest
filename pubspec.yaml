@@ -51,6 +51,7 @@ flutter:
     - assets/images/
     - assets/icons/
     - assets/tile-icons/
+    - assets/
 
 # Configuration for the flutter_launcher_icons package
 flutter_launcher_icons:

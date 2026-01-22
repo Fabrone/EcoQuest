@@ -1,3 +1,4 @@
+import 'package:ecoquest/game/level3/polluted_city_screen.dart';
 import 'package:ecoquest/game/water_pollution_screen.dart';
 import 'package:ecoquest/main.dart';
 import 'package:flutter/material.dart';
@@ -119,23 +120,48 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   ),
                 ),
 
-                // 🧪 TEST BUTTON - To get removed later after completing development
+                // 🧪 TEST BUTTONS - To be removed later after completing development
                 Positioned(
                   bottom: 20,
                   right: 20,
-                  child: FloatingActionButton.extended(
-                    onPressed: () => _navigateToWaterPollutionTest(context),
-                    backgroundColor: const Color.fromARGB(255, 35, 12, 87).withValues(alpha: 0.9),
-                    icon: const Icon(Icons.water_drop, color: Colors.white),
-                    label: Text(
-                      'TEST L2',
-                      style: GoogleFonts.vt323(
-                        fontSize: 16,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      // Level 2 Test Button
+                      FloatingActionButton.extended(
+                        onPressed: () => _navigateToWaterPollutionTest(context),
+                        backgroundColor: const Color.fromARGB(255, 35, 12, 87).withValues(alpha: 0.9),
+                        icon: const Icon(Icons.water_drop, color: Colors.white),
+                        label: Text(
+                          'TEST L2',
+                          style: GoogleFonts.vt323(
+                            fontSize: 16,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        heroTag: 'testWaterButton',
                       ),
-                    ),
-                    heroTag: 'testWaterButton', // Prevents hero animation conflicts
+                      
+                      const SizedBox(height: 12),
+                      
+                      // Level 3 Test Button - NEW
+                      FloatingActionButton.extended(
+                        onPressed: () => _navigateToPollutedCityTest(context),
+                        backgroundColor: const Color.fromARGB(255, 139, 69, 19).withValues(alpha: 0.9),
+                        icon: const Icon(Icons.location_city, color: Colors.white),
+                        label: Text(
+                          'TEST L3',
+                          style: GoogleFonts.vt323(
+                            fontSize: 16,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        heroTag: 'testPollutedCityButton',
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -158,6 +184,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             'roots': 6,
           },
         ),
+      ),
+    );
+  }
+
+  // For testing purposes - Navigates directly to Polluted City Screen (Level 3)
+  void _navigateToPollutedCityTest(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const PollutedCityScreen(),
       ),
     );
   }

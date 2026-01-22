@@ -1,6 +1,7 @@
 import 'dart:math';
-import 'package:ecoquest/authentication/login_screen.dart';
+//import 'package:ecoquest/authentication/login_screen.dart';
 import 'package:ecoquest/game/dye_extraction_screen.dart';
+import 'package:ecoquest/game/splash_screen.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
@@ -53,7 +54,8 @@ class EcoQuestApp extends StatelessWidget {
         primarySwatch: Colors.green,
         scaffoldBackgroundColor: const Color(0xFF2D1E17),
       ),
-      home: const LoginScreen(), 
+      //home: const LoginScreen(), 
+      home: const SplashScreen(),
     );
   }
 }
