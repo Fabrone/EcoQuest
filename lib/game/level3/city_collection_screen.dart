@@ -66,7 +66,7 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   Future<void> onLoad() async {
     super.onLoad();
 
-    // Add sky
+    // Add sky - now properly constrained to not overlap road
     skyLayer = SkyLayer(size: size);
     add(skyLayer);
 
@@ -102,11 +102,11 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     );
     add(nearBuildings);
 
-    // Add street
+    // CRITICAL: Add street AFTER buildings so it renders on top
     streetLayer = StreetLayer(size: size);
     add(streetLayer);
 
-    // Add truck
+    // Add truck on top of the street
     truck = TruckComponent(
       position: Vector2(150, size.y - 180),
       size: Vector2(140, 80),
@@ -197,22 +197,28 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   }
 }
 
-// Sky with gradient
+// Sky with gradient - FIXED to stop before road area
 class SkyLayer extends PositionComponent {
   SkyLayer({required Vector2 size}) : super(size: size);
 
   @override
   void render(Canvas canvas) {
+    // Draw sky gradient in upper portion only, stopping before the road area
+    // The road is at size.y - 120, so we'll end sky at about 65% height
+    final skyHeight = height * 0.65;
+    
     final paint = Paint()
       ..shader = ui.Gradient.linear(
         Offset(0, 0),
-        Offset(0, height),
+        Offset(0, skyHeight),
         [
-          const Color(0xFF87CEEB), // Sky blue
-          const Color(0xFFE0F6FF), // Light blue
+          const Color(0xFF87CEEB), // Sky blue at top
+          const Color(0xFFE0F6FF), // Light blue at bottom
         ],
       );
-    canvas.drawRect(Rect.fromLTWH(0, 0, width, height), paint);
+    
+    // Draw sky in the upper portion only
+    canvas.drawRect(Rect.fromLTWH(0, 0, width, skyHeight), paint);
   }
 }
 
@@ -276,14 +282,20 @@ class BuildingLayer extends PositionComponent {
     required this.windowColor,
   }) : super(size: size) {
     final buildingCount = 15;
+    // Road is at size.y - 120, so buildings must end ABOVE this point
+    final roadTop = size.y - 120;
+    
     for (int i = 0; i < buildingCount; i++) {
       double x = i * 220.0;
       double buildingHeight = isFar 
           ? 120 + random.nextDouble() * 80 
           : 180 + random.nextDouble() * 140;
       
+      // Position buildings so they END at or above the road top (with some margin)
+      final buildingY = roadTop - buildingHeight - 20; // 20px margin above road
+      
       final building = DetailedBuilding(
-        position: Vector2(x, size.y - buildingHeight - 60),
+        position: Vector2(x, buildingY),
         size: Vector2(180, buildingHeight),
         buildingColor: buildingColor,
         windowColor: windowColor,
@@ -376,55 +388,47 @@ class DetailedBuilding extends PositionComponent {
   }
 }
 
-// Street with road markings
+// Street with road markings - rendered as a single cohesive unit
 class StreetLayer extends PositionComponent {
-  List<RoadMarking> roadMarkings = [];
+  List<double> markingPositions = [];
+  double scrollOffset = 0;
 
   StreetLayer({required Vector2 size}) : super(size: size) {
-    // Road base
-    add(RectangleComponent(
-      position: Vector2(0, size.y - 120),
-      size: Vector2(size.x * 3, 120),
-      paint: Paint()..color = const Color(0xFF404040),
-    ));
-
-    // Sidewalk
-    add(RectangleComponent(
-      position: Vector2(0, size.y - 130),
-      size: Vector2(size.x * 3, 10),
-      paint: Paint()..color = const Color(0xFF808080),
-    ));
-
-    // Road markings
-    for (int i = 0; i < 30; i++) {
-      final marking = RoadMarking(
-        position: Vector2(i * 100.0, size.y - 60),
-      );
-      add(marking);
-      roadMarkings.add(marking);
+    // Initialize road marking positions
+    for (int i = 0; i < 50; i++) {
+      markingPositions.add(i * 100.0);
     }
   }
 
   void scroll(double dx) {
-    for (var child in children) {
-      if (child is PositionComponent) {
-        child.position.x -= dx;
-        if (child.position.x < -200) {
-          child.position.x += size.x * 3;
-        }
-      }
+    scrollOffset += dx;
+    // Reset scroll offset to prevent overflow
+    if (scrollOffset > 100) {
+      scrollOffset -= 100;
     }
   }
-}
-
-class RoadMarking extends PositionComponent {
-  RoadMarking({required Vector2 position})
-      : super(position: position, size: Vector2(60, 4));
 
   @override
   void render(Canvas canvas) {
-    final paint = Paint()..color = Colors.white;
-    canvas.drawRect(Rect.fromLTWH(0, 0, width, height), paint);
+    // Draw the entire road surface as one solid piece
+    final roadPaint = Paint()..color = const Color(0xFF404040);
+    canvas.drawRect(
+      Rect.fromLTWH(0, height - 120, width, 120),
+      roadPaint,
+    );
+
+    // Draw road markings with scroll offset
+    final markingPaint = Paint()..color = Colors.white;
+    for (var baseX in markingPositions) {
+      final x = baseX - scrollOffset;
+      // Only draw if visible on screen
+      if (x > -100 && x < width + 100) {
+        canvas.drawRect(
+          Rect.fromLTWH(x, height - 60, 60, 4),
+          markingPaint,
+        );
+      }
+    }
   }
 }
 
@@ -451,69 +455,69 @@ class TruckComponent extends PositionComponent
     canvas.save();
     canvas.translate(0, bobOffset);
 
-    // Truck body - main cabin
-    final cabinPaint = Paint()..color = const Color(0xFFFF6B35); // Orange
+    // Container/Trunk (green) - NOW ON THE LEFT (back of truck)
+    final containerPaint = Paint()..color = const Color(0xFF2D5016);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(0, 15, width * 0.35, height * 0.7),
-        const Radius.circular(5),
-      ),
-      cabinPaint,
-    );
-
-    // Windshield
-    final windshieldPaint = Paint()..color = const Color(0xFF87CEEB);
-    canvas.drawRect(
-      Rect.fromLTWH(width * 0.25, 20, width * 0.08, height * 0.4),
-      windshieldPaint,
-    );
-
-    // Truck bed/container
-    final containerPaint = Paint()..color = const Color(0xFF2D5016); // Dark green
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(width * 0.35, 5, width * 0.65, height * 0.8),
+        Rect.fromLTWH(0, 5, width * 0.65, height * 0.8),  // Starts at 0 (left side)
         const Radius.circular(5),
       ),
       containerPaint,
     );
 
-    // Container details
+    // Container details (vertical lines)
     final detailPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     canvas.drawLine(
-      Offset(width * 0.5, 5),
-      Offset(width * 0.5, height * 0.85),
+      Offset(width * 0.2, 5),   // Adjusted positions
+      Offset(width * 0.2, height * 0.85),
       detailPaint,
     );
     canvas.drawLine(
-      Offset(width * 0.7, 5),
-      Offset(width * 0.7, height * 0.85),
+      Offset(width * 0.4, 5),   // Adjusted positions
+      Offset(width * 0.4, height * 0.85),
       detailPaint,
     );
 
-    // Wheels
+    // Cabin (orange) - NOW ON THE RIGHT (front of truck)
+    final cabinPaint = Paint()..color = const Color(0xFFFF6B35);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(width * 0.65, 15, width * 0.35, height * 0.7),  // Starts at 0.65 (right side)
+        const Radius.circular(5),
+      ),
+      cabinPaint,
+    );
+
+    // Windshield - NOW ON THE RIGHT SIDE
+    final windshieldPaint = Paint()..color = const Color(0xFF87CEEB);
+    canvas.drawRect(
+      Rect.fromLTWH(width * 0.67, 20, width * 0.08, height * 0.4),  // Adjusted to right side
+      windshieldPaint,
+    );
+
+    // Wheels - ADJUSTED POSITIONS
     final wheelRadius = 18.0;
     
-    // Front wheel
+    // Front wheel - NOW ON THE RIGHT
     canvas.save();
-    canvas.translate(width * 0.2, height * 0.9);
+    canvas.translate(width * 0.8, height * 0.9);  // Moved to right side
     canvas.rotate(wheelRotation);
     _drawWheel(canvas, wheelRadius);
     canvas.restore();
 
-    // Back wheel
+    // Back wheel - NOW ON THE LEFT
     canvas.save();
-    canvas.translate(width * 0.75, height * 0.9);
+    canvas.translate(width * 0.25, height * 0.9);  // Moved to left side
     canvas.rotate(wheelRotation);
     _drawWheel(canvas, wheelRadius);
     canvas.restore();
 
-    // Headlights
+    // Headlights - NOW ON THE RIGHT (front)
     final headlightPaint = Paint()..color = Colors.yellow[300]!;
-    canvas.drawCircle(Offset(width * 0.02, height * 0.5), 4, headlightPaint);
+    canvas.drawCircle(Offset(width * 0.98, height * 0.5), 4, headlightPaint);  // Moved to right edge
 
     canvas.restore();
   }
