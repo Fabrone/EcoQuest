@@ -432,7 +432,7 @@ class StreetLayer extends PositionComponent {
   }
 }
 
-// Realistic truck component
+// Realistic truck component with detailed cabin and trunk
 class TruckComponent extends PositionComponent
     with HasGameReference<CityCollectionGame>, CollisionCallbacks {
   double wheelRotation = 0;
@@ -455,90 +455,345 @@ class TruckComponent extends PositionComponent
     canvas.save();
     canvas.translate(0, bobOffset);
 
-    // Container/Trunk (green) - NOW ON THE LEFT (back of truck)
+    // ==================== TRUNK/CONTAINER (LEFT SIDE - BACK) ====================
+    
+    // Main container body (green)
     final containerPaint = Paint()..color = const Color(0xFF2D5016);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(0, 5, width * 0.65, height * 0.8),  // Starts at 0 (left side)
+        Rect.fromLTWH(0, 5, width * 0.65, height * 0.8),
         const Radius.circular(5),
       ),
       containerPaint,
     );
 
-    // Container details (vertical lines)
-    final detailPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    canvas.drawLine(
-      Offset(width * 0.2, 5),   // Adjusted positions
-      Offset(width * 0.2, height * 0.85),
-      detailPaint,
-    );
-    canvas.drawLine(
-      Offset(width * 0.4, 5),   // Adjusted positions
-      Offset(width * 0.4, height * 0.85),
-      detailPaint,
+    // Container top edge highlight
+    final topHighlight = Paint()..color = const Color(0xFF3A6B1E);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, 5, width * 0.65, height * 0.15),
+        const Radius.circular(5),
+      ),
+      topHighlight,
     );
 
-    // Cabin (orange) - NOW ON THE RIGHT (front of truck)
+    // Container vertical divider lines
+    final dividerPaint = Paint()
+      ..color = const Color(0xFF1E3A0F)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    
+    canvas.drawLine(
+      Offset(width * 0.2, 5),
+      Offset(width * 0.2, height * 0.85),
+      dividerPaint,
+    );
+    canvas.drawLine(
+      Offset(width * 0.4, 5),
+      Offset(width * 0.4, height * 0.85),
+      dividerPaint,
+    );
+
+    // Container horizontal reinforcement bars
+    final barPaint = Paint()..color = const Color(0xFF1E3A0F);
+    for (int i = 1; i < 4; i++) {
+      canvas.drawRect(
+        Rect.fromLTWH(
+          0,
+          5 + (height * 0.8 / 4) * i,
+          width * 0.65,
+          3,
+        ),
+        barPaint,
+      );
+    }
+
+    // Recycling symbol on container
+    final recyclePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    
+    final recycleSymbolX = width * 0.32;
+    final recycleSymbolY = height * 0.45;
+    final arrowSize = 12.0;
+    
+    // Draw three arrows in a triangle formation (recycling symbol)
+    for (int i = 0; i < 3; i++) {
+      canvas.save();
+      canvas.translate(recycleSymbolX, recycleSymbolY);
+      canvas.rotate(i * 2 * math.pi / 3);
+      
+      final arrowPath = Path()
+        ..moveTo(0, -arrowSize)
+        ..lineTo(arrowSize * 0.4, -arrowSize * 0.3)
+        ..lineTo(arrowSize * 0.2, -arrowSize * 0.3)
+        ..lineTo(arrowSize * 0.2, arrowSize * 0.5)
+        ..lineTo(-arrowSize * 0.2, arrowSize * 0.5)
+        ..lineTo(-arrowSize * 0.2, -arrowSize * 0.3)
+        ..lineTo(-arrowSize * 0.4, -arrowSize * 0.3)
+        ..close();
+      
+      canvas.drawPath(arrowPath, recyclePaint);
+      canvas.restore();
+    }
+
+    // Container latch/lock mechanism at the back
+    final latchPaint = Paint()..color = Colors.grey[800]!;
+    canvas.drawRect(
+      Rect.fromLTWH(width * 0.62, height * 0.4, 8, height * 0.3),
+      latchPaint,
+    );
+
+    // ==================== CABIN (RIGHT SIDE - FRONT) ====================
+    
+    final cabinX = width * 0.65;
+    final cabinWidth = width * 0.35;
+    final cabinY = 15.0;
+    final cabinHeight = height * 0.7;
+
+    // Main cabin body (orange)
     final cabinPaint = Paint()..color = const Color(0xFFFF6B35);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(width * 0.65, 15, width * 0.35, height * 0.7),  // Starts at 0.65 (right side)
+        Rect.fromLTWH(cabinX, cabinY, cabinWidth, cabinHeight),
         const Radius.circular(5),
       ),
       cabinPaint,
     );
 
-    // Windshield - NOW ON THE RIGHT SIDE
-    final windshieldPaint = Paint()..color = const Color(0xFF87CEEB);
-    canvas.drawRect(
-      Rect.fromLTWH(width * 0.67, 20, width * 0.08, height * 0.4),  // Adjusted to right side
-      windshieldPaint,
+    // Cabin roof (slightly darker orange)
+    final roofPaint = Paint()..color = const Color(0xFFE55A2B);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(cabinX, cabinY, cabinWidth, cabinHeight * 0.25),
+        const Radius.circular(5),
+      ),
+      roofPaint,
     );
 
-    // Wheels - ADJUSTED POSITIONS
+    // Driver's side window (positioned at front of cabin)
+    final sideWindowPaint = Paint()..color = const Color(0xFF5BA3D0);
+    final windowX = cabinX + cabinWidth * 0.4; // Moved towards front
+    final windowY = cabinY + cabinHeight * 0.2;
+    final windowWidth = cabinWidth * 0.5;
+    final windowHeight = cabinHeight * 0.45;
+    
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(windowX, windowY, windowWidth, windowHeight),
+        const Radius.circular(3),
+      ),
+      sideWindowPaint,
+    );
+    
+    // Side window frame
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(windowX, windowY, windowWidth, windowHeight),
+        const Radius.circular(3),
+      ),
+      Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+
+    // Clear door outline - vertical line separating door from rest of cabin
+    final doorOutlinePaint = Paint()
+      ..color = const Color(0xFFD44D1F)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    
+    // Door vertical edge (at the front, separating driver area)
+    canvas.drawLine(
+      Offset(cabinX + cabinWidth * 0.35, cabinY + cabinHeight * 0.15),
+      Offset(cabinX + cabinWidth * 0.35, cabinY + cabinHeight),
+      doorOutlinePaint,
+    );
+    
+    // Door bottom edge
+    canvas.drawLine(
+      Offset(cabinX + cabinWidth * 0.35, cabinY + cabinHeight * 0.68),
+      Offset(cabinX + cabinWidth * 0.92, cabinY + cabinHeight * 0.68),
+      doorOutlinePaint,
+    );
+
+    // Door handle - positioned on the front door section
+    final handlePaint = Paint()..color = Colors.grey[800]!;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          cabinX + cabinWidth * 0.75,
+          cabinY + cabinHeight * 0.45,
+          10,
+          cabinHeight * 0.08,
+        ),
+        const Radius.circular(2),
+      ),
+      handlePaint,
+    );
+    
+    // Door handle grip detail
+    final handleGripPaint = Paint()
+      ..color = Colors.grey[600]!
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          cabinX + cabinWidth * 0.76,
+          cabinY + cabinHeight * 0.46,
+          8,
+          cabinHeight * 0.06,
+        ),
+        const Radius.circular(2),
+      ),
+      handleGripPaint,
+    );
+
+    // Side mirror - positioned at the front of the cabin, protruding forward
+    final mirrorArmPaint = Paint()..color = Colors.grey[800]!;
+    canvas.drawRect(
+      Rect.fromLTWH(cabinX + cabinWidth - 8, cabinY + cabinHeight * 0.28, 8, 3),
+      mirrorArmPaint,
+    );
+    
+    final mirrorPaint = Paint()..color = Colors.grey[700]!;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(cabinX + cabinWidth - 2, cabinY + cabinHeight * 0.25, 10, 14),
+        const Radius.circular(2),
+      ),
+      mirrorPaint,
+    );
+    
+    // Mirror glass reflection
+    final mirrorGlassPaint = Paint()..color = const Color(0xFF87CEEB);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(cabinX + cabinWidth - 1, cabinY + cabinHeight * 0.26, 8, 12),
+        const Radius.circular(1),
+      ),
+      mirrorGlassPaint,
+    );
+
+    // Air intake grille at front bottom
+    final grillePaint = Paint()
+      ..color = Colors.grey[900]!
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    
+    for (int i = 0; i < 4; i++) {
+      canvas.drawLine(
+        Offset(cabinX + cabinWidth * 0.7, cabinY + cabinHeight * 0.75 + i * 3),
+        Offset(cabinX + cabinWidth - 5, cabinY + cabinHeight * 0.75 + i * 3),
+        grillePaint,
+      );
+    }
+
+    // Front bumper
+    final bumperPaint = Paint()..color = Colors.grey[800]!;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          cabinX + cabinWidth - 5,
+          cabinY + cabinHeight * 0.85,
+          5,
+          height * 0.15,
+        ),
+        const Radius.circular(2),
+      ),
+      bumperPaint,
+    );
+
+    // ==================== WHEELS ====================
+    
     final wheelRadius = 18.0;
     
-    // Front wheel - NOW ON THE RIGHT
+    // Front wheel (right side)
     canvas.save();
-    canvas.translate(width * 0.8, height * 0.9);  // Moved to right side
+    canvas.translate(cabinX + cabinWidth * 0.5, height * 0.9);
     canvas.rotate(wheelRotation);
     _drawWheel(canvas, wheelRadius);
     canvas.restore();
 
-    // Back wheel - NOW ON THE LEFT
+    // Back wheel (left side - under container)
     canvas.save();
-    canvas.translate(width * 0.25, height * 0.9);  // Moved to left side
+    canvas.translate(width * 0.25, height * 0.9);
     canvas.rotate(wheelRotation);
     _drawWheel(canvas, wheelRadius);
     canvas.restore();
 
-    // Headlights - NOW ON THE RIGHT (front)
+    // ==================== LIGHTS ====================
+    
+    // Headlights (front)
     final headlightPaint = Paint()..color = Colors.yellow[300]!;
-    canvas.drawCircle(Offset(width * 0.98, height * 0.5), 4, headlightPaint);  // Moved to right edge
+    final headlightGlow = Paint()
+      ..color = Colors.yellow[300]!.withValues(alpha: 0.3)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    
+    // Draw glow first
+    canvas.drawCircle(
+      Offset(cabinX + cabinWidth - 2, cabinY + cabinHeight * 0.5),
+      7,
+      headlightGlow,
+    );
+    // Draw headlight
+    canvas.drawCircle(
+      Offset(cabinX + cabinWidth - 2, cabinY + cabinHeight * 0.5),
+      4,
+      headlightPaint,
+    );
+
+    // Tail light (back of container)
+    final tailLightPaint = Paint()..color = Colors.red[700]!;
+    canvas.drawCircle(
+      Offset(3, height * 0.4),
+      3,
+      tailLightPaint,
+    );
 
     canvas.restore();
   }
 
   void _drawWheel(Canvas canvas, double radius) {
+    // Tire (black outer circle)
     final tirePaint = Paint()..color = Colors.black;
-    final rimPaint = Paint()..color = Colors.grey[600]!;
-    
     canvas.drawCircle(Offset.zero, radius, tirePaint);
+    
+    // Tire sidewall detail
+    final sidewallPaint = Paint()
+      ..color = Colors.grey[900]!
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawCircle(Offset.zero, radius * 0.85, sidewallPaint);
+    
+    // Rim (grey inner circle)
+    final rimPaint = Paint()..color = Colors.grey[600]!;
     canvas.drawCircle(Offset.zero, radius * 0.6, rimPaint);
+    
+    // Rim details (5 spokes)
+    final spokePaint = Paint()
+      ..color = Colors.grey[800]!
+      ..strokeWidth = 2;
     
     for (int i = 0; i < 5; i++) {
       final angle = (i * math.pi * 2 / 5);
       canvas.drawLine(
         Offset.zero,
         Offset(math.cos(angle) * radius * 0.6, math.sin(angle) * radius * 0.6),
-        Paint()
-          ..color = Colors.grey[800]!
-          ..strokeWidth = 2,
+        spokePaint,
       );
     }
+    
+    // Center hub cap
+    final hubPaint = Paint()..color = Colors.grey[700]!;
+    canvas.drawCircle(Offset.zero, radius * 0.2, hubPaint);
+    
+    // Hub shine
+    final shinePaint = Paint()..color = Colors.grey[400]!;
+    canvas.drawCircle(Offset(-2, -2), radius * 0.1, shinePaint);
   }
 
   bool isNear(PositionComponent other) {
