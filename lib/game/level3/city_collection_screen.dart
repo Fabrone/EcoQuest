@@ -53,7 +53,6 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   late TruckComponent truck;
 
   List<WasteComponent> wastes = [];
-  List<BinComponent> bins = [];
   
   bool isDriving = false;
   bool isBraking = false;
@@ -132,7 +131,7 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     );
     add(truck);
 
-    // Generate waste items and bins randomly along the street
+    // Generate waste items randomly along the street
     final random = math.Random();
     
     for (int i = 0; i < wasteTotal; i++) {
@@ -145,16 +144,6 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
       );
       add(waste);
       wastes.add(waste);
-      
-      // Add bins occasionally (every 5-7 waste items)
-      if (i > 0 && i % (5 + random.nextInt(3)) == 0) {
-        final binX = xPos + 100 + random.nextDouble() * 50;
-        final bin = BinComponent(
-          position: Vector2(binX, size.y - 130),
-        );
-        add(bin);
-        bins.add(bin);
-      }
     }
 
     // Timer for countdown
@@ -194,12 +183,9 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
       nearBuildings.scroll(scrollAmount * 1.0);
       streetLayer.scroll(scrollAmount);
 
-      // Move waste items and bins
+      // Move waste items
       for (var waste in wastes) {
         waste.position.x -= scrollAmount;
-      }
-      for (var bin in bins) {
-        bin.position.x -= scrollAmount;
       }
     }
 
