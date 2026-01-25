@@ -53,6 +53,7 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   late TruckComponent truck;
 
   List<WasteComponent> wastes = [];
+  List<BinComponent> bins = [];
   
   bool isDriving = false;
   bool isBraking = false;
@@ -62,11 +63,29 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   double brakeDeceleration = 150.0;
   double naturalDeceleration = 50.0;
 
+  // Waste item asset paths
+  static const List<String> wasteAssets = [
+    'mixedwaste.png',
+    'garbage.png',
+    'dirty-shirt.png',
+    'torn-sock.png',
+    'banana.png',
+    'glass-bottle.png',
+    'bottle.png',
+    'peel.png',
+    'paper.png',
+    'clothes.png',
+    'tshirt.png',
+  ];
+
   @override
   Future<void> onLoad() async {
     super.onLoad();
 
-    // Add sky - now properly constrained to not overlap road
+    // Preload all waste item images
+    await images.loadAll(wasteAssets);
+
+    // Add sky
     skyLayer = SkyLayer(size: size);
     add(skyLayer);
 
@@ -102,27 +121,40 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     );
     add(nearBuildings);
 
-    // CRITICAL: Add street AFTER buildings so it renders on top
+    // Add street
     streetLayer = StreetLayer(size: size);
     add(streetLayer);
 
-    // Add truck on top of the street
+    // Add truck
     truck = TruckComponent(
       position: Vector2(150, size.y - 180),
       size: Vector2(140, 80),
     );
     add(truck);
 
-    // Generate waste items randomly along the street
+    // Generate waste items and bins randomly along the street
     final random = math.Random();
+    
     for (int i = 0; i < wasteTotal; i++) {
       final xPos = 400.0 + i * (150 + random.nextDouble() * 200);
+      final randomAsset = wasteAssets[random.nextInt(wasteAssets.length)];
+      
       final waste = WasteComponent(
         position: Vector2(xPos, size.y - 100 - random.nextDouble() * 20),
-        type: i % 4,
+        assetPath: randomAsset,
       );
       add(waste);
       wastes.add(waste);
+      
+      // Add bins occasionally (every 5-7 waste items)
+      if (i > 0 && i % (5 + random.nextInt(3)) == 0) {
+        final binX = xPos + 100 + random.nextDouble() * 50;
+        final bin = BinComponent(
+          position: Vector2(binX, size.y - 130),
+        );
+        add(bin);
+        bins.add(bin);
+      }
     }
 
     // Timer for countdown
@@ -162,9 +194,12 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
       nearBuildings.scroll(scrollAmount * 1.0);
       streetLayer.scroll(scrollAmount);
 
-      // Move waste items
+      // Move waste items and bins
       for (var waste in wastes) {
         waste.position.x -= scrollAmount;
+      }
+      for (var bin in bins) {
+        bin.position.x -= scrollAmount;
       }
     }
 
@@ -197,14 +232,12 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   }
 }
 
-// Sky with gradient - FIXED to stop before road area
+// Sky with gradient
 class SkyLayer extends PositionComponent {
   SkyLayer({required Vector2 size}) : super(size: size);
 
   @override
   void render(Canvas canvas) {
-    // Draw sky gradient in upper portion only, stopping before the road area
-    // The road is at size.y - 120, so we'll end sky at about 65% height
     final skyHeight = height * 0.65;
     
     final paint = Paint()
@@ -212,12 +245,11 @@ class SkyLayer extends PositionComponent {
         Offset(0, 0),
         Offset(0, skyHeight),
         [
-          const Color(0xFF87CEEB), // Sky blue at top
-          const Color(0xFFE0F6FF), // Light blue at bottom
+          const Color(0xFF87CEEB),
+          const Color(0xFFE0F6FF),
         ],
       );
     
-    // Draw sky in the upper portion only
     canvas.drawRect(Rect.fromLTWH(0, 0, width, skyHeight), paint);
   }
 }
@@ -258,14 +290,13 @@ class CloudComponent extends PositionComponent {
       ..color = Colors.white.withValues(alpha: 0.8)
       ..style = PaintingStyle.fill;
 
-    // Draw cloud as overlapping circles
     canvas.drawCircle(Offset(width * 0.3, height * 0.5), height * 0.4, paint);
     canvas.drawCircle(Offset(width * 0.5, height * 0.4), height * 0.5, paint);
     canvas.drawCircle(Offset(width * 0.7, height * 0.5), height * 0.4, paint);
   }
 }
 
-// Enhanced building layer with detailed buildings
+// Building layer with parallax
 class BuildingLayer extends PositionComponent {
   final bool isFar;
   final double depth;
@@ -282,7 +313,6 @@ class BuildingLayer extends PositionComponent {
     required this.windowColor,
   }) : super(size: size) {
     final buildingCount = 15;
-    // Road is at size.y - 120, so buildings must end ABOVE this point
     final roadTop = size.y - 120;
     
     for (int i = 0; i < buildingCount; i++) {
@@ -291,8 +321,7 @@ class BuildingLayer extends PositionComponent {
           ? 120 + random.nextDouble() * 80 
           : 180 + random.nextDouble() * 140;
       
-      // Position buildings so they END at or above the road top (with some margin)
-      final buildingY = roadTop - buildingHeight - 20; // 20px margin above road
+      final buildingY = roadTop - buildingHeight - 20;
       
       final building = DetailedBuilding(
         position: Vector2(x, buildingY),
@@ -335,18 +364,15 @@ class DetailedBuilding extends PositionComponent {
 
   @override
   void render(Canvas canvas) {
-    // Building body
     final bodyPaint = Paint()..color = buildingColor;
     canvas.drawRect(Rect.fromLTWH(0, 0, width, height), bodyPaint);
 
-    // Outline
     final outlinePaint = Paint()
       ..color = buildingColor.withValues(alpha: 0.7)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     canvas.drawRect(Rect.fromLTWH(0, 0, width, height), outlinePaint);
 
-    // Windows
     final windowPaint = Paint()..color = windowColor;
     final windowWidth = 15.0;
     final windowHeight = 20.0;
@@ -368,14 +394,12 @@ class DetailedBuilding extends PositionComponent {
       }
     }
 
-    // Door at bottom
     final doorPaint = Paint()..color = const Color(0xFF654321);
     canvas.drawRect(
       Rect.fromLTWH(width / 2 - 15, height - 40, 30, 40),
       doorPaint,
     );
 
-    // Roof
     if (hasRoof) {
       final roofPaint = Paint()..color = const Color(0xFF8B4513);
       final roofPath = Path()
@@ -388,13 +412,12 @@ class DetailedBuilding extends PositionComponent {
   }
 }
 
-// Street with road markings - rendered as a single cohesive unit
+// Street with road markings
 class StreetLayer extends PositionComponent {
   List<double> markingPositions = [];
   double scrollOffset = 0;
 
   StreetLayer({required Vector2 size}) : super(size: size) {
-    // Initialize road marking positions
     for (int i = 0; i < 50; i++) {
       markingPositions.add(i * 100.0);
     }
@@ -402,7 +425,6 @@ class StreetLayer extends PositionComponent {
 
   void scroll(double dx) {
     scrollOffset += dx;
-    // Reset scroll offset to prevent overflow
     if (scrollOffset > 100) {
       scrollOffset -= 100;
     }
@@ -410,18 +432,15 @@ class StreetLayer extends PositionComponent {
 
   @override
   void render(Canvas canvas) {
-    // Draw the entire road surface as one solid piece
     final roadPaint = Paint()..color = const Color(0xFF404040);
     canvas.drawRect(
       Rect.fromLTWH(0, height - 120, width, 120),
       roadPaint,
     );
 
-    // Draw road markings with scroll offset
     final markingPaint = Paint()..color = Colors.white;
     for (var baseX in markingPositions) {
       final x = baseX - scrollOffset;
-      // Only draw if visible on screen
       if (x > -100 && x < width + 100) {
         canvas.drawRect(
           Rect.fromLTWH(x, height - 60, 60, 4),
@@ -432,7 +451,7 @@ class StreetLayer extends PositionComponent {
   }
 }
 
-// Realistic truck component with detailed cabin and trunk
+// Truck component
 class TruckComponent extends PositionComponent
     with HasGameReference<CityCollectionGame>, CollisionCallbacks {
   double wheelRotation = 0;
@@ -455,9 +474,7 @@ class TruckComponent extends PositionComponent
     canvas.save();
     canvas.translate(0, bobOffset);
 
-    // ==================== TRUNK/CONTAINER (LEFT SIDE - BACK) ====================
-    
-    // Main container body (green)
+    // Container (green)
     final containerPaint = Paint()..color = const Color(0xFF2D5016);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -467,7 +484,6 @@ class TruckComponent extends PositionComponent
       containerPaint,
     );
 
-    // Container top edge highlight
     final topHighlight = Paint()..color = const Color(0xFF3A6B1E);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -477,7 +493,6 @@ class TruckComponent extends PositionComponent
       topHighlight,
     );
 
-    // Container vertical divider lines
     final dividerPaint = Paint()
       ..color = const Color(0xFF1E3A0F)
       ..style = PaintingStyle.stroke
@@ -494,7 +509,6 @@ class TruckComponent extends PositionComponent
       dividerPaint,
     );
 
-    // Container horizontal reinforcement bars
     final barPaint = Paint()..color = const Color(0xFF1E3A0F);
     for (int i = 1; i < 4; i++) {
       canvas.drawRect(
@@ -508,7 +522,7 @@ class TruckComponent extends PositionComponent
       );
     }
 
-    // Recycling symbol on container
+    // Recycling symbol
     final recyclePaint = Paint()
       ..color = Colors.white.withValues(alpha: 0.8)
       ..style = PaintingStyle.stroke
@@ -518,7 +532,6 @@ class TruckComponent extends PositionComponent
     final recycleSymbolY = height * 0.45;
     final arrowSize = 12.0;
     
-    // Draw three arrows in a triangle formation (recycling symbol)
     for (int i = 0; i < 3; i++) {
       canvas.save();
       canvas.translate(recycleSymbolX, recycleSymbolY);
@@ -538,21 +551,18 @@ class TruckComponent extends PositionComponent
       canvas.restore();
     }
 
-    // Container latch/lock mechanism at the back
     final latchPaint = Paint()..color = Colors.grey[800]!;
     canvas.drawRect(
       Rect.fromLTWH(width * 0.62, height * 0.4, 8, height * 0.3),
       latchPaint,
     );
 
-    // ==================== CABIN (RIGHT SIDE - FRONT) ====================
-    
+    // Cabin (orange)
     final cabinX = width * 0.65;
     final cabinWidth = width * 0.35;
     final cabinY = 15.0;
     final cabinHeight = height * 0.7;
 
-    // Main cabin body (orange)
     final cabinPaint = Paint()..color = const Color(0xFFFF6B35);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -562,7 +572,6 @@ class TruckComponent extends PositionComponent
       cabinPaint,
     );
 
-    // Cabin roof (slightly darker orange)
     final roofPaint = Paint()..color = const Color(0xFFE55A2B);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -572,9 +581,8 @@ class TruckComponent extends PositionComponent
       roofPaint,
     );
 
-    // Driver's side window (positioned at front of cabin)
     final sideWindowPaint = Paint()..color = const Color(0xFF5BA3D0);
-    final windowX = cabinX + cabinWidth * 0.4; // Moved towards front
+    final windowX = cabinX + cabinWidth * 0.4;
     final windowY = cabinY + cabinHeight * 0.2;
     final windowWidth = cabinWidth * 0.5;
     final windowHeight = cabinHeight * 0.45;
@@ -587,7 +595,6 @@ class TruckComponent extends PositionComponent
       sideWindowPaint,
     );
     
-    // Side window frame
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(windowX, windowY, windowWidth, windowHeight),
@@ -599,154 +606,38 @@ class TruckComponent extends PositionComponent
         ..strokeWidth = 2,
     );
 
-    // Clear door outline - vertical line separating door from rest of cabin
-    final doorOutlinePaint = Paint()
-      ..color = const Color(0xFFD44D1F)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    
-    // Door vertical edge (at the front, separating driver area)
-    canvas.drawLine(
-      Offset(cabinX + cabinWidth * 0.35, cabinY + cabinHeight * 0.15),
-      Offset(cabinX + cabinWidth * 0.35, cabinY + cabinHeight),
-      doorOutlinePaint,
-    );
-    
-    // Door bottom edge
-    canvas.drawLine(
-      Offset(cabinX + cabinWidth * 0.35, cabinY + cabinHeight * 0.68),
-      Offset(cabinX + cabinWidth * 0.92, cabinY + cabinHeight * 0.68),
-      doorOutlinePaint,
-    );
-
-    // Door handle - positioned on the front door section
-    final handlePaint = Paint()..color = Colors.grey[800]!;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          cabinX + cabinWidth * 0.75,
-          cabinY + cabinHeight * 0.45,
-          10,
-          cabinHeight * 0.08,
-        ),
-        const Radius.circular(2),
-      ),
-      handlePaint,
-    );
-    
-    // Door handle grip detail
-    final handleGripPaint = Paint()
-      ..color = Colors.grey[600]!
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          cabinX + cabinWidth * 0.76,
-          cabinY + cabinHeight * 0.46,
-          8,
-          cabinHeight * 0.06,
-        ),
-        const Radius.circular(2),
-      ),
-      handleGripPaint,
-    );
-
-    // Side mirror - positioned at the front of the cabin, protruding forward
-    final mirrorArmPaint = Paint()..color = Colors.grey[800]!;
-    canvas.drawRect(
-      Rect.fromLTWH(cabinX + cabinWidth - 8, cabinY + cabinHeight * 0.28, 8, 3),
-      mirrorArmPaint,
-    );
-    
-    final mirrorPaint = Paint()..color = Colors.grey[700]!;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(cabinX + cabinWidth - 2, cabinY + cabinHeight * 0.25, 10, 14),
-        const Radius.circular(2),
-      ),
-      mirrorPaint,
-    );
-    
-    // Mirror glass reflection
-    final mirrorGlassPaint = Paint()..color = const Color(0xFF87CEEB);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(cabinX + cabinWidth - 1, cabinY + cabinHeight * 0.26, 8, 12),
-        const Radius.circular(1),
-      ),
-      mirrorGlassPaint,
-    );
-
-    // Air intake grille at front bottom
-    final grillePaint = Paint()
-      ..color = Colors.grey[900]!
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    
-    for (int i = 0; i < 4; i++) {
-      canvas.drawLine(
-        Offset(cabinX + cabinWidth * 0.7, cabinY + cabinHeight * 0.75 + i * 3),
-        Offset(cabinX + cabinWidth - 5, cabinY + cabinHeight * 0.75 + i * 3),
-        grillePaint,
-      );
-    }
-
-    // Front bumper
-    final bumperPaint = Paint()..color = Colors.grey[800]!;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          cabinX + cabinWidth - 5,
-          cabinY + cabinHeight * 0.85,
-          5,
-          height * 0.15,
-        ),
-        const Radius.circular(2),
-      ),
-      bumperPaint,
-    );
-
-    // ==================== WHEELS ====================
-    
+    // Wheels
     final wheelRadius = 18.0;
     
-    // Front wheel (right side)
     canvas.save();
     canvas.translate(cabinX + cabinWidth * 0.5, height * 0.9);
     canvas.rotate(wheelRotation);
     _drawWheel(canvas, wheelRadius);
     canvas.restore();
 
-    // Back wheel (left side - under container)
     canvas.save();
     canvas.translate(width * 0.25, height * 0.9);
     canvas.rotate(wheelRotation);
     _drawWheel(canvas, wheelRadius);
     canvas.restore();
 
-    // ==================== LIGHTS ====================
-    
-    // Headlights (front)
+    // Headlights
     final headlightPaint = Paint()..color = Colors.yellow[300]!;
     final headlightGlow = Paint()
       ..color = Colors.yellow[300]!.withValues(alpha: 0.3)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
     
-    // Draw glow first
     canvas.drawCircle(
       Offset(cabinX + cabinWidth - 2, cabinY + cabinHeight * 0.5),
       7,
       headlightGlow,
     );
-    // Draw headlight
     canvas.drawCircle(
       Offset(cabinX + cabinWidth - 2, cabinY + cabinHeight * 0.5),
       4,
       headlightPaint,
     );
 
-    // Tail light (back of container)
     final tailLightPaint = Paint()..color = Colors.red[700]!;
     canvas.drawCircle(
       Offset(3, height * 0.4),
@@ -758,22 +649,18 @@ class TruckComponent extends PositionComponent
   }
 
   void _drawWheel(Canvas canvas, double radius) {
-    // Tire (black outer circle)
     final tirePaint = Paint()..color = Colors.black;
     canvas.drawCircle(Offset.zero, radius, tirePaint);
     
-    // Tire sidewall detail
     final sidewallPaint = Paint()
       ..color = Colors.grey[900]!
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     canvas.drawCircle(Offset.zero, radius * 0.85, sidewallPaint);
     
-    // Rim (grey inner circle)
     final rimPaint = Paint()..color = Colors.grey[600]!;
     canvas.drawCircle(Offset.zero, radius * 0.6, rimPaint);
     
-    // Rim details (5 spokes)
     final spokePaint = Paint()
       ..color = Colors.grey[800]!
       ..strokeWidth = 2;
@@ -787,17 +674,11 @@ class TruckComponent extends PositionComponent
       );
     }
     
-    // Center hub cap
     final hubPaint = Paint()..color = Colors.grey[700]!;
     canvas.drawCircle(Offset.zero, radius * 0.2, hubPaint);
     
-    // Hub shine
     final shinePaint = Paint()..color = Colors.grey[400]!;
     canvas.drawCircle(Offset(-2, -2), radius * 0.1, shinePaint);
-  }
-
-  bool isNear(PositionComponent other) {
-    return position.distanceTo(other.position) < 150;
   }
 
   @override
@@ -809,14 +690,26 @@ class TruckComponent extends PositionComponent
   }
 }
 
-// Detailed waste items
-class WasteComponent extends PositionComponent with CollisionCallbacks {
-  final int type;
+// Waste component using PNG assets
+class WasteComponent extends SpriteComponent 
+    with CollisionCallbacks, HasGameReference<CityCollectionGame> {
+  final String assetPath;
   bool isCollected = false;
 
-  WasteComponent({required Vector2 position, required this.type})
-      : super(position: position, size: Vector2(35, 35)) {
-    add(CircleHitbox(radius: 17.5));
+  WasteComponent({
+    required Vector2 position,
+    required this.assetPath,
+  }) : super(position: position, size: Vector2(40, 40));
+
+  @override
+  Future<void> onLoad() async {
+    super.onLoad();
+    
+    // Load the sprite from the asset path
+    sprite = Sprite(game.images.fromCache(assetPath));
+    
+    // Add collision detection
+    add(CircleHitbox(radius: 20));
   }
 
   void collect() {
@@ -825,76 +718,80 @@ class WasteComponent extends PositionComponent with CollisionCallbacks {
       removeFromParent();
     }
   }
+}
+
+// Recycling bin component
+class BinComponent extends PositionComponent {
+  BinComponent({required Vector2 position})
+      : super(position: position, size: Vector2(50, 60));
 
   @override
   void render(Canvas canvas) {
-    if (isCollected) return;
-
-    switch (type) {
-      case 0: // Trash bag
-        _drawTrashBag(canvas);
-        break;
-      case 1: // Bottle
-        _drawBottle(canvas);
-        break;
-      case 2: // Can
-        _drawCan(canvas);
-        break;
-      case 3: // Paper
-        _drawPaper(canvas);
-        break;
-    }
-  }
-
-  void _drawTrashBag(Canvas canvas) {
-    final paint = Paint()..color = Colors.black;
-    canvas.drawOval(Rect.fromLTWH(5, 10, 25, 25), paint);
-    
-    final tiePaint = Paint()
-      ..color = Colors.grey[700]!
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    canvas.drawLine(Offset(17.5, 10), Offset(17.5, 5), tiePaint);
-  }
-
-  void _drawBottle(Canvas canvas) {
-    final paint = Paint()..color = const Color(0xFF2E7D32);
-    canvas.drawRect(Rect.fromLTWH(12, 10, 10, 20), paint);
-    canvas.drawRect(Rect.fromLTWH(14, 5, 6, 5), paint);
-    
-    final capPaint = Paint()..color = Colors.red;
-    canvas.drawCircle(Offset(17, 5), 3, capPaint);
-  }
-
-  void _drawCan(Canvas canvas) {
-    final paint = Paint()..color = const Color(0xFFC0C0C0);
+    // Bin body (green)
+    final binPaint = Paint()..color = const Color(0xFF2D5016);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(10, 12, 15, 18),
+        Rect.fromLTWH(5, 10, 40, 50),
+        const Radius.circular(3),
+      ),
+      binPaint,
+    );
+
+    // Bin lid
+    final lidPaint = Paint()..color = const Color(0xFF3A6B1E);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, 5, 50, 8),
         const Radius.circular(2),
       ),
-      paint,
+      lidPaint,
     );
-  }
 
-  void _drawPaper(Canvas canvas) {
-    final paint = Paint()..color = Colors.white;
-    canvas.drawRect(Rect.fromLTWH(8, 8, 20, 20), paint);
+    // Lid handle
+    final handlePaint = Paint()
+      ..color = const Color(0xFF1E3A0F)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    canvas.drawArc(
+      Rect.fromLTWH(15, 0, 20, 10),
+      0,
+      -math.pi,
+      false,
+      handlePaint,
+    );
+
+    // Recycling symbol on bin
+    final recyclePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
     
-    final linePaint = Paint()
-      ..color = Colors.grey
-      ..strokeWidth = 1;
-    for (int i = 0; i < 5; i++) {
-      canvas.drawLine(
-        Offset(10, 12 + i * 4),
-        Offset(26, 12 + i * 4),
-        linePaint,
-      );
+    final symbolX = 25.0;
+    final symbolY = 35.0;
+    final arrowSize = 8.0;
+    
+    for (int i = 0; i < 3; i++) {
+      canvas.save();
+      canvas.translate(symbolX, symbolY);
+      canvas.rotate(i * 2 * math.pi / 3);
+      
+      final arrowPath = Path()
+        ..moveTo(0, -arrowSize)
+        ..lineTo(arrowSize * 0.4, -arrowSize * 0.3)
+        ..lineTo(arrowSize * 0.2, -arrowSize * 0.3)
+        ..lineTo(arrowSize * 0.2, arrowSize * 0.5)
+        ..lineTo(-arrowSize * 0.2, arrowSize * 0.5)
+        ..lineTo(-arrowSize * 0.2, -arrowSize * 0.3)
+        ..lineTo(-arrowSize * 0.4, -arrowSize * 0.3)
+        ..close();
+      
+      canvas.drawPath(arrowPath, recyclePaint);
+      canvas.restore();
     }
   }
 }
 
-// Enhanced HUD
+// HUD Overlay
 class HudOverlay extends StatelessWidget {
   final CityCollectionGame game;
 
@@ -1005,7 +902,7 @@ class HudOverlay extends StatelessWidget {
   }
 }
 
-// Enhanced controls
+// Controls Overlay
 class ControlsOverlay extends StatelessWidget {
   final CityCollectionGame game;
 
