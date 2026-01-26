@@ -40,8 +40,8 @@ class _CityCollectionScreenState extends State<CityCollectionScreen> {
 }
 
 class CityCollectionGame extends FlameGame with HasCollisionDetection {
-  // Game state variables
-  double timeRemaining = 270; // 4:30 in seconds
+  // Updated game state variables
+  double timeRemaining = 270;
   int ecoPoints = 0;
   int wasteCollected = 0;
   int wasteTotal = 25;
@@ -58,16 +58,19 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
 
   bool isDriving = false;
   bool isBraking = false;
-  bool isLongBraking = false; // New: track long brake press
-  double brakePressDuration = 0; // New: track how long brake is pressed
+  bool isLongBraking = false;
+  double brakePressDuration = 0;
+  double drivingDuration = 0; // NEW: Track how long accelerator is pressed
   double currentSpeed = 0.0;
-  double maxSpeed = 300.0; // Increased max speed for better feel
-  double baseAcceleration = 80.0; // Base acceleration rate
-  double accelerationBoost = 120.0; // Additional acceleration when speeding up
-  double brakeDeceleration = 150.0; // Light brake deceleration
-  double hardBrakeDeceleration = 400.0; // Long press brake deceleration
-  double naturalDeceleration = 60.0; // Slightly faster natural deceleration
-
+  double maxSpeed = 450.0; // UPDATED: Increased for 250 km/h capability
+  
+  // UPDATED: More aggressive acceleration values
+  double baseAcceleration = 150.0;
+  double accelerationBoost = 280.0; // Stronger boost
+  double longPressAccelerationMultiplier = 1.8; // NEW: Extra boost for sustained press
+  double brakeDeceleration = 200.0;
+  double hardBrakeDeceleration = 500.0;
+  double naturalDeceleration = 85.0;
 
   // Waste item asset paths
   static const List<String> wasteAssets = [
@@ -175,24 +178,34 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     // Track brake press duration for long press detection
     if (isBraking) {
       brakePressDuration += dt;
-      // Long press threshold: 0.5 seconds
       isLongBraking = brakePressDuration > 0.5;
+      drivingDuration = 0; // Reset driving duration when braking
     } else {
       brakePressDuration = 0;
       isLongBraking = false;
     }
 
-    // Handle acceleration and braking with realistic physics
+    // UPDATED: Track driving duration for long press acceleration
     if (isDriving && !isBraking) {
-      // Progressive acceleration: accelerates faster as you hold the pedal
-      // The acceleration increases based on how long you've been accelerating
+      drivingDuration += dt;
+    } else if (!isDriving) {
+      drivingDuration = 0;
+    }
+
+    // UPDATED: Enhanced acceleration with long press boost
+    if (isDriving && !isBraking) {
+      // Progressive acceleration - faster at low speeds, slower at high speeds
       double speedRatio = currentSpeed / maxSpeed;
+      double progressiveAcceleration = baseAcceleration + (accelerationBoost * (1.0 - speedRatio));
       
-      // At low speeds, accelerate quickly; at high speeds, accelerate more slowly
-      // This creates a realistic acceleration curve
-      double currentAcceleration = baseAcceleration + (accelerationBoost * (1 - speedRatio));
+      // NEW: Apply long press multiplier after 0.3 seconds
+      if (drivingDuration > 0.3) {
+        double longPressFactor = math.min(drivingDuration / 2.0, 1.0); // Ramps up over 2 seconds
+        progressiveAcceleration *= (1.0 + (longPressAccelerationMultiplier - 1.0) * longPressFactor);
+      }
       
-      currentSpeed = math.min(currentSpeed + currentAcceleration * dt, maxSpeed);
+      // Apply acceleration
+      currentSpeed = math.min(currentSpeed + progressiveAcceleration * dt, maxSpeed);
     } else if (isBraking) {
       // Brake deceleration based on press duration
       double deceleration = isLongBraking ? hardBrakeDeceleration : brakeDeceleration;
@@ -202,16 +215,16 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
       currentSpeed = math.max(currentSpeed - naturalDeceleration * dt, 0);
     }
 
-    // Scroll world based on speed
+    // UPDATED: Enhanced parallax scrolling with speed-responsive multipliers
     if (currentSpeed > 0) {
       final scrollAmount = currentSpeed * dt;
 
-      // Parallax scrolling at different speeds
-      cloudLayer.scroll(scrollAmount * 0.2);
-      farBuildings.scroll(scrollAmount * 0.3);
-      midBuildings.scroll(scrollAmount * 0.6);
-      nearBuildings.scroll(scrollAmount * 1.0);
-      streetLayer.scroll(scrollAmount);
+      // More pronounced parallax effect at higher speeds
+      cloudLayer.scroll(scrollAmount * 0.15);
+      farBuildings.scroll(scrollAmount * 0.35);
+      midBuildings.scroll(scrollAmount * 0.65);
+      nearBuildings.scroll(scrollAmount * 1.1);
+      streetLayer.scroll(scrollAmount * 1.0);
 
       // Move waste items
       for (var waste in wastes) {
@@ -814,7 +827,6 @@ class BinComponent extends PositionComponent {
   }
 }
 
-// Updated HudOverlay with Speedometer
 class HudOverlay extends StatelessWidget {
   final CityCollectionGame game;
 
@@ -848,6 +860,7 @@ class HudOverlay extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                // Timer
                 Row(
                   children: [
                     const Icon(Icons.timer, color: Colors.white, size: 24),
@@ -862,8 +875,9 @@ class HudOverlay extends StatelessWidget {
                     ),
                   ],
                 ),
-                // NEW: Speedometer Display
+                // Speedometer (NEW)
                 _buildSpeedometer(),
+                // Eco Points
                 Row(
                   children: [
                     const Icon(Icons.eco, color: Colors.greenAccent, size: 24),
@@ -915,27 +929,29 @@ class HudOverlay extends StatelessWidget {
     );
   }
 
-  // NEW: Circular speedometer widget
+  // UPDATED: Speedometer widget with proper km/h calculation
   Widget _buildSpeedometer() {
-    final speedPercentage = game.currentSpeed / game.maxSpeed;
-    final speedKmh = (speedPercentage * 120).toInt(); // Scale to 0-120 km/h for display
+    // NEW: Proper speed conversion - map 0-450 game speed to 0-250 km/h
+    final speedKmh = ((game.currentSpeed / game.maxSpeed) * 250).toInt();
+    final speedPercentage = speedKmh / 250; // Use km/h for percentage
     
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.4),
+        color: Colors.black.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.3),
+          color: Colors.white.withValues(alpha: 0.4),
           width: 2,
         ),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Circular gauge
+          // Circular speed gauge
           SizedBox(
-            width: 60,
-            height: 60,
+            width: 65,
+            height: 65,
             child: Stack(
               alignment: Alignment.center,
               children: [
@@ -946,20 +962,20 @@ class HudOverlay extends StatelessWidget {
                   backgroundColor: Colors.grey[800],
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[800]!),
                 ),
-                // Speed indicator
+                // Speed progress indicator with dynamic colors
                 CircularProgressIndicator(
                   value: speedPercentage,
                   strokeWidth: 6,
                   backgroundColor: Colors.transparent,
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    speedPercentage < 0.5
+                    speedKmh < 80
                         ? Colors.green
-                        : speedPercentage < 0.8
+                        : speedKmh < 160
                             ? Colors.orange
                             : Colors.red,
                   ),
                 ),
-                // Speed text
+                // Speed number display
                 Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -967,15 +983,17 @@ class HudOverlay extends StatelessWidget {
                       '$speedKmh',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 20,
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
+                        height: 1.0,
                       ),
                     ),
                     Text(
                       'km/h',
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.7),
-                        fontSize: 10,
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 9,
+                        height: 1.0,
                       ),
                     ),
                   ],
@@ -991,18 +1009,20 @@ class HudOverlay extends StatelessWidget {
             children: [
               if (game.isDriving)
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      Icons.arrow_upward,
-                      color: Colors.green,
-                      size: 12,
+                      // NEW: Show different icon for long press
+                      game.drivingDuration > 0.3 ? Icons.fast_forward : Icons.arrow_upward,
+                      color: game.drivingDuration > 0.3 ? Colors.lightGreenAccent : Colors.green,
+                      size: 14,
                     ),
-                    SizedBox(width: 2),
+                    const SizedBox(width: 2),
                     Text(
-                      'ACC',
+                      game.drivingDuration > 0.3 ? 'BOOST' : 'ACC',
                       style: TextStyle(
-                        color: Colors.green,
-                        fontSize: 10,
+                        color: game.drivingDuration > 0.3 ? Colors.lightGreenAccent : Colors.green,
+                        fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -1010,18 +1030,19 @@ class HudOverlay extends StatelessWidget {
                 ),
               if (game.isBraking)
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
                       Icons.arrow_downward,
                       color: game.isLongBraking ? Colors.red : Colors.orange,
-                      size: 12,
+                      size: 14,
                     ),
-                    SizedBox(width: 2),
+                    const SizedBox(width: 2),
                     Text(
                       game.isLongBraking ? 'HARD' : 'BRK',
                       style: TextStyle(
                         color: game.isLongBraking ? Colors.red : Colors.orange,
-                        fontSize: 10,
+                        fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -1029,18 +1050,19 @@ class HudOverlay extends StatelessWidget {
                 ),
               if (!game.isDriving && !game.isBraking && game.currentSpeed > 0)
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
                       Icons.trending_down,
                       color: Colors.blue,
-                      size: 12,
+                      size: 14,
                     ),
-                    SizedBox(width: 2),
+                    const SizedBox(width: 2),
                     Text(
                       'COAST',
                       style: TextStyle(
                         color: Colors.blue,
-                        fontSize: 10,
+                        fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
