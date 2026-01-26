@@ -1,10 +1,11 @@
-import 'package:flame/components.dart';
-import 'package:flame/game.dart';
+import 'package:flame/components.dart' hide Matrix4;
+import 'package:flame/game.dart' hide Matrix4;
 import 'package:flame/collisions.dart';
-import 'package:flutter/material.dart';
-import 'package:flame/extensions.dart';
+import 'package:flutter/material.dart' hide Matrix4;
+import 'package:flame/extensions.dart' hide Matrix4;
 import 'dart:ui' as ui;
 import 'dart:math' as math;
+import 'package:vector_math/vector_math_64.dart' show Matrix4;
 
 class CityCollectionScreen extends StatefulWidget {
   const CityCollectionScreen({super.key});
@@ -29,7 +30,8 @@ class _CityCollectionScreenState extends State<CityCollectionScreen> {
         game: _game,
         overlayBuilderMap: {
           'hud': (context, game) => HudOverlay(game as CityCollectionGame),
-          'controls': (context, game) => ControlsOverlay(game as CityCollectionGame),
+          'controls': (context, game) =>
+              ControlsOverlay(game as CityCollectionGame),
         },
         initialActiveOverlays: const ['hud', 'controls'],
       ),
@@ -43,7 +45,7 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   int ecoPoints = 0;
   int wasteCollected = 0;
   int wasteTotal = 25;
-  
+
   late SkyLayer skyLayer;
   late CloudLayer cloudLayer;
   late BuildingLayer farBuildings;
@@ -53,7 +55,7 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   late TruckComponent truck;
 
   List<WasteComponent> wastes = [];
-  
+
   bool isDriving = false;
   bool isBraking = false;
   double currentSpeed = 0.0;
@@ -94,8 +96,8 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
 
     // Add building layers with parallax
     farBuildings = BuildingLayer(
-      isFar: true, 
-      size: size, 
+      isFar: true,
+      size: size,
       depth: 0.3,
       buildingColor: Colors.grey[600]!,
       windowColor: Colors.yellow[700]!,
@@ -103,8 +105,8 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     add(farBuildings);
 
     midBuildings = BuildingLayer(
-      isFar: false, 
-      size: size, 
+      isFar: false,
+      size: size,
       depth: 0.6,
       buildingColor: Colors.grey[700]!,
       windowColor: Colors.orange[300]!,
@@ -112,8 +114,8 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     add(midBuildings);
 
     nearBuildings = BuildingLayer(
-      isFar: false, 
-      size: size, 
+      isFar: false,
+      size: size,
       depth: 1.0,
       buildingColor: Colors.grey[800]!,
       windowColor: Colors.yellow[600]!,
@@ -133,11 +135,11 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
 
     // Generate waste items randomly along the street
     final random = math.Random();
-    
+
     for (int i = 0; i < wasteTotal; i++) {
       final xPos = 400.0 + i * (150 + random.nextDouble() * 200);
       final randomAsset = wasteAssets[random.nextInt(wasteAssets.length)];
-      
+
       final waste = WasteComponent(
         position: Vector2(xPos, size.y - 100 - random.nextDouble() * 20),
         assetPath: randomAsset,
@@ -147,16 +149,18 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     }
 
     // Timer for countdown
-    add(TimerComponent(
-      period: 1.0,
-      repeat: true,
-      onTick: () {
-        timeRemaining -= 1;
-        if (timeRemaining <= 0) {
-          pauseEngine();
-        }
-      },
-    ));
+    add(
+      TimerComponent(
+        period: 1.0,
+        repeat: true,
+        onTick: () {
+          timeRemaining -= 1;
+          if (timeRemaining <= 0) {
+            pauseEngine();
+          }
+        },
+      ),
+    );
   }
 
   @override
@@ -175,7 +179,7 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     // Scroll world based on speed
     if (currentSpeed > 0) {
       final scrollAmount = currentSpeed * dt;
-      
+
       // Parallax scrolling at different speeds
       cloudLayer.scroll(scrollAmount * 0.2);
       farBuildings.scroll(scrollAmount * 0.3);
@@ -225,17 +229,13 @@ class SkyLayer extends PositionComponent {
   @override
   void render(Canvas canvas) {
     final skyHeight = height * 0.65;
-    
+
     final paint = Paint()
-      ..shader = ui.Gradient.linear(
-        Offset(0, 0),
-        Offset(0, skyHeight),
-        [
-          const Color(0xFF87CEEB),
-          const Color(0xFFE0F6FF),
-        ],
-      );
-    
+      ..shader = ui.Gradient.linear(Offset(0, 0), Offset(0, skyHeight), [
+        const Color(0xFF87CEEB),
+        const Color(0xFFE0F6FF),
+      ]);
+
     canvas.drawRect(Rect.fromLTWH(0, 0, width, skyHeight), paint);
   }
 }
@@ -248,7 +248,10 @@ class CloudLayer extends PositionComponent {
   CloudLayer({required Vector2 size}) : super(size: size) {
     for (int i = 0; i < 5; i++) {
       final cloud = CloudComponent(
-        position: Vector2(random.nextDouble() * size.x, 50 + random.nextDouble() * 100),
+        position: Vector2(
+          random.nextDouble() * size.x,
+          50 + random.nextDouble() * 100,
+        ),
         size: Vector2(80 + random.nextDouble() * 60, 40),
       );
       add(cloud);
@@ -268,7 +271,7 @@ class CloudLayer extends PositionComponent {
 
 class CloudComponent extends PositionComponent {
   CloudComponent({required Vector2 position, required Vector2 size})
-      : super(position: position, size: size);
+    : super(position: position, size: size);
 
   @override
   void render(Canvas canvas) {
@@ -300,15 +303,15 @@ class BuildingLayer extends PositionComponent {
   }) : super(size: size) {
     final buildingCount = 15;
     final roadTop = size.y - 120;
-    
+
     for (int i = 0; i < buildingCount; i++) {
       double x = i * 220.0;
-      double buildingHeight = isFar 
-          ? 120 + random.nextDouble() * 80 
+      double buildingHeight = isFar
+          ? 120 + random.nextDouble() * 80
           : 180 + random.nextDouble() * 140;
-      
+
       final buildingY = roadTop - buildingHeight - 20;
-      
+
       final building = DetailedBuilding(
         position: Vector2(x, buildingY),
         size: Vector2(180, buildingHeight),
@@ -419,19 +422,13 @@ class StreetLayer extends PositionComponent {
   @override
   void render(Canvas canvas) {
     final roadPaint = Paint()..color = const Color(0xFF404040);
-    canvas.drawRect(
-      Rect.fromLTWH(0, height - 120, width, 120),
-      roadPaint,
-    );
+    canvas.drawRect(Rect.fromLTWH(0, height - 120, width, 120), roadPaint);
 
     final markingPaint = Paint()..color = Colors.white;
     for (var baseX in markingPositions) {
       final x = baseX - scrollOffset;
       if (x > -100 && x < width + 100) {
-        canvas.drawRect(
-          Rect.fromLTWH(x, height - 60, 60, 4),
-          markingPaint,
-        );
+        canvas.drawRect(Rect.fromLTWH(x, height - 60, 60, 4), markingPaint);
       }
     }
   }
@@ -444,7 +441,7 @@ class TruckComponent extends PositionComponent
   double bobOffset = 0;
 
   TruckComponent({required Vector2 position, required Vector2 size})
-      : super(position: position, size: size) {
+    : super(position: position, size: size) {
     add(RectangleHitbox());
   }
 
@@ -483,7 +480,7 @@ class TruckComponent extends PositionComponent
       ..color = const Color(0xFF1E3A0F)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3;
-    
+
     canvas.drawLine(
       Offset(width * 0.2, 5),
       Offset(width * 0.2, height * 0.85),
@@ -498,12 +495,7 @@ class TruckComponent extends PositionComponent
     final barPaint = Paint()..color = const Color(0xFF1E3A0F);
     for (int i = 1; i < 4; i++) {
       canvas.drawRect(
-        Rect.fromLTWH(
-          0,
-          5 + (height * 0.8 / 4) * i,
-          width * 0.65,
-          3,
-        ),
+        Rect.fromLTWH(0, 5 + (height * 0.8 / 4) * i, width * 0.65, 3),
         barPaint,
       );
     }
@@ -513,16 +505,16 @@ class TruckComponent extends PositionComponent
       ..color = Colors.white.withValues(alpha: 0.8)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
-    
+
     final recycleSymbolX = width * 0.32;
     final recycleSymbolY = height * 0.45;
     final arrowSize = 12.0;
-    
+
     for (int i = 0; i < 3; i++) {
       canvas.save();
       canvas.translate(recycleSymbolX, recycleSymbolY);
       canvas.rotate(i * 2 * math.pi / 3);
-      
+
       final arrowPath = Path()
         ..moveTo(0, -arrowSize)
         ..lineTo(arrowSize * 0.4, -arrowSize * 0.3)
@@ -532,7 +524,7 @@ class TruckComponent extends PositionComponent
         ..lineTo(-arrowSize * 0.2, -arrowSize * 0.3)
         ..lineTo(-arrowSize * 0.4, -arrowSize * 0.3)
         ..close();
-      
+
       canvas.drawPath(arrowPath, recyclePaint);
       canvas.restore();
     }
@@ -572,7 +564,7 @@ class TruckComponent extends PositionComponent
     final windowY = cabinY + cabinHeight * 0.2;
     final windowWidth = cabinWidth * 0.5;
     final windowHeight = cabinHeight * 0.45;
-    
+
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(windowX, windowY, windowWidth, windowHeight),
@@ -580,7 +572,7 @@ class TruckComponent extends PositionComponent
       ),
       sideWindowPaint,
     );
-    
+
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(windowX, windowY, windowWidth, windowHeight),
@@ -594,7 +586,7 @@ class TruckComponent extends PositionComponent
 
     // Wheels
     final wheelRadius = 18.0;
-    
+
     canvas.save();
     canvas.translate(cabinX + cabinWidth * 0.5, height * 0.9);
     canvas.rotate(wheelRotation);
@@ -612,7 +604,7 @@ class TruckComponent extends PositionComponent
     final headlightGlow = Paint()
       ..color = Colors.yellow[300]!.withValues(alpha: 0.3)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-    
+
     canvas.drawCircle(
       Offset(cabinX + cabinWidth - 2, cabinY + cabinHeight * 0.5),
       7,
@@ -625,11 +617,7 @@ class TruckComponent extends PositionComponent
     );
 
     final tailLightPaint = Paint()..color = Colors.red[700]!;
-    canvas.drawCircle(
-      Offset(3, height * 0.4),
-      3,
-      tailLightPaint,
-    );
+    canvas.drawCircle(Offset(3, height * 0.4), 3, tailLightPaint);
 
     canvas.restore();
   }
@@ -637,20 +625,20 @@ class TruckComponent extends PositionComponent
   void _drawWheel(Canvas canvas, double radius) {
     final tirePaint = Paint()..color = Colors.black;
     canvas.drawCircle(Offset.zero, radius, tirePaint);
-    
+
     final sidewallPaint = Paint()
       ..color = Colors.grey[900]!
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     canvas.drawCircle(Offset.zero, radius * 0.85, sidewallPaint);
-    
+
     final rimPaint = Paint()..color = Colors.grey[600]!;
     canvas.drawCircle(Offset.zero, radius * 0.6, rimPaint);
-    
+
     final spokePaint = Paint()
       ..color = Colors.grey[800]!
       ..strokeWidth = 2;
-    
+
     for (int i = 0; i < 5; i++) {
       final angle = (i * math.pi * 2 / 5);
       canvas.drawLine(
@@ -659,10 +647,10 @@ class TruckComponent extends PositionComponent
         spokePaint,
       );
     }
-    
+
     final hubPaint = Paint()..color = Colors.grey[700]!;
     canvas.drawCircle(Offset.zero, radius * 0.2, hubPaint);
-    
+
     final shinePaint = Paint()..color = Colors.grey[400]!;
     canvas.drawCircle(Offset(-2, -2), radius * 0.1, shinePaint);
   }
@@ -677,23 +665,21 @@ class TruckComponent extends PositionComponent
 }
 
 // Waste component using PNG assets
-class WasteComponent extends SpriteComponent 
+class WasteComponent extends SpriteComponent
     with CollisionCallbacks, HasGameReference<CityCollectionGame> {
   final String assetPath;
   bool isCollected = false;
 
-  WasteComponent({
-    required Vector2 position,
-    required this.assetPath,
-  }) : super(position: position, size: Vector2(40, 40));
+  WasteComponent({required Vector2 position, required this.assetPath})
+    : super(position: position, size: Vector2(40, 40));
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
-    
+
     // Load the sprite from the asset path
     sprite = Sprite(game.images.fromCache(assetPath));
-    
+
     // Add collision detection
     add(CircleHitbox(radius: 20));
   }
@@ -709,7 +695,7 @@ class WasteComponent extends SpriteComponent
 // Recycling bin component
 class BinComponent extends PositionComponent {
   BinComponent({required Vector2 position})
-      : super(position: position, size: Vector2(50, 60));
+    : super(position: position, size: Vector2(50, 60));
 
   @override
   void render(Canvas canvas) {
@@ -751,16 +737,16 @@ class BinComponent extends PositionComponent {
       ..color = Colors.white.withValues(alpha: 0.9)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
-    
+
     final symbolX = 25.0;
     final symbolY = 35.0;
     final arrowSize = 8.0;
-    
+
     for (int i = 0; i < 3; i++) {
       canvas.save();
       canvas.translate(symbolX, symbolY);
       canvas.rotate(i * 2 * math.pi / 3);
-      
+
       final arrowPath = Path()
         ..moveTo(0, -arrowSize)
         ..lineTo(arrowSize * 0.4, -arrowSize * 0.3)
@@ -770,7 +756,7 @@ class BinComponent extends PositionComponent {
         ..lineTo(-arrowSize * 0.2, -arrowSize * 0.3)
         ..lineTo(-arrowSize * 0.4, -arrowSize * 0.3)
         ..close();
-      
+
       canvas.drawPath(arrowPath, recyclePaint);
       canvas.restore();
     }
@@ -888,11 +874,19 @@ class HudOverlay extends StatelessWidget {
   }
 }
 
-// Controls Overlay
-class ControlsOverlay extends StatelessWidget {
+// Controls Overlay with Pedal Sprites
+class ControlsOverlay extends StatefulWidget {
   final CityCollectionGame game;
 
   const ControlsOverlay(this.game, {super.key});
+
+  @override
+  State<ControlsOverlay> createState() => _ControlsOverlayState();
+}
+
+class _ControlsOverlayState extends State<ControlsOverlay> {
+  bool isAcceleratorPressed = false;
+  bool isBrakePressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -909,19 +903,31 @@ class ControlsOverlay extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _buildControlButton(
-              icon: Icons.play_arrow,
-              label: 'Drive',
-              color: Colors.green,
-              onPressed: () => game.toggleDrive(),
-            ),
-            const SizedBox(width: 16),
-            _buildControlButton(
-              icon: Icons.stop,
+            _buildPedalButton(
+              assetPath: 'assets/images/brake.png',
               label: 'Brake',
-              color: Colors.red,
-              onPressed: () => game.brake(),
-              onReleased: () => game.releaseBrake(),
+              isPressed: isBrakePressed,
+              onPressed: () {
+                setState(() => isBrakePressed = true);
+                widget.game.brake();
+              },
+              onReleased: () {
+                setState(() => isBrakePressed = false);
+                widget.game.releaseBrake();
+              },
+            ),
+            const SizedBox(width: 24),
+            _buildPedalButton(
+              assetPath: 'assets/images/accelerator.png',
+              label: 'Drive',
+              isPressed: isAcceleratorPressed,
+              onPressed: () {
+                setState(() => isAcceleratorPressed = true);
+                widget.game.toggleDrive();
+              },
+              onReleased: () {
+                setState(() => isAcceleratorPressed = false);
+              },
             ),
           ],
         ),
@@ -929,40 +935,68 @@ class ControlsOverlay extends StatelessWidget {
     );
   }
 
-  Widget _buildControlButton({
-    required IconData icon,
+  Widget _buildPedalButton({
+    required String assetPath,
     required String label,
-    required Color color,
+    required bool isPressed,
     required VoidCallback onPressed,
-    VoidCallback? onReleased,
+    required VoidCallback onReleased,
   }) {
     return GestureDetector(
       onTapDown: (_) => onPressed(),
-      onTapUp: (_) => onReleased?.call(),
-      onTapCancel: () => onReleased?.call(),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      onTapUp: (_) => onReleased(),
+      onTapCancel: () => onReleased(),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 100),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: color,
+          color: Colors.black.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(15),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.4),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          border: Border.all(
+            color: isPressed
+                ? Colors.white.withValues(alpha: 0.8)
+                : Colors.white.withValues(alpha: 0.3),
+            width: 2,
+          ),
+          boxShadow: isPressed
+              ? [
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ]
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
         ),
+        transform: Matrix4.identity()..setTranslationRaw(0.0, isPressed ? 4.0 : 0.0, 0.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white, size: 32),
-            const SizedBox(height: 4),
+            // Pedal sprite image
+            Image.asset(
+              assetPath,
+              width: 80,
+              height: 80,
+              fit: BoxFit.contain,
+              color: isPressed
+                  ? Colors.white.withValues(alpha: 1.0)
+                  : Colors.white.withValues(alpha: 0.85),
+              colorBlendMode: BlendMode.modulate,
+            ),
+            const SizedBox(height: 8),
             Text(
               label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
+              style: TextStyle(
+                color: isPressed
+                    ? Colors.white
+                    : Colors.white.withValues(alpha: 0.9),
+                fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
             ),
