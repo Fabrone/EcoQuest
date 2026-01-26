@@ -42,11 +42,10 @@ class _CityCollectionScreenState extends State<CityCollectionScreen> {
 }
 
 class CityCollectionGame extends FlameGame with HasCollisionDetection {
-  // Updated game state variables
-  double timeRemaining = 90; // UPDATED: 1.5 minutes (90 seconds)
+  double timeRemaining = 90;
   int ecoPoints = 0;
   int wasteCollected = 0;
-  int wasteTotal = 25;
+  int wasteTotal = 0; // UPDATED: No limit, dynamically generated
 
   late SkyLayer skyLayer;
   late CloudLayer cloudLayer;
@@ -61,20 +60,21 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   bool isDriving = false;
   bool isBraking = false;
   bool isLongBraking = false;
+  bool hasStartedDriving = false; // NEW: Track if game has started
   double brakePressDuration = 0;
   double drivingDuration = 0;
   double currentSpeed = 0.0;
-  double maxSpeed = 270.0; // UPDATED: Reduced to map to 150 km/h max (270 * 150/250 = 162, fine-tuned)
+  double maxSpeed = 150.0; // UPDATED: Direct km/h representation
   
-  // UPDATED: More realistic acceleration for a waste truck
-  double baseAcceleration = 100.0; // Slower initial acceleration
-  double accelerationBoost = 180.0; // Moderate boost
-  double longPressAccelerationMultiplier = 1.5; // UPDATED: Less aggressive boost
-  double brakeDeceleration = 200.0;
-  double hardBrakeDeceleration = 500.0;
-  double naturalDeceleration = 85.0;
+  // UPDATED: Realistic acceleration - reach 100 km/h in 18 seconds
+  // Acceleration = velocity / time = 100 / 18 = 5.56 km/h per second
+  double baseAcceleration = 5.56; // km/h per second
+  double accelerationBoost = 2.78; // Additional boost to reach 150 km/h smoothly
+  double longPressAccelerationMultiplier = 1.3; 
+  double brakeDeceleration = 40.0; // km/h per second
+  double hardBrakeDeceleration = 80.0; // km/h per second
+  double naturalDeceleration = 15.0; // km/h per second
 
-  // Waste item asset paths
   static const List<String> wasteAssets = [
     'mixedwaste.png',
     'garbage.png',
@@ -93,18 +93,14 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   Future<void> onLoad() async {
     super.onLoad();
 
-    // Preload all waste item images
     await images.loadAll(wasteAssets);
 
-    // Add sky
     skyLayer = SkyLayer(size: size);
     add(skyLayer);
 
-    // Add clouds
     cloudLayer = CloudLayer(size: size);
     add(cloudLayer);
 
-    // Add building layers with parallax
     farBuildings = BuildingLayer(
       isFar: true,
       size: size,
@@ -132,24 +128,21 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     );
     add(nearBuildings);
 
-    // Add street
     streetLayer = StreetLayer(size: size);
     add(streetLayer);
 
-    // Add truck
     truck = TruckComponent(
       position: Vector2(150, size.y - 180),
       size: Vector2(140, 80),
     );
     add(truck);
 
-    // UPDATED: Generate waste items scattered across much longer distance
+    // UPDATED: Generate unlimited waste items across extended distance
     final random = math.Random();
-
-    for (int i = 0; i < wasteTotal; i++) {
-      // Extended distribution: spread across 10,000+ pixels (instead of ~5,000)
-      // This ensures waste appears throughout the entire gameplay duration
-      final xPos = 400.0 + i * (200 + random.nextDouble() * 400);
+    
+    // Generate 100 waste items spread across 20,000 pixels
+    for (int i = 0; i < 100; i++) {
+      final xPos = 400.0 + i * (150 + random.nextDouble() * 250);
       final randomAsset = wasteAssets[random.nextInt(wasteAssets.length)];
 
       final waste = WasteComponent(
@@ -160,17 +153,18 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
       wastes.add(waste);
     }
 
-    // Timer for countdown
+    // UPDATED: Timer only starts when player starts driving
     add(
       TimerComponent(
         period: 1.0,
         repeat: true,
         onTick: () {
-          timeRemaining -= 1;
-          if (timeRemaining <= 0) {
-            pauseEngine();
-            // UPDATED: Show game over dialog
-            _showGameOverDialog();
+          if (hasStartedDriving) { // Only count down if game has started
+            timeRemaining -= 1;
+            if (timeRemaining <= 0) {
+              pauseEngine();
+              _showGameOverDialog();
+            }
           }
         },
       ),
@@ -188,64 +182,62 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   void update(double dt) {
     super.update(dt);
 
-    // Track brake press duration for long press detection
     if (isBraking) {
       brakePressDuration += dt;
       isLongBraking = brakePressDuration > 0.5;
-      drivingDuration = 0; // Reset driving duration when braking
+      drivingDuration = 0;
     } else {
       brakePressDuration = 0;
       isLongBraking = false;
     }
 
-    // UPDATED: Track driving duration for long press acceleration
     if (isDriving && !isBraking) {
       drivingDuration += dt;
+      if (!hasStartedDriving) {
+        hasStartedDriving = true; // Start the timer
+      }
     } else if (!isDriving) {
       drivingDuration = 0;
     }
 
-    // UPDATED: Enhanced acceleration with long press boost
+    // UPDATED: Realistic acceleration
     if (isDriving && !isBraking) {
-      // Progressive acceleration - faster at low speeds, slower at high speeds
+      // Calculate acceleration based on current speed
       double speedRatio = currentSpeed / maxSpeed;
       double progressiveAcceleration = baseAcceleration + (accelerationBoost * (1.0 - speedRatio));
       
-      // NEW: Apply long press multiplier after 0.3 seconds
+      // Apply long press multiplier after 0.3 seconds
       if (drivingDuration > 0.3) {
-        double longPressFactor = math.min(drivingDuration / 2.0, 1.0); // Ramps up over 2 seconds
+        double longPressFactor = math.min(drivingDuration / 2.0, 1.0);
         progressiveAcceleration *= (1.0 + (longPressAccelerationMultiplier - 1.0) * longPressFactor);
       }
       
-      // Apply acceleration
+      // Apply acceleration (now in km/h per second)
       currentSpeed = math.min(currentSpeed + progressiveAcceleration * dt, maxSpeed);
     } else if (isBraking) {
-      // Brake deceleration based on press duration
       double deceleration = isLongBraking ? hardBrakeDeceleration : brakeDeceleration;
       currentSpeed = math.max(currentSpeed - deceleration * dt, 0);
     } else {
-      // Natural deceleration when no pedal is pressed
       currentSpeed = math.max(currentSpeed - naturalDeceleration * dt, 0);
     }
 
-    // UPDATED: Enhanced parallax scrolling with speed-responsive multipliers
+    // UPDATED: Parallax scrolling using speed directly (now in km/h)
     if (currentSpeed > 0) {
-      final scrollAmount = currentSpeed * dt;
+      // Convert km/h to pixels per second for scrolling
+      // 150 km/h should feel fast, so we use a reasonable multiplier
+      final scrollAmount = (currentSpeed * 2.5) * dt;
 
-      // More pronounced parallax effect at higher speeds
       cloudLayer.scroll(scrollAmount * 0.15);
       farBuildings.scroll(scrollAmount * 0.35);
       midBuildings.scroll(scrollAmount * 0.65);
       nearBuildings.scroll(scrollAmount * 1.1);
       streetLayer.scroll(scrollAmount * 1.0);
 
-      // Move waste items
       for (var waste in wastes) {
         waste.position.x -= scrollAmount;
       }
     }
 
-    // Update truck animation
     truck.updateAnimation(currentSpeed);
   }
 
@@ -261,6 +253,9 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   void startDriving() {
     isDriving = true;
     isBraking = false;
+    if (!hasStartedDriving) {
+      hasStartedDriving = true; // Start the game timer
+    }
   }
 
   // New: Stop driving (called when drive pedal released)
@@ -770,7 +765,7 @@ class WasteComponent extends SpriteComponent
 }
 
 // Recycling bin component
-class BinComponent extends PositionComponent {
+/*class BinComponent extends PositionComponent {
   BinComponent({required Vector2 position})
     : super(position: position, size: Vector2(50, 60));
 
@@ -838,7 +833,7 @@ class BinComponent extends PositionComponent {
       canvas.restore();
     }
   }
-}
+}*/
 
 class HudOverlay extends StatefulWidget {
   final CityCollectionGame game;
@@ -950,12 +945,6 @@ class _HudOverlayState extends State<HudOverlay> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: widget.game.wasteCollected / widget.game.wasteTotal,
-                  backgroundColor: Colors.grey[700],
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
-                ),
               ],
             ),
           ),
@@ -965,8 +954,8 @@ class _HudOverlayState extends State<HudOverlay> {
   }
 
   Widget _buildSpeedometer() {
-    // UPDATED: Proper speed conversion - map 0-270 game speed to 0-150 km/h
-    final speedKmh = ((widget.game.currentSpeed / widget.game.maxSpeed) * 150).toInt();
+    // Speed is now directly in km/h
+    final speedKmh = widget.game.currentSpeed.toInt();
     final speedPercentage = speedKmh / 150; 
       
     return Container(
@@ -982,27 +971,23 @@ class _HudOverlayState extends State<HudOverlay> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Circular speed gauge
           SizedBox(
             width: 65,
             height: 65,
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // Background circle
                 CircularProgressIndicator(
                   value: 1.0,
                   strokeWidth: 6,
                   backgroundColor: Colors.grey[800],
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[800]!),
                 ),
-                // Speed progress indicator with dynamic colors
                 CircularProgressIndicator(
                   value: speedPercentage,
                   strokeWidth: 6,
                   backgroundColor: Colors.transparent,
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    // UPDATED: Color thresholds for 150 km/h max
                     speedKmh < 50
                         ? Colors.green
                         : speedKmh < 100
@@ -1010,7 +995,6 @@ class _HudOverlayState extends State<HudOverlay> {
                             : Colors.red,
                   ),
                 ),
-                // Speed number display
                 Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -1037,7 +1021,6 @@ class _HudOverlayState extends State<HudOverlay> {
             ),
           ),
           const SizedBox(width: 8),
-          // Status indicators
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -1184,10 +1167,10 @@ class _ControlsOverlayState extends State<ControlsOverlay> {
       onTapCancel: () => onReleased(),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 100),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(8), // UPDATED: Reduced from 12
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(15),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isPressed
                 ? Colors.white.withValues(alpha: 0.8)
@@ -1216,22 +1199,22 @@ class _ControlsOverlayState extends State<ControlsOverlay> {
           children: [
             Image.asset(
               assetPath,
-              width: 80,
-              height: 80,
+              width: 40, // UPDATED: Reduced from 80 (half size)
+              height: 40, // UPDATED: Reduced from 80 (half size)
               fit: BoxFit.contain,
               color: isPressed
                   ? Colors.white.withValues(alpha: 1.0)
                   : Colors.white.withValues(alpha: 0.85),
               colorBlendMode: BlendMode.modulate,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6), // UPDATED: Reduced from 8
             Text(
               label,
               style: TextStyle(
                 color: isPressed
                     ? Colors.white
                     : Colors.white.withValues(alpha: 0.9),
-                fontSize: 16,
+                fontSize: 14, // UPDATED: Reduced from 16
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -1249,8 +1232,6 @@ class GameOverOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final collectionRate = (game.wasteCollected / game.wasteTotal * 100).toStringAsFixed(1);
-    
     return Container(
       color: Colors.black.withValues(alpha: 0.85),
       child: Center(
@@ -1324,7 +1305,7 @@ class GameOverOverlay extends StatelessWidget {
                         const Icon(Icons.delete, color: Colors.orange, size: 24),
                         const SizedBox(width: 12),
                         Text(
-                          '${game.wasteCollected}/${game.wasteTotal} Waste Collected',
+                          '${game.wasteCollected} Waste Collected',
                           style: const TextStyle(
                             fontSize: 20,
                             color: Colors.white,
@@ -1332,21 +1313,13 @@ class GameOverOverlay extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '$collectionRate% Collection Rate',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.white.withValues(alpha: 0.8),
-                      ),
-                    ),
                   ],
                 ),
               ),
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: () {
-                  Navigator.of(context).pop(); // Return to previous screen
+                  Navigator.of(context).pop();
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange,
