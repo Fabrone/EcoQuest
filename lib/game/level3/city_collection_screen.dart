@@ -58,11 +58,16 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
 
   bool isDriving = false;
   bool isBraking = false;
+  bool isLongBraking = false; // New: track long brake press
+  double brakePressDuration = 0; // New: track how long brake is pressed
   double currentSpeed = 0.0;
-  double maxSpeed = 200.0;
-  double acceleration = 100.0;
-  double brakeDeceleration = 150.0;
-  double naturalDeceleration = 50.0;
+  double maxSpeed = 300.0; // Increased max speed for better feel
+  double baseAcceleration = 80.0; // Base acceleration rate
+  double accelerationBoost = 120.0; // Additional acceleration when speeding up
+  double brakeDeceleration = 150.0; // Light brake deceleration
+  double hardBrakeDeceleration = 400.0; // Long press brake deceleration
+  double naturalDeceleration = 60.0; // Slightly faster natural deceleration
+
 
   // Waste item asset paths
   static const List<String> wasteAssets = [
@@ -167,12 +172,33 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   void update(double dt) {
     super.update(dt);
 
-    // Handle acceleration and braking
-    if (isDriving && !isBraking) {
-      currentSpeed = math.min(currentSpeed + acceleration * dt, maxSpeed);
-    } else if (isBraking) {
-      currentSpeed = math.max(currentSpeed - brakeDeceleration * dt, 0);
+    // Track brake press duration for long press detection
+    if (isBraking) {
+      brakePressDuration += dt;
+      // Long press threshold: 0.5 seconds
+      isLongBraking = brakePressDuration > 0.5;
     } else {
+      brakePressDuration = 0;
+      isLongBraking = false;
+    }
+
+    // Handle acceleration and braking with realistic physics
+    if (isDriving && !isBraking) {
+      // Progressive acceleration: accelerates faster as you hold the pedal
+      // The acceleration increases based on how long you've been accelerating
+      double speedRatio = currentSpeed / maxSpeed;
+      
+      // At low speeds, accelerate quickly; at high speeds, accelerate more slowly
+      // This creates a realistic acceleration curve
+      double currentAcceleration = baseAcceleration + (accelerationBoost * (1 - speedRatio));
+      
+      currentSpeed = math.min(currentSpeed + currentAcceleration * dt, maxSpeed);
+    } else if (isBraking) {
+      // Brake deceleration based on press duration
+      double deceleration = isLongBraking ? hardBrakeDeceleration : brakeDeceleration;
+      currentSpeed = math.max(currentSpeed - deceleration * dt, 0);
+    } else {
+      // Natural deceleration when no pedal is pressed
       currentSpeed = math.max(currentSpeed - naturalDeceleration * dt, 0);
     }
 
@@ -203,6 +229,31 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
       wasteCollected++;
       ecoPoints += 50;
     }
+  }
+
+  // New: Start driving (called when drive pedal pressed)
+  void startDriving() {
+    isDriving = true;
+    isBraking = false;
+  }
+
+  // New: Stop driving (called when drive pedal released)
+  void stopDriving() {
+    isDriving = false;
+  }
+
+  // New: Start braking (called when brake pedal pressed)
+  void startBraking() {
+    isBraking = true;
+    isDriving = false;
+    brakePressDuration = 0;
+  }
+
+  // New: Stop braking (called when brake pedal released)
+  void stopBraking() {
+    isBraking = false;
+    brakePressDuration = 0;
+    isLongBraking = false;
   }
 
   void toggleDrive() {
@@ -763,7 +814,7 @@ class BinComponent extends PositionComponent {
   }
 }
 
-// HUD Overlay
+// Updated HudOverlay with Speedometer
 class HudOverlay extends StatelessWidget {
   final CityCollectionGame game;
 
@@ -811,6 +862,8 @@ class HudOverlay extends StatelessWidget {
                     ),
                   ],
                 ),
+                // NEW: Speedometer Display
+                _buildSpeedometer(),
                 Row(
                   children: [
                     const Icon(Icons.eco, color: Colors.greenAccent, size: 24),
@@ -854,17 +907,6 @@ class HudOverlay extends StatelessWidget {
                   backgroundColor: Colors.grey[700],
                   valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    const Icon(Icons.speed, color: Colors.blue, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Speed: ${(game.currentSpeed / game.maxSpeed * 100).toInt()}%',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),
@@ -872,9 +914,146 @@ class HudOverlay extends StatelessWidget {
       ),
     );
   }
+
+  // NEW: Circular speedometer widget
+  Widget _buildSpeedometer() {
+    final speedPercentage = game.currentSpeed / game.maxSpeed;
+    final speedKmh = (speedPercentage * 120).toInt(); // Scale to 0-120 km/h for display
+    
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.3),
+          width: 2,
+        ),
+      ),
+      child: Row(
+        children: [
+          // Circular gauge
+          SizedBox(
+            width: 60,
+            height: 60,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Background circle
+                CircularProgressIndicator(
+                  value: 1.0,
+                  strokeWidth: 6,
+                  backgroundColor: Colors.grey[800],
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[800]!),
+                ),
+                // Speed indicator
+                CircularProgressIndicator(
+                  value: speedPercentage,
+                  strokeWidth: 6,
+                  backgroundColor: Colors.transparent,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    speedPercentage < 0.5
+                        ? Colors.green
+                        : speedPercentage < 0.8
+                            ? Colors.orange
+                            : Colors.red,
+                  ),
+                ),
+                // Speed text
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '$speedKmh',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'km/h',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Status indicators
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (game.isDriving)
+                Row(
+                  children: [
+                    Icon(
+                      Icons.arrow_upward,
+                      color: Colors.green,
+                      size: 12,
+                    ),
+                    SizedBox(width: 2),
+                    Text(
+                      'ACC',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              if (game.isBraking)
+                Row(
+                  children: [
+                    Icon(
+                      Icons.arrow_downward,
+                      color: game.isLongBraking ? Colors.red : Colors.orange,
+                      size: 12,
+                    ),
+                    SizedBox(width: 2),
+                    Text(
+                      game.isLongBraking ? 'HARD' : 'BRK',
+                      style: TextStyle(
+                        color: game.isLongBraking ? Colors.red : Colors.orange,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              if (!game.isDriving && !game.isBraking && game.currentSpeed > 0)
+                Row(
+                  children: [
+                    Icon(
+                      Icons.trending_down,
+                      color: Colors.blue,
+                      size: 12,
+                    ),
+                    SizedBox(width: 2),
+                    Text(
+                      'COAST',
+                      style: TextStyle(
+                        color: Colors.blue,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// Controls Overlay with Pedal Sprites
 class ControlsOverlay extends StatefulWidget {
   final CityCollectionGame game;
 
@@ -909,11 +1088,11 @@ class _ControlsOverlayState extends State<ControlsOverlay> {
               isPressed: isBrakePressed,
               onPressed: () {
                 setState(() => isBrakePressed = true);
-                widget.game.brake();
+                widget.game.startBraking();
               },
               onReleased: () {
                 setState(() => isBrakePressed = false);
-                widget.game.releaseBrake();
+                widget.game.stopBraking();
               },
             ),
             const SizedBox(width: 24),
@@ -923,10 +1102,11 @@ class _ControlsOverlayState extends State<ControlsOverlay> {
               isPressed: isAcceleratorPressed,
               onPressed: () {
                 setState(() => isAcceleratorPressed = true);
-                widget.game.toggleDrive();
+                widget.game.startDriving();
               },
               onReleased: () {
                 setState(() => isAcceleratorPressed = false);
+                widget.game.stopDriving();
               },
             ),
           ],
@@ -978,7 +1158,6 @@ class _ControlsOverlayState extends State<ControlsOverlay> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Pedal sprite image
             Image.asset(
               assetPath,
               width: 80,
