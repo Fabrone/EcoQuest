@@ -32,6 +32,8 @@ class _CityCollectionScreenState extends State<CityCollectionScreen> {
           'hud': (context, game) => HudOverlay(game as CityCollectionGame),
           'controls': (context, game) =>
               ControlsOverlay(game as CityCollectionGame),
+          'gameOver': (context, game) => 
+              GameOverOverlay(game as CityCollectionGame), // NEW
         },
         initialActiveOverlays: const ['hud', 'controls'],
       ),
@@ -41,7 +43,7 @@ class _CityCollectionScreenState extends State<CityCollectionScreen> {
 
 class CityCollectionGame extends FlameGame with HasCollisionDetection {
   // Updated game state variables
-  double timeRemaining = 270;
+  double timeRemaining = 90; // UPDATED: 1.5 minutes (90 seconds)
   int ecoPoints = 0;
   int wasteCollected = 0;
   int wasteTotal = 25;
@@ -60,14 +62,14 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
   bool isBraking = false;
   bool isLongBraking = false;
   double brakePressDuration = 0;
-  double drivingDuration = 0; // NEW: Track how long accelerator is pressed
+  double drivingDuration = 0;
   double currentSpeed = 0.0;
-  double maxSpeed = 450.0; // UPDATED: Increased for 250 km/h capability
+  double maxSpeed = 270.0; // UPDATED: Reduced to map to 150 km/h max (270 * 150/250 = 162, fine-tuned)
   
-  // UPDATED: More aggressive acceleration values
-  double baseAcceleration = 150.0;
-  double accelerationBoost = 280.0; // Stronger boost
-  double longPressAccelerationMultiplier = 1.8; // NEW: Extra boost for sustained press
+  // UPDATED: More realistic acceleration for a waste truck
+  double baseAcceleration = 100.0; // Slower initial acceleration
+  double accelerationBoost = 180.0; // Moderate boost
+  double longPressAccelerationMultiplier = 1.5; // UPDATED: Less aggressive boost
   double brakeDeceleration = 200.0;
   double hardBrakeDeceleration = 500.0;
   double naturalDeceleration = 85.0;
@@ -141,11 +143,13 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     );
     add(truck);
 
-    // Generate waste items randomly along the street
+    // UPDATED: Generate waste items scattered across much longer distance
     final random = math.Random();
 
     for (int i = 0; i < wasteTotal; i++) {
-      final xPos = 400.0 + i * (150 + random.nextDouble() * 200);
+      // Extended distribution: spread across 10,000+ pixels (instead of ~5,000)
+      // This ensures waste appears throughout the entire gameplay duration
+      final xPos = 400.0 + i * (200 + random.nextDouble() * 400);
       final randomAsset = wasteAssets[random.nextInt(wasteAssets.length)];
 
       final waste = WasteComponent(
@@ -165,10 +169,19 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
           timeRemaining -= 1;
           if (timeRemaining <= 0) {
             pauseEngine();
+            // UPDATED: Show game over dialog
+            _showGameOverDialog();
           }
         },
       ),
     );
+  }
+
+  // NEW: Game over dialog method
+  void _showGameOverDialog() {
+    // This will be triggered when time runs out
+    // The overlay system will handle showing the dialog
+    overlays.add('gameOver');
   }
 
   @override
@@ -827,10 +840,32 @@ class BinComponent extends PositionComponent {
   }
 }
 
-class HudOverlay extends StatelessWidget {
+class HudOverlay extends StatefulWidget {
   final CityCollectionGame game;
 
   const HudOverlay(this.game, {super.key});
+
+  @override
+  State<HudOverlay> createState() => _HudOverlayState();
+}
+
+class _HudOverlayState extends State<HudOverlay> {
+  @override
+  void initState() {
+    super.initState();
+    // Rebuild the HUD every frame to reflect game state changes
+    widget.game.add(
+      TimerComponent(
+        period: 0.05, // Update 20 times per second for smooth speedometer
+        repeat: true,
+        onTick: () {
+          if (mounted) {
+            setState(() {});
+          }
+        },
+      ),
+    );
+  }
 
   String formatTime(double seconds) {
     int min = (seconds / 60).floor();
@@ -866,7 +901,7 @@ class HudOverlay extends StatelessWidget {
                     const Icon(Icons.timer, color: Colors.white, size: 24),
                     const SizedBox(width: 8),
                     Text(
-                      formatTime(game.timeRemaining),
+                      formatTime(widget.game.timeRemaining),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 22,
@@ -875,7 +910,7 @@ class HudOverlay extends StatelessWidget {
                     ),
                   ],
                 ),
-                // Speedometer (NEW)
+                // Speedometer
                 _buildSpeedometer(),
                 // Eco Points
                 Row(
@@ -883,7 +918,7 @@ class HudOverlay extends StatelessWidget {
                     const Icon(Icons.eco, color: Colors.greenAccent, size: 24),
                     const SizedBox(width: 8),
                     Text(
-                      '${game.ecoPoints}',
+                      '${widget.game.ecoPoints}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 22,
@@ -910,14 +945,14 @@ class HudOverlay extends StatelessWidget {
                     const Icon(Icons.delete, color: Colors.orange, size: 20),
                     const SizedBox(width: 8),
                     Text(
-                      'Waste Collected: ${game.wasteCollected}/${game.wasteTotal}',
+                      'Waste Collected: ${widget.game.wasteCollected}/${widget.game.wasteTotal}',
                       style: const TextStyle(color: Colors.white, fontSize: 16),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 LinearProgressIndicator(
-                  value: game.wasteCollected / game.wasteTotal,
+                  value: widget.game.wasteCollected / widget.game.wasteTotal,
                   backgroundColor: Colors.grey[700],
                   valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
                 ),
@@ -929,12 +964,11 @@ class HudOverlay extends StatelessWidget {
     );
   }
 
-  // UPDATED: Speedometer widget with proper km/h calculation
   Widget _buildSpeedometer() {
-    // NEW: Proper speed conversion - map 0-450 game speed to 0-250 km/h
-    final speedKmh = ((game.currentSpeed / game.maxSpeed) * 250).toInt();
-    final speedPercentage = speedKmh / 250; // Use km/h for percentage
-    
+    // UPDATED: Proper speed conversion - map 0-270 game speed to 0-150 km/h
+    final speedKmh = ((widget.game.currentSpeed / widget.game.maxSpeed) * 150).toInt();
+    final speedPercentage = speedKmh / 150; 
+      
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -968,9 +1002,10 @@ class HudOverlay extends StatelessWidget {
                   strokeWidth: 6,
                   backgroundColor: Colors.transparent,
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    speedKmh < 80
+                    // UPDATED: Color thresholds for 150 km/h max
+                    speedKmh < 50
                         ? Colors.green
-                        : speedKmh < 160
+                        : speedKmh < 100
                             ? Colors.orange
                             : Colors.red,
                   ),
@@ -1007,48 +1042,47 @@ class HudOverlay extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (game.isDriving)
+              if (widget.game.isDriving)
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      // NEW: Show different icon for long press
-                      game.drivingDuration > 0.3 ? Icons.fast_forward : Icons.arrow_upward,
-                      color: game.drivingDuration > 0.3 ? Colors.lightGreenAccent : Colors.green,
+                      widget.game.drivingDuration > 0.3 ? Icons.fast_forward : Icons.arrow_upward,
+                      color: widget.game.drivingDuration > 0.3 ? Colors.lightGreenAccent : Colors.green,
                       size: 14,
                     ),
                     const SizedBox(width: 2),
                     Text(
-                      game.drivingDuration > 0.3 ? 'BOOST' : 'ACC',
+                      widget.game.drivingDuration > 0.3 ? 'BOOST' : 'ACC',
                       style: TextStyle(
-                        color: game.drivingDuration > 0.3 ? Colors.lightGreenAccent : Colors.green,
+                        color: widget.game.drivingDuration > 0.3 ? Colors.lightGreenAccent : Colors.green,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
                 ),
-              if (game.isBraking)
+              if (widget.game.isBraking)
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
                       Icons.arrow_downward,
-                      color: game.isLongBraking ? Colors.red : Colors.orange,
+                      color: widget.game.isLongBraking ? Colors.red : Colors.orange,
                       size: 14,
                     ),
                     const SizedBox(width: 2),
                     Text(
-                      game.isLongBraking ? 'HARD' : 'BRK',
+                      widget.game.isLongBraking ? 'HARD' : 'BRK',
                       style: TextStyle(
-                        color: game.isLongBraking ? Colors.red : Colors.orange,
+                        color: widget.game.isLongBraking ? Colors.red : Colors.orange,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
                 ),
-              if (!game.isDriving && !game.isBraking && game.currentSpeed > 0)
+              if (!widget.game.isDriving && !widget.game.isBraking && widget.game.currentSpeed > 0)
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1202,6 +1236,140 @@ class _ControlsOverlayState extends State<ControlsOverlay> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class GameOverOverlay extends StatelessWidget {
+  final CityCollectionGame game;
+
+  const GameOverOverlay(this.game, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final collectionRate = (game.wasteCollected / game.wasteTotal * 100).toStringAsFixed(1);
+    
+    return Container(
+      color: Colors.black.withValues(alpha: 0.85),
+      child: Center(
+        child: Container(
+          margin: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.blue[900]!,
+                Colors.blue[700]!,
+              ],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.5),
+                blurRadius: 20,
+                spreadRadius: 5,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.timer_off,
+                size: 80,
+                color: Colors.orange,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'TIME\'S UP!',
+                style: TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.eco, color: Colors.greenAccent, size: 28),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${game.ecoPoints} Points',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.greenAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.delete, color: Colors.orange, size: 24),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${game.wasteCollected}/${game.wasteTotal} Waste Collected',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '$collectionRate% Collection Rate',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop(); // Return to previous screen
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 48,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'FINISH',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
