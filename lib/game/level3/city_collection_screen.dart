@@ -1,3 +1,4 @@
+import 'package:ecoquest/game/level3/sorting_facility_screen.dart';
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flame/game.dart' hide Matrix4;
 import 'package:flame/collisions.dart';
@@ -43,7 +44,6 @@ class _CityCollectionScreenState extends State<CityCollectionScreen> {
 
 class CityCollectionGame extends FlameGame with HasCollisionDetection {
   double timeRemaining = 90;
-  int ecoPoints = 0;
   int wasteCollected = 0;
   int wasteTotal = 0; // UPDATED: No limit, dynamically generated
 
@@ -245,7 +245,6 @@ class CityCollectionGame extends FlameGame with HasCollisionDetection {
     if (!waste.isCollected) {
       waste.collect();
       wasteCollected++;
-      ecoPoints += 50;
     }
   }
 
@@ -764,77 +763,6 @@ class WasteComponent extends SpriteComponent
   }
 }
 
-// Recycling bin component
-/*class BinComponent extends PositionComponent {
-  BinComponent({required Vector2 position})
-    : super(position: position, size: Vector2(50, 60));
-
-  @override
-  void render(Canvas canvas) {
-    // Bin body (green)
-    final binPaint = Paint()..color = const Color(0xFF2D5016);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(5, 10, 40, 50),
-        const Radius.circular(3),
-      ),
-      binPaint,
-    );
-
-    // Bin lid
-    final lidPaint = Paint()..color = const Color(0xFF3A6B1E);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(0, 5, 50, 8),
-        const Radius.circular(2),
-      ),
-      lidPaint,
-    );
-
-    // Lid handle
-    final handlePaint = Paint()
-      ..color = const Color(0xFF1E3A0F)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    canvas.drawArc(
-      Rect.fromLTWH(15, 0, 20, 10),
-      0,
-      -math.pi,
-      false,
-      handlePaint,
-    );
-
-    // Recycling symbol on bin
-    final recyclePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.9)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    final symbolX = 25.0;
-    final symbolY = 35.0;
-    final arrowSize = 8.0;
-
-    for (int i = 0; i < 3; i++) {
-      canvas.save();
-      canvas.translate(symbolX, symbolY);
-      canvas.rotate(i * 2 * math.pi / 3);
-
-      final arrowPath = Path()
-        ..moveTo(0, -arrowSize)
-        ..lineTo(arrowSize * 0.4, -arrowSize * 0.3)
-        ..lineTo(arrowSize * 0.2, -arrowSize * 0.3)
-        ..lineTo(arrowSize * 0.2, arrowSize * 0.5)
-        ..lineTo(-arrowSize * 0.2, arrowSize * 0.5)
-        ..lineTo(-arrowSize * 0.2, -arrowSize * 0.3)
-        ..lineTo(-arrowSize * 0.4, -arrowSize * 0.3)
-        ..close();
-
-      canvas.drawPath(arrowPath, recyclePaint);
-      canvas.restore();
-    }
-  }
-}*/
-
 class HudOverlay extends StatefulWidget {
   final CityCollectionGame game;
 
@@ -874,7 +802,7 @@ class _HudOverlayState extends State<HudOverlay> {
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [Colors.blue[900]!, Colors.blue[700]!],
@@ -887,65 +815,78 @@ class _HudOverlayState extends State<HudOverlay> {
                 ),
               ],
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Timer
-                Row(
-                  children: [
-                    const Icon(Icons.timer, color: Colors.white, size: 24),
-                    const SizedBox(width: 8),
-                    Text(
-                      formatTime(widget.game.timeRemaining),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Responsive layout: single row for wide screens, column for narrow
+                final isWideScreen = constraints.maxWidth > 500;
+                
+                if (isWideScreen) {
+                  // Single row layout for wide screens
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildTimerWidget(),
+                      _buildSpeedometer(),
+                      _buildWasteWidget(),
+                    ],
+                  );
+                } else {
+                  // Column layout for narrow screens
+                  return Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildTimerWidget(),
+                          _buildWasteWidget(),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-                // Speedometer
-                _buildSpeedometer(),
-                // Eco Points
-                Row(
-                  children: [
-                    const Icon(Icons.eco, color: Colors.greenAccent, size: 24),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${widget.game.ecoPoints}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(height: 8),
+                      _buildSpeedometer(),
+                    ],
+                  );
+                }
+              },
             ),
           ),
-          Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(12),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimerWidget() {
+    return Flexible(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.timer, color: Colors.white, size: 22),
+          const SizedBox(width: 6),
+          Text(
+            formatTime(widget.game.timeRemaining),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.delete, color: Colors.orange, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Waste Collected: ${widget.game.wasteCollected}/${widget.game.wasteTotal}',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                  ],
-                ),
-              ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWasteWidget() {
+    return Flexible(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.delete, color: Colors.orange, size: 22),
+          const SizedBox(width: 6),
+          Text(
+            '${widget.game.wasteCollected}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ],
@@ -1260,19 +1201,20 @@ class GameOverOverlay extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(
-                Icons.timer_off,
+                Icons.check_circle_outline,
                 size: 80,
-                color: Colors.orange,
+                color: Colors.greenAccent,
               ),
               const SizedBox(height: 16),
               const Text(
-                'TIME\'S UP!',
+                'COLLECTION COMPLETE!',
                 style: TextStyle(
-                  fontSize: 36,
+                  fontSize: 32,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                   letterSpacing: 2,
                 ),
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
               Container(
@@ -1286,14 +1228,14 @@ class GameOverOverlay extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.eco, color: Colors.greenAccent, size: 28),
+                        const Icon(Icons.delete, color: Colors.orange, size: 28),
                         const SizedBox(width: 12),
                         Text(
-                          '${game.ecoPoints} Points',
+                          '${game.wasteCollected} Waste Collected',
                           style: const TextStyle(
-                            fontSize: 28,
+                            fontSize: 24,
                             fontWeight: FontWeight.bold,
-                            color: Colors.greenAccent,
+                            color: Colors.orange,
                           ),
                         ),
                       ],
@@ -1302,12 +1244,12 @@ class GameOverOverlay extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.delete, color: Colors.orange, size: 24),
+                        const Icon(Icons.timer, color: Colors.white, size: 24),
                         const SizedBox(width: 12),
                         Text(
-                          '${game.wasteCollected} Waste Collected',
+                          'Time: ${(90 - game.timeRemaining).toInt()}s',
                           style: const TextStyle(
-                            fontSize: 20,
+                            fontSize: 18,
                             color: Colors.white,
                           ),
                         ),
@@ -1317,13 +1259,26 @@ class GameOverOverlay extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
+              const Text(
+                'Ready for sorting?',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.white70,
+                ),
+              ),
+              const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
-                  Navigator.of(context).pop();
+                  // Navigate to Sorting Facility Screen
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (context) => const SortingFacilityScreen(),
+                    ),
+                  );
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.greenAccent,
+                  foregroundColor: Colors.black,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 48,
                     vertical: 16,
@@ -1332,13 +1287,20 @@ class GameOverOverlay extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text(
-                  'FINISH',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
-                  ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'PROCEED TO SORTING',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Icon(Icons.arrow_forward, size: 24),
+                  ],
                 ),
               ),
             ],
