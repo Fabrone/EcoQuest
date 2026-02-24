@@ -39,6 +39,17 @@ class EcoQuestGame extends FlameGame {
   int currentLevel = 1;
   int currentPhase = 1;
   int plantsCollected = 0;
+
+  int bacteriaCulturesCollected = 0;
+  int _bacteriaPoints = 0;
+  static const int _maxBacteriaCultures = 11;
+  static const int _bacteriaPointsPerCulture = 6; 
+  // At 6pts/culture: need 66 pts to max out.
+  // 3-matches alone give 1pt each → need 66 clean 3-matches (impossible in 36-tile board).
+  // Mix of 4-match(2pt), 5-match(4pt), 6+(6pt) and no failed swaps → realistically 7–10 cultures.
+  // Perfect play (all big combos, zero fails) → 11 cultures.
+  bool _isPlayerTriggeredMatch = false;
+  int getBacteriaCulturesCollected() => bacteriaCulturesCollected;
   
   List<String> forestImages = [
     'forest_0.png', 'forest_1.png', 'forest_2.png', 'forest_3.png', 'forest_4.png',
@@ -151,9 +162,7 @@ class EcoQuestGame extends FlameGame {
     _timerComponent = TimerComponent(period: 1.0, repeat: true, onTick: _onTimerTick);
     add(_timerComponent);
     
-    // CHANGED: Only pause the TIMER, not the entire engine
     _timerComponent.timer.pause();
-    // REMOVED: pauseEngine(); - This was preventing sprites from loading!
   }
     
   void _onTimerTick() {
@@ -240,6 +249,10 @@ class EcoQuestGame extends FlameGame {
     plantsCollectedNotifier.value = 0;
     sixtyPercentAchievedTime = null;
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
+    bacteriaCulturesCollected = 0;
+    _bacteriaPoints = 0;
+    _isPlayerTriggeredMatch = false;
+    bacteriaCulturesNotifier.value = 0;
     
     // ADDED: Reset first move tracker
     _hasStartedPlaying = false;
@@ -256,8 +269,6 @@ class EcoQuestGame extends FlameGame {
     // Notify UI
     materialsUpdateNotifier.value++;
     
-    // CHANGED: More thorough cleanup of sprites
-    // First, remove all items from the grid
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
         final item = gridItems[r][c];
@@ -312,6 +323,10 @@ class EcoQuestGame extends FlameGame {
     hintsRemaining = 5;
     sixtyPercentAchievedTime = null;
     restoredTiles = List.generate(rows, (_) => List.generate(cols, (_) => false));
+    bacteriaCulturesCollected = 0;
+    _bacteriaPoints = 0;
+    _isPlayerTriggeredMatch = false;
+    bacteriaCulturesNotifier.value = 0;
     
     // ADDED: Reset first move tracker
     _hasStartedPlaying = false;
@@ -481,40 +496,41 @@ class EcoQuestGame extends FlameGame {
     }
     selectedItem = null;
   }
-      
+        
   Future<void> _swapItems(EcoItem item1, EcoItem item2) async {
     isProcessing = true;
-    
-    // ADDED: Start timer on first swap
+
     if (!_hasStartedPlaying) {
       _hasStartedPlaying = true;
       _timerComponent.timer.resume();
       resumeEngine();
     }
-    
-    // FIXED: Get current center positions
+
     final pos1 = item1.position.clone();
     final pos2 = item2.position.clone();
-    
-    // Animate swap
+
     item1.add(MoveToEffect(pos2, EffectController(duration: 0.15)));
     item2.add(MoveToEffect(pos1, EffectController(duration: 0.15)));
     await Future.delayed(const Duration(milliseconds: 160));
-    
-    // Update grid positions
+
     Point p1 = item1.gridPosition;
     Point p2 = item2.gridPosition;
     gridItems[p1.x as int][p1.y as int] = item2;
     gridItems[p2.x as int][p2.y as int] = item1;
     item1.gridPosition = p2;
     item2.gridPosition = p1;
-    
-    // Check for matches
+
     List<EcoItem> matches = _findMatches();
     if (matches.isNotEmpty) {
+      // Mark this as a player-triggered match so _processMatches awards bacteria points.
+      // Cascades triggered by gravity will have _isPlayerTriggeredMatch = false.
+      _isPlayerTriggeredMatch = true;
       await _processMatches(matches);
     } else {
-      // Swap back if no matches
+      // Failed swap: penalise bacteria points and revert board
+      _bacteriaPoints = (_bacteriaPoints - 1).clamp(0, 999);
+      _recalculateBacteriaCultures();
+
       item1.add(MoveToEffect(pos1, EffectController(duration: 0.15)));
       item2.add(MoveToEffect(pos2, EffectController(duration: 0.15)));
       await Future.delayed(const Duration(milliseconds: 160));
@@ -549,35 +565,27 @@ class EcoQuestGame extends FlameGame {
 
   Future<void> _processMatches(List<EcoItem> matches) async {
     FlameAudio.play('bubble-pop.mp3');
-    
-    // Calculate points
+
     scoreNotifier.value += matches.length * 10;
-    
-    // NEW: Group matches by type to properly count materials
+
     Map<String, int> matchesByType = {};
     for (var item in matches) {
       matchesByType[item.type] = (matchesByType[item.type] ?? 0) + 1;
     }
-        
-    // Award materials based on match size PER TYPE
+
+    // Award materials based on match size per type (unchanged)
     for (var entry in matchesByType.entries) {
       String materialType = entry.key;
       int count = entry.value;
-      
+
       if (count == 3) {
-        // Standard 3-match → +1 material
         materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 1;
       } else if (count == 4) {
-        // L/T-shape match (4 items) → +3 materials
         materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 3;
       } else if (count == 5) {
-        // 5-in-row → +5 materials
         materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 5;
       } else if (count >= 6) {
-        // Cross match (6+) → +10 to this material type
         materialsCollected[materialType] = (materialsCollected[materialType] ?? 0) + 10;
-        
-        // BONUS: +2 to ALL other material types
         for (var type in level1ItemTypes) {
           if (type != materialType) {
             materialsCollected[type] = (materialsCollected[type] ?? 0) + 2;
@@ -585,9 +593,28 @@ class EcoQuestGame extends FlameGame {
         }
       }
     }
-    
+
+    // BACTERIA: Only award points for player-triggered matches, not cascades.
+    // This means free gravity chains give nothing — only deliberate play counts.
+    if (_isPlayerTriggeredMatch) {
+      int totalMatchSize = matches.length;
+      int pointsEarned;
+      if (totalMatchSize >= 6) {
+        pointsEarned = 6;       // Big cross/combo: maximum reward per swap
+      } else if (totalMatchSize == 5) {
+        pointsEarned = 4;       // 5-in-row: high reward
+      } else if (totalMatchSize == 4) {
+        pointsEarned = 2;       // L/T-shape: moderate reward
+      } else {
+        pointsEarned = 1;       // Standard 3-match: minimal reward
+      }
+      _bacteriaPoints += pointsEarned;
+      _recalculateBacteriaCultures();
+      _isPlayerTriggeredMatch = false; // Reset — cascades that follow are NOT player-triggered
+    }
+
     materialsUpdateNotifier.value++;
-    
+
     for (var item in matches) {
       int r = item.gridPosition.x as int, c = item.gridPosition.y as int;
       add(MatchExplosionEffect(
@@ -610,6 +637,7 @@ class EcoQuestGame extends FlameGame {
     List<EcoItem> newMatches = _findMatches();
     if (newMatches.isNotEmpty) {
       await Future.delayed(const Duration(milliseconds: 300));
+      // _isPlayerTriggeredMatch remains false here — cascades don't award bacteria
       await _processMatches(newMatches);
     } else {
       if (!_hasPossibleMoves() && levelTimeNotifier.value > 0) {
@@ -618,6 +646,17 @@ class EcoQuestGame extends FlameGame {
         _triggerGameOver(false);
       }
       isProcessing = false;
+    }
+  }
+
+  /// Recomputes bacteriaCulturesCollected from the raw bacteria points bank.
+  /// Called every time points change so the UI stays live.
+  void _recalculateBacteriaCultures() {
+    final newCount = (_bacteriaPoints ~/ _bacteriaPointsPerCulture)
+        .clamp(0, _maxBacteriaCultures);
+    if (newCount != bacteriaCulturesCollected) {
+      bacteriaCulturesCollected = newCount;
+      bacteriaCulturesNotifier.value = bacteriaCulturesCollected;
     }
   }
 

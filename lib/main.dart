@@ -20,6 +20,7 @@ final ValueNotifier<int> currentLevelNotifier = ValueNotifier<int>(1);
 final ValueNotifier<bool> gameSuccessNotifier = ValueNotifier<bool>(false);
 final ValueNotifier<int> plantsCollectedNotifier = ValueNotifier<int>(0);
 final ValueNotifier<int> materialsUpdateNotifier = ValueNotifier<int>(0);
+final ValueNotifier<int> bacteriaCulturesNotifier = ValueNotifier<int>(0);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
