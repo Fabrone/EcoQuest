@@ -4357,6 +4357,12 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
             Icons.science,
             fontSize,
           ),
+          _buildStatRow(
+            'Bacteria Cultures:',
+            '${widget.game.bacteriaCulturesCollected} / 11',
+            Icons.biotech,
+            fontSize,
+          ),
 
           SizedBox(height: cardPadding * 0.6),
           Divider(color: dyeColor.withValues(alpha: 0.3)),
@@ -5095,8 +5101,65 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                 'Total EcoCoins: $ecoCoinsEarned',
                 style: GoogleFonts.vt323(color: Colors.green, fontSize: 22),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
 
+              // Bacteria cultures — same value shown in phase complete dialog and passed forward
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.cyanAccent.withValues(alpha: 0.15),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    const Text('🦠', style: TextStyle(fontSize: 22)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Bacteria Cultures',
+                            style: GoogleFonts.vt323(fontSize: 18, color: Colors.white60),
+                          ),
+                          Text(
+                            'Carried into Water Treatment',
+                            style: GoogleFonts.vt323(
+                              fontSize: 14,
+                              color: Colors.cyanAccent.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${widget.game.bacteriaCulturesCollected} / 11',
+                          style: GoogleFonts.vt323(fontSize: 26, color: Colors.cyanAccent),
+                        ),
+                        Text(
+                          widget.game.bacteriaCulturesCollected >= 9 ? '⭐ Excellent' :
+                          widget.game.bacteriaCulturesCollected >= 6 ? '👍 Good' :
+                          widget.game.bacteriaCulturesCollected >= 3 ? '🔬 Moderate' : '⚠️ Low',
+                          style: GoogleFonts.vt323(fontSize: 13, color: Colors.white60),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
               Text(
                 'Ready for the next challenge: Water Pollution Mission!',
                 style: GoogleFonts.vt323(color: Colors.white70, fontSize: 16),
@@ -5124,25 +5187,17 @@ class _DyeExtractionScreenState extends State<DyeExtractionScreen>
                     onPressed: () {
                       Navigator.of(context).pop(); // Close dialog
                       Navigator.of(context).pop(); // Go back from DyeExtractionScreen
-                      
-                      // Calculate bacteria cultures from dye production
-                      // Higher quality dye = more bacteria cultures
-                      int bacteriaCultures = (dyeProduced / 2).floor();
-                      if (crushingEfficiency > 1.1 && filteringPurity > 0.9) {
-                        bacteriaCultures = (bacteriaCultures * 1.5).floor();
-                      }
-                      bacteriaCultures = bacteriaCultures.clamp(5, 30);
-                      
-                      // Prepare materials to carry forward
-                      Map<String, int> materialsToCarry = {
+
+                      final int bacteriaCultures = widget.game.bacteriaCulturesCollected;
+
+                      final Map<String, int> materialsToCarry = {
                         'dye_produced': dyeProduced,
                         'eco_coins': ecoCoinsEarned,
                         'quality_bonus': (qualityMultiplier * 100).toInt(),
                         'crushing_efficiency': (crushingEfficiency * 100).toInt(),
                         'filtering_purity': (filteringPurity * 100).toInt(),
                       };
-                      
-                      // Navigate to Water Pollution Screen
+
                       Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (context) => WaterPollutionScreen(

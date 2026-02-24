@@ -1110,12 +1110,12 @@ class _GameScreenState extends State<GameScreen> {
               builder: (context, constraints) {
                 double dialogWidth = constraints.maxWidth * 0.85;
                 dialogWidth = dialogWidth.clamp(280.0, 420.0);
-                
+
                 double scale = (constraints.maxWidth / 400.0).clamp(0.7, 1.2);
-                
-                // Get total materials collected
+
                 final totalMaterials = game.getTotalMaterialsCollected();
-                
+                final bacteriaCount = game.bacteriaCulturesCollected;
+
                 return SingleChildScrollView(
                   child: Container(
                     width: dialogWidth,
@@ -1142,7 +1142,7 @@ class _GameScreenState extends State<GameScreen> {
                       children: [
                         Icon(Icons.park, size: 50 * scale, color: Colors.amber),
                         SizedBox(height: 12 * scale),
-                        
+
                         Text(
                           "FOREST RESTORED!",
                           style: GoogleFonts.exo2(
@@ -1153,10 +1153,10 @@ class _GameScreenState extends State<GameScreen> {
                           ),
                           textAlign: TextAlign.center,
                         ),
-                        
+
                         SizedBox(height: 16 * scale),
-                        
-                        // Display total materials collected
+
+                        // Materials collected container
                         Container(
                           padding: EdgeInsets.all(12 * scale),
                           decoration: BoxDecoration(
@@ -1187,7 +1187,6 @@ class _GameScreenState extends State<GameScreen> {
                                 ),
                               ),
                               SizedBox(height: 12 * scale),
-                              // Material breakdown
                               Wrap(
                                 alignment: WrapAlignment.center,
                                 spacing: 8 * scale,
@@ -1203,9 +1202,89 @@ class _GameScreenState extends State<GameScreen> {
                             ],
                           ),
                         ),
-                        
+
+                        SizedBox(height: 10 * scale),
+
+                        // ADDED: Bacteria cultures collected container
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 14 * scale,
+                            vertical: 10 * scale,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.cyanAccent.withValues(alpha: 0.5),
+                              width: 1.5,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.cyanAccent.withValues(alpha: 0.15),
+                                blurRadius: 8,
+                                spreadRadius: 1,
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                '🦠',
+                                style: TextStyle(fontSize: 22 * scale),
+                              ),
+                              SizedBox(width: 10 * scale),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Bacteria Cultures Collected',
+                                      style: GoogleFonts.exo2(
+                                        fontSize: 11 * scale,
+                                        color: Colors.white60,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Carried into Water Treatment',
+                                      style: GoogleFonts.exo2(
+                                        fontSize: 10 * scale,
+                                        color: Colors.cyanAccent.withValues(alpha: 0.7),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '$bacteriaCount / 11',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: 22 * scale,
+                                      color: Colors.cyanAccent,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  Text(
+                                    bacteriaCount >= 9 ? '⭐ Excellent' :
+                                    bacteriaCount >= 6 ? '👍 Good' :
+                                    bacteriaCount >= 3 ? '🔬 Moderate' : '⚠️ Low',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: 10 * scale,
+                                      color: Colors.white60,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
                         SizedBox(height: 12 * scale),
-                        
+
                         Text(
                           'All tiles restored! Ready for dye extraction.',
                           style: GoogleFonts.exo2(
@@ -1215,9 +1294,9 @@ class _GameScreenState extends State<GameScreen> {
                           ),
                           textAlign: TextAlign.center,
                         ),
-                        
+
                         SizedBox(height: 20 * scale),
-                        
+
                         SizedBox(
                           width: double.infinity,
                           child: _buildDialogButton(
@@ -1231,7 +1310,7 @@ class _GameScreenState extends State<GameScreen> {
                                 MaterialPageRoute(
                                   builder: (context) => DyeExtractionScreen(
                                     game: game,
-                                    levelTimeRemaining: game.getCompletionTime(), // Pass actual completion time
+                                    levelTimeRemaining: game.getCompletionTime(),
                                   ),
                                 ),
                               );
@@ -1285,12 +1364,12 @@ class _GameScreenState extends State<GameScreen> {
               builder: (context, constraints) {
                 double dialogWidth = constraints.maxWidth * 0.85;
                 dialogWidth = dialogWidth.clamp(280.0, 420.0);
-                
+
                 double scale = (constraints.maxWidth / 400.0).clamp(0.7, 1.2);
-                
-                // Get total materials collected
+
                 final totalMaterials = game.getTotalMaterialsCollected();
-                
+                final bacteriaCount = game.bacteriaCulturesCollected;
+
                 return SingleChildScrollView(
                   child: Container(
                     width: dialogWidth,
@@ -1317,7 +1396,7 @@ class _GameScreenState extends State<GameScreen> {
                       children: [
                         Icon(Icons.warning_amber_rounded, size: 50 * scale, color: Colors.white),
                         SizedBox(height: 12 * scale),
-                        
+
                         Text(
                           "FOREST RESTORED!",
                           style: GoogleFonts.exo2(
@@ -1328,9 +1407,9 @@ class _GameScreenState extends State<GameScreen> {
                           ),
                           textAlign: TextAlign.center,
                         ),
-                        
+
                         SizedBox(height: 8 * scale),
-                        
+
                         Text(
                           'Limited materials collected. Complete faster for more resources!',
                           style: GoogleFonts.exo2(
@@ -1340,9 +1419,10 @@ class _GameScreenState extends State<GameScreen> {
                           ),
                           textAlign: TextAlign.center,
                         ),
-                        
+
                         SizedBox(height: 16 * scale),
-                        
+
+                        // Materials container
                         Container(
                           padding: EdgeInsets.all(12 * scale),
                           decoration: BoxDecoration(
@@ -1388,9 +1468,89 @@ class _GameScreenState extends State<GameScreen> {
                             ],
                           ),
                         ),
-                        
+
+                        SizedBox(height: 10 * scale),
+
+                        // ADDED: Bacteria cultures collected container
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 14 * scale,
+                            vertical: 10 * scale,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.cyanAccent.withValues(alpha: 0.5),
+                              width: 1.5,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.cyanAccent.withValues(alpha: 0.15),
+                                blurRadius: 8,
+                                spreadRadius: 1,
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                '🦠',
+                                style: TextStyle(fontSize: 22 * scale),
+                              ),
+                              SizedBox(width: 10 * scale),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Bacteria Cultures Collected',
+                                      style: GoogleFonts.exo2(
+                                        fontSize: 11 * scale,
+                                        color: Colors.white60,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Carried into Water Treatment',
+                                      style: GoogleFonts.exo2(
+                                        fontSize: 10 * scale,
+                                        color: Colors.cyanAccent.withValues(alpha: 0.7),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '$bacteriaCount / 11',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: 22 * scale,
+                                      color: Colors.cyanAccent,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  Text(
+                                    bacteriaCount >= 9 ? '⭐ Excellent' :
+                                    bacteriaCount >= 6 ? '👍 Good' :
+                                    bacteriaCount >= 3 ? '🔬 Moderate' : '⚠️ Low',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: 10 * scale,
+                                      color: Colors.white60,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
                         SizedBox(height: 20 * scale),
-                        
+
                         Row(
                           children: [
                             Expanded(
@@ -1401,7 +1561,6 @@ class _GameScreenState extends State<GameScreen> {
                                 scale: scale,
                                 onPressed: () {
                                   setState(() => _showInsufficientMaterials = false);
-                                  // ADDED: Small delay to ensure dialog fully closes before restart
                                   Future.delayed(const Duration(milliseconds: 100), () {
                                     game.restartGame();
                                   });
