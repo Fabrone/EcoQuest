@@ -114,11 +114,12 @@ class RowingBoatComponent extends PositionComponent
   Vector2 targetVelocity = Vector2.zero();
   double boatAngle = 0.0; // radians, 0 = pointing up/north
   double angularVelocity = 0.0;
-  static const double maxSpeed = 180.0;
-  static const double acceleration = 280.0;
-  static const double drag = 0.88;
-  static const double angularDrag = 0.80;
-  static const double turnRate = 2.8;
+  static const double maxSpeed = 280.0;
+  static const double acceleration = 520.0;
+  static const double drag = 0.82;
+  static const double angularDrag = 0.55;     // low drag = angular velocity sticks longer
+  static const double turnRate = 4.5;         // radians/sec applied directly to boatAngle when key held
+  static const double maxAngularVelocity = 6.0; // cap so it doesn't spin out
   bool isMoving = false;
 
   // ── Rowing animation ──────────────────────────────────────────────────────
@@ -144,12 +145,17 @@ class RowingBoatComponent extends PositionComponent
   double health = 100.0; // reduced by obstacles
   double stunTimer = 0.0; // seconds of stun after croc hit
 
-  // ── Touch joystick ────────────────────────────────────────────────────────
-  Vector2? joystickCenter;
-  Vector2? joystickCurrent;
+  // ── Touch drag (world-space direct position) ──────────────────────────────
+  /// World-space position where the drag started (set once per drag gesture).
+  Vector2? _dragStartPos;
+  /// Boat position captured at drag-start for reference.
+  Vector2? _dragBoatStartPos;
 
   // ── Keyboard state ────────────────────────────────────────────────────────
   final Set<LogicalKeyboardKey> _heldKeys = {};
+  /// Tracks keys that fired a KeyDown this frame so we can apply an
+  /// immediate angular impulse before the continuous per-frame accumulation.
+  final Set<LogicalKeyboardKey> _justPressedKeys = {};
 
   RowingBoatComponent({required super.position, required super.size}) {
     anchor = Anchor.center;
@@ -180,39 +186,73 @@ class RowingBoatComponent extends PositionComponent
     double turnInput = 0.0;
     double forwardInput = 0.0;
 
-    // Keyboard
-    if (_heldKeys.contains(LogicalKeyboardKey.arrowLeft) ||
-        _heldKeys.contains(LogicalKeyboardKey.keyA)) {
-      turnInput = -1.0;
+    // ── Keyboard: instant impulse on first press, then continuous hold ────
+    final bool leftHeld = _heldKeys.contains(LogicalKeyboardKey.arrowLeft) ||
+        _heldKeys.contains(LogicalKeyboardKey.keyA);
+    final bool rightHeld = _heldKeys.contains(LogicalKeyboardKey.arrowRight) ||
+        _heldKeys.contains(LogicalKeyboardKey.keyD);
+    final bool upHeld = _heldKeys.contains(LogicalKeyboardKey.arrowUp) ||
+        _heldKeys.contains(LogicalKeyboardKey.keyW);
+    final bool downHeld = _heldKeys.contains(LogicalKeyboardKey.arrowDown) ||
+        _heldKeys.contains(LogicalKeyboardKey.keyS);
+
+    if (leftHeld) turnInput = -1.0;
+    if (rightHeld) turnInput = 1.0;
+    if (upHeld) forwardInput = 1.0;
+    if (downHeld) forwardInput = -0.5;
+
+    // Instant angular impulse on the very first frame a turn key is pressed
+    if (_justPressedKeys.contains(LogicalKeyboardKey.arrowLeft) ||
+        _justPressedKeys.contains(LogicalKeyboardKey.keyA)) {
+      angularVelocity -= turnRate * 0.6;
     }
-    if (_heldKeys.contains(LogicalKeyboardKey.arrowRight) ||
-        _heldKeys.contains(LogicalKeyboardKey.keyD)) {
-      turnInput = 1.0;
+    if (_justPressedKeys.contains(LogicalKeyboardKey.arrowRight) ||
+        _justPressedKeys.contains(LogicalKeyboardKey.keyD)) {
+      angularVelocity += turnRate * 0.6;
     }
-    if (_heldKeys.contains(LogicalKeyboardKey.arrowUp) ||
-        _heldKeys.contains(LogicalKeyboardKey.keyW)) {
-      forwardInput = 1.0;
+    if (_justPressedKeys.contains(LogicalKeyboardKey.arrowUp) ||
+        _justPressedKeys.contains(LogicalKeyboardKey.keyW)) {
+      final fwd = Vector2(sin(boatAngle), -cos(boatAngle));
+      velocity += fwd * (acceleration * 0.25);
     }
-    if (_heldKeys.contains(LogicalKeyboardKey.arrowDown) ||
-        _heldKeys.contains(LogicalKeyboardKey.keyS)) {
-      forwardInput = -0.4;
+    _justPressedKeys.clear();
+
+    // ── Direct boatAngle rotation while key is held ───────────────────────
+    // Bypasses the angularVelocity ramp — the boat turns at a fixed rate the
+    // instant and every frame a key is held, giving zero-lag keyboard turning.
+    if (_dragStartPos == null) {
+      if (leftHeld) boatAngle -= turnRate * dt;
+      if (rightHeld) boatAngle += turnRate * dt;
     }
 
-    // Touch joystick
-    if (joystickCenter != null && joystickCurrent != null) {
-      final delta = joystickCurrent! - joystickCenter!;
-      final dist = delta.length.clamp(0.0, 60.0);
-      if (dist > 8) {
-        // Decompose into forward (boat-local y) and strafe (boat-local x)
-        final localX = delta.x * cos(-boatAngle) - delta.y * sin(-boatAngle);
-        final localY = delta.x * sin(-boatAngle) + delta.y * cos(-boatAngle);
-        turnInput = (localX / 60.0).clamp(-1.0, 1.0);
-        forwardInput = (-localY / 60.0).clamp(-0.5, 1.0);
+    // ── World-space drag steering (touch / mouse) ─────────────────────────
+    // The drag target (_dragStartPos) is set relative to the boat's start
+    // position captured at drag-begin.  The delta gives us the desired
+    // travel direction — simple and immediately responsive on touch and mouse.
+    if (_dragStartPos != null && _dragBoatStartPos != null) {
+      final dispX = _dragStartPos!.x - _dragBoatStartPos!.x;
+      final dispY = _dragStartPos!.y - _dragBoatStartPos!.y;
+      final dragDelta = Vector2(dispX, dispY);
+      final dist = dragDelta.length.clamp(0.0, 80.0);
+      if (dist > 6) {
+        // Target angle = direction the player is dragging
+        final targetAngle = atan2(dragDelta.x, -dragDelta.y);
+        // Steer boat angle toward target angle
+        double angleDiff = targetAngle - boatAngle;
+        // Normalise to [-π, π]
+        while (angleDiff > pi) { angleDiff -= 2 * pi; }
+        while (angleDiff < -pi) { angleDiff += 2 * pi; }
+        // Apply proportional angular push
+        angularVelocity += angleDiff * 6.0 * dt;
+        // Forward thrust proportional to drag magnitude
+        forwardInput = (dist / 80.0).clamp(0.0, 1.0);
       }
     }
 
     // ── Apply physics ─────────────────────────────────────────────────────
-    angularVelocity += turnInput * turnRate * dt;
+    // angularVelocity is now only used for drag-steering and impulse inertia.
+    // Keyboard turning writes directly to boatAngle above — no ramp needed.
+    angularVelocity = angularVelocity.clamp(-maxAngularVelocity, maxAngularVelocity);
     angularVelocity *= pow(angularDrag, dt * 60).toDouble();
     boatAngle += angularVelocity * dt;
 
@@ -228,7 +268,7 @@ class RowingBoatComponent extends PositionComponent
     if (speed > maxSpeed) velocity = velocity.normalized() * maxSpeed;
 
     // Notify game to start the countdown on the very first movement
-    if (isMoving || turnInput.abs() > 0.01) {
+    if (isMoving || turnInput.abs() > 0.01 || (_dragStartPos != null)) {
       game.notifyPlayerStarted();
     }
 
@@ -579,10 +619,14 @@ class RowingBoatComponent extends PositionComponent
       ..clear()
       ..addAll(keysPressed);
 
-    if (event is KeyDownEvent &&
-        event.logicalKey == LogicalKeyboardKey.space) {
-      castNet();
-      return true;
+    if (event is KeyDownEvent) {
+      // Record for instant-impulse processing in update()
+      _justPressedKeys.add(event.logicalKey);
+
+      if (event.logicalKey == LogicalKeyboardKey.space) {
+        castNet();
+        return true;
+      }
     }
     return keysPressed.isNotEmpty;
   }
@@ -590,21 +634,24 @@ class RowingBoatComponent extends PositionComponent
   @override
   void onDragStart(DragStartEvent event) {
     super.onDragStart(event);
-    joystickCenter = event.localPosition;
-    joystickCurrent = event.localPosition;
+    // World-space drag: remember where the drag started in world coords
+    _dragStartPos = event.localPosition.clone();
+    _dragBoatStartPos = position.clone();
+    game.notifyPlayerStarted();
   }
 
   @override
   void onDragUpdate(DragUpdateEvent event) {
     super.onDragUpdate(event);
-    joystickCurrent = event.localEndPosition;
+    // Track the live drag position in world space
+    _dragStartPos = event.localEndPosition.clone();
   }
 
   @override
   void onDragEnd(DragEndEvent event) {
     super.onDragEnd(event);
-    joystickCenter = null;
-    joystickCurrent = null;
+    _dragStartPos = null;
+    _dragBoatStartPos = null;
   }
 
   void castNet() {
@@ -616,6 +663,10 @@ class RowingBoatComponent extends PositionComponent
     // Casting net counts as first player action — start timer
     game.notifyPlayerStarted();
 
+    // Scare nearby crocodiles when the net is cast — gives the player a
+    // defensive action to push crocs away without full collision damage.
+    _scareCrocodilesNearby();
+
     // Notify HUD
     game.onNetStateChanged?.call(true, 0.0);
 
@@ -626,7 +677,33 @@ class RowingBoatComponent extends PositionComponent
     );
   }
 
-  /// World-space position of the net's center (used for collision)
+  /// Scares any crocodile within 1.5× the max net radius into retreating.
+  void _scareCrocodilesNearby() {
+    const double scareRadius = maxNetRadius * 2.2;
+    for (final croc in List<CrocodileComponent>.from(
+        game.children.whereType<CrocodileComponent>())) {
+      final dist = (croc.position - position).length;
+      if (dist < scareRadius) {
+        croc.scare();
+      }
+    }
+  }
+
+  /// Called by the screen-level GestureDetector to set the world-space drag target.
+  /// [dragOrigin] is the screen position where the drag started (world-space).
+  /// [boatPosAtStart] is the boat position captured once per drag-start.
+  void setScreenDrag(Vector2? dragOrigin, Vector2? boatPosAtStart) {
+    _dragStartPos = dragOrigin;
+    _dragBoatStartPos = boatPosAtStart;
+  }
+
+  /// Clears the screen-level drag (called on pan-end).
+  void clearScreenDrag() {
+    _dragStartPos = null;
+    _dragBoatStartPos = null;
+  }
+
+  /// World-space position of the net's center (used for collision).
   Vector2 get netWorldCenter {
     final local = Vector2(0, -(size.y / 2) - netRadius * 0.6);
     // Rotate by boatAngle
@@ -1042,12 +1119,13 @@ class CrocodileComponent extends PositionComponent
       case CrocodileState.retreating:
         lurk = (lurk - dt * 1.5).clamp(0, 1.0);
         jawAngle = (jawAngle - dt).clamp(0, 1.0);
-        speed = 60;
+        // Move in the current moveDir (either patrol or flee direction)
+        position += moveDir * speed * dt;
         if (stateTimer > 1.5) {
           hasDealtDamage = false;
+          speed = 0;
           _transition(CrocodileState.submerged);
         }
-        _patrol(dt);
         break;
     }
 
@@ -1061,6 +1139,20 @@ class CrocodileComponent extends PositionComponent
     state = next;
     stateTimer = 0;
     hasDealtDamage = false;
+  }
+
+  /// Called when the player casts a net nearby — forces the croc to flee.
+  /// Works from any active state, giving the player a reliable scare action.
+  void scare() {
+    // Only scare if the croc is visible / threatening — don't surface submerged ones
+    if (state == CrocodileState.submerged) return;
+    _transition(CrocodileState.retreating);
+    // Flee away from the boat fast
+    final boat = game.rowingBoat;
+    if (boat != null) {
+      moveDir = (position - boat.position).normalized();
+    }
+    speed = 220; // fast retreat speed
   }
 
   void _patrol(double dt) {

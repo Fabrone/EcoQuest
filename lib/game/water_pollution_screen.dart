@@ -259,35 +259,40 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  // ── Touch joystick handlers — pan anywhere on screen to steer ────────────
+  // ── Touch / mouse drag handlers — pan anywhere on screen to steer ─────────
+  // Pan from anywhere on screen to steer the boat. The drag delta is mapped
+  // to a steering direction — simple and immediately responsive.
+
+  Vector2? _screenDragBoatStart; // boat position captured once at drag-start
 
   void _onJoystickStart(Offset pos) {
+    final boat = game.rowingBoat;
     setState(() {
       _joystickActive = true;
       _joystickOrigin = pos;
       _joystickCurrent = pos;
     });
-    _feedJoystickToBoat(pos);
+    if (boat == null) return;
+    _screenDragBoatStart = boat.position.clone();
+    // Zero delta at start — just mark that a drag is active
+    boat.setScreenDrag(boat.position.clone(), boat.position.clone());
   }
 
   void _onJoystickUpdate(Offset pos) {
     setState(() => _joystickCurrent = pos);
-    _feedJoystickToBoat(pos);
+    final boat = game.rowingBoat;
+    if (boat == null || _screenDragBoatStart == null) return;
+    final dx = pos.dx - _joystickOrigin.dx;
+    final dy = pos.dy - _joystickOrigin.dy;
+    // Steer toward: boat's start position + the screen drag delta
+    final target = _screenDragBoatStart! + Vector2(dx, dy);
+    boat.setScreenDrag(target, _screenDragBoatStart!);
   }
 
   void _onJoystickEnd() {
     setState(() => _joystickActive = false);
-    // Clear joystick on the boat
-    game.rowingBoat?.joystickCenter = null;
-    game.rowingBoat?.joystickCurrent = null;
-  }
-
-  void _feedJoystickToBoat(Offset screenPos) {
-    final boat = game.rowingBoat;
-    if (boat == null) return;
-    // Convert screen Offset to Flame Vector2
-    boat.joystickCenter = Vector2(_joystickOrigin.dx, _joystickOrigin.dy);
-    boat.joystickCurrent = Vector2(screenPos.dx, screenPos.dy);
+    _screenDragBoatStart = null;
+    game.rowingBoat?.clearScreenDrag();
   }
 
   Widget _buildIntroScreen() {
@@ -919,7 +924,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                       children: [
                         if (!isMobile) ...[
                           Text(
-                            '🎮 KEYBOARD: WASD / Arrows to row  |  SPACE to cast net',
+                            '🎮 KEYBOARD: WASD / Arrows to row  |  SPACE to cast net & scare crocs',
                             style: GoogleFonts.exo2(
                               fontSize: isTablet ? 11 : 12,
                               color: Colors.white70,
@@ -929,7 +934,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '🐊 Avoid crocodiles  🌀 Steer clear of whirlpools  🪵 Watch for log jams',
+                            '🐊 SPACE near croc = scare it away  🌀 Steer clear of whirlpools  🪵 Dodge log jams',
                             style: GoogleFonts.exo2(
                               fontSize: isTablet ? 10 : 11,
                               color: Colors.white54,
@@ -939,7 +944,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                           ),
                         ] else ...[
                           Text(
-                            '👆 Drag left joystick to row  •  🎯 Cast Net button to collect',
+                            '👆 Drag anywhere to row  •  🎯 Tap Net button to collect & scare crocs',
                             style: GoogleFonts.exo2(
                               fontSize: 11,
                               color: Colors.white70,
@@ -949,7 +954,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '🐊 Avoid crocs  🌀 Escape whirlpools  🪵 Go around log jams',
+                            '🐊 Tap Net near croc = scare it!  🌀 Escape whirlpools  🪵 Dodge log jams',
                             style: GoogleFonts.exo2(
                               fontSize: 10,
                               color: Colors.white54,
@@ -1072,8 +1077,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 ),
                 child: Text(
                   isMobile
-                      ? '👆 Drag anywhere to row  •  Timer starts on first move'
-                      : '⬆ WASD / Arrow Keys to row  •  SPACE to cast net  •  Timer starts on first move',
+                      ? '👆 Drag anywhere to row  •  🎯 Tap Net to collect & scare crocs  •  Timer starts on first move'
+                      : '⬆ WASD / Arrow Keys to row  •  SPACE to cast net & scare crocs  •  Timer starts on first move',
                   style: GoogleFonts.exo2(
                     fontSize: isMobile ? 12 : 13,
                     color: Colors.cyan.shade200,
