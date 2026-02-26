@@ -52,7 +52,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   int sessionScore = 0;
   int obstaclesAvoided = 0;
   int obstaclesHit = 0;
-  double boatHealth = 100.0;
+  double boatHealth = 150.0; // increased — gives player more room to survive multi-hazard encounters
 
   // Callbacks (add alongside existing callbacks)
   Function(String obstacle, double damage)? _onObstacleHitExternal;
@@ -222,7 +222,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     sessionScore = 0;
     obstaclesAvoided = 0;
     obstaclesHit = 0;
-    boatHealth = 100.0;
+    boatHealth = 150.0;
     collectionTimeRemaining = collectionTimerMax;
     timerRunning = false;
     timeUp = false;
@@ -264,8 +264,8 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // ── Obstacles: whirlpools ─────────────────────────────────────────────
     await _spawnWhirlpools();
 
-    // ── Obstacles: log jams ───────────────────────────────────────────────
-    await _spawnLogJams();
+    // ── Passive river debris (logs — collectible organic waste, NOT obstacles) ─
+    await _spawnRiverLogs();
 
     // ── Floating waste ────────────────────────────────────────────────────
     await _spawnAllFloatingWaste();
@@ -329,16 +329,19 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
   }
 
-  Future<void> _spawnLogJams() async {
+  /// Spawns a small number of passive log clusters that drift downstream.
+  /// These are collectible organic waste items, NOT collision obstacles.
+  Future<void> _spawnRiverLogs() async {
     final rng = Random();
-    for (int i = 0; i < 4; i++) {
+    // Only 3 log clusters — scenic debris, not a gauntlet
+    for (int i = 0; i < 3; i++) {
       final lj = LogJamComponent(
         position: Vector2(
-          size.x * 0.1 + rng.nextDouble() * size.x * 0.8,
-          size.y * 0.15 + rng.nextDouble() * size.y * 0.7,
+          size.x * 0.12 + rng.nextDouble() * size.x * 0.76,
+          size.y * 0.1 + rng.nextDouble() * size.y * 0.8,
         ),
-        size: Vector2(100, 55),
-        logCount: 4 + rng.nextInt(3),
+        size: Vector2(80, 45),
+        logCount: 2 + rng.nextInt(2), // 2-3 logs per cluster — lighter visual
       );
       logJams.add(lj);
       await add(lj);
@@ -433,11 +436,42 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
   }
 
+  /// Called by [LogJamComponent] when the player's net sweeps over a log cluster.
+  /// Logs count as organic waste — they add to the collection score and total.
+  void collectLogAsWaste(LogJamComponent log) {
+    logJams.remove(log);
+    // Treat each log cluster as one organic waste item
+    collectedWaste.add(WasteItemComponent(
+      type: 'wood',
+      position: Vector2.zero(),
+      size: Vector2.all(50),
+    ));
+    wasteCollectedCount++;
+    sessionScore += WasteType.organicWaste.points;
+    notifyPlayerStarted();
+
+    final netPos = rowingBoat?.netWorldCenter ?? log.position.clone();
+    add(CollectSplashEffect(
+      position: netPos,
+      color: WasteType.organicWaste.color,
+      points: WasteType.organicWaste.points,
+    ));
+
+    log.removeFromParent();
+    onWasteCollected?.call(wasteCollectedCount);
+    onCollectionUpdate?.call(sessionScore, boatHealth, wasteCollectedCount);
+
+    final target = totalSpawnedWaste > 0 ? totalSpawnedWaste : totalWasteToCollect;
+    if (wasteCollectedCount >= target) {
+      _completePhase1Enhanced();
+    }
+  }
+
   void _handleObstacleHit(String type, double damage) {
     // Obstacles only count once the player has started rowing
     if (!playerHasStarted) return;
 
-    boatHealth = (boatHealth - damage).clamp(0.0, 100.0);
+    boatHealth = (boatHealth - damage).clamp(0.0, 150.0);
     obstaclesHit++;
 
     final dangerMsg = {

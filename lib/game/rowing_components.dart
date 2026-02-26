@@ -346,9 +346,9 @@ class RowingBoatComponent extends PositionComponent
 
   void takeDamage(double amount) {
     health = (health - amount).clamp(0, 100);
-    stunTimer = 0.8;
-    // Knockback away from obstacle
-    velocity = velocity.normalized() * -80;
+    stunTimer = 0.3;  // was 0.8 — short stun so player can react and escape immediately
+    // Light knockback — preserves some momentum so the player can steer away
+    velocity = velocity * 0.4 + velocity.normalized() * -40;
   }
 
   // ─── Rendering ────────────────────────────────────────────────────────────
@@ -1061,8 +1061,9 @@ class CrocodileComponent extends PositionComponent
   double patrolAngle;
   static final _rng = Random();
 
-  /// Score penalty if player collides
-  static const double damageToDeal = 15.0;
+  /// HP damage dealt per successful snap — low so a single bite isn't catastrophic
+  /// Damage dealt per successful snap — reduced so a single croc hit is survivable.
+  static const double damageToDeal = 3.0; // was 5 — softer hit
 
   CrocodileComponent({
     required Vector2 position,
@@ -1088,21 +1089,22 @@ class CrocodileComponent extends PositionComponent
     switch (state) {
       case CrocodileState.submerged:
         lurk = 0.0;
-        if (stateTimer > 3 + _rng.nextDouble() * 4) _transition(CrocodileState.lurking);
+        // Long submerge gap — crocs rest longer so they rarely all attack at once
+        if (stateTimer > 5 + _rng.nextDouble() * 6) _transition(CrocodileState.lurking);
         _patrol(dt);
         break;
 
       case CrocodileState.lurking:
         lurk = (lurk + dt * 0.8).clamp(0, 0.35); // Only eyes visible
-        if (stateTimer > 2.5) _checkApproachPlayer();
-        if (stateTimer > 6) _transition(CrocodileState.submerged);
+        if (stateTimer > 3.5) _checkApproachPlayer(); // slower to trigger chase
+        if (stateTimer > 8) _transition(CrocodileState.submerged); // dives sooner
         _patrol(dt);
         break;
 
       case CrocodileState.surfacing:
         lurk = (lurk + dt * 2.0).clamp(0, 1.0);
         jawAngle = (jawAngle + dt * 1.5).clamp(0, 1.0);
-        speed = 120;
+        speed = 110;
         if (stateTimer > 0.8) _transition(CrocodileState.snapping);
         _chasePlayer(dt);
         break;
@@ -1110,18 +1112,17 @@ class CrocodileComponent extends PositionComponent
       case CrocodileState.snapping:
         lurk = 1.0;
         jawAngle = (sin(stateTimer * 8) * 0.5 + 0.5).clamp(0, 1.0);
-        speed = 150;
+        speed = 130;
         _chasePlayer(dt);
         _checkDamagePlayer();
-        if (stateTimer > 2.0) _transition(CrocodileState.retreating);
+        if (stateTimer > 1.5) _transition(CrocodileState.retreating); // shorter snap window
         break;
 
       case CrocodileState.retreating:
         lurk = (lurk - dt * 1.5).clamp(0, 1.0);
         jawAngle = (jawAngle - dt).clamp(0, 1.0);
-        // Move in the current moveDir (either patrol or flee direction)
         position += moveDir * speed * dt;
-        if (stateTimer > 1.5) {
+        if (stateTimer > 2.0) { // longer retreat before re-submerging
           hasDealtDamage = false;
           speed = 0;
           _transition(CrocodileState.submerged);
@@ -1332,11 +1333,12 @@ class CrocodileComponent extends PositionComponent
 class WhirlpoolComponent extends PositionComponent
     with HasGameReference<WaterPollutionGame> {
   double spinAngle = 0.0;
-  double pullStrength = 55.0; // pixels/sec attraction
+  double pullStrength = 28.0; // gentle pull — noticeable but beatable with thrust
   double radius;
   double pulseTimer = 0.0;
-  double _damageCooldown = 0.0; // seconds until next damage hit allowed
-  static const double _damageCooldownMax = 2.5; // damage at most every 2.5s
+  double _damageCooldown = 0.0;
+  static const double _damageCooldownMax = 5.0; // damage at most every 5 seconds
+  int _escapeAttempts = 0; // counts how many times the player has thrust hard inside
 
   WhirlpoolComponent({required super.position, required this.radius})
       : super(anchor: Anchor.center, priority: 40) {
@@ -1357,19 +1359,44 @@ class WhirlpoolComponent extends PositionComponent
     final dist = diff.length;
 
     if (dist < radius * 1.2 && dist > 5) {
-      // Pull boat toward centre (continuous — this is intentional physics)
-      final pull = diff.normalized() * pullStrength * (1 - dist / (radius * 1.2));
-      boat.velocity += pull * dt * 60;
+      final boatSpeed = boat.velocity.length;
 
-      // Also spin boat
-      boat.angularVelocity += dt * 1.5;
+      // ── Escape mechanic ───────────────────────────────────────────────────
+      // Rowing hard (speed > 60) counts as an escape attempt each second.
+      // After 2 attempts AND health ≥ 40%, pull drops to near-zero so the
+      // player rows clear. Even before that, high speed dramatically reduces pull.
+      if (boatSpeed > 60) {
+        _escapeAttempts++;
+      }
+      final canEscape = game.boatHealth >= 40.0 && _escapeAttempts >= 2;
 
-      if (dist < radius * 0.4 && _damageCooldown <= 0) {
-        // Caught in core — stun and deal damage, gated by cooldown
-        boat.stunTimer = (boat.stunTimer + 1.5).clamp(0, 2.5);
-        game.reportObstacleHit('whirlpool', 3.0);
+      if (canEscape) {
+        // Pull is almost nothing — boat's own thrust easily overcomes it
+        final weakPull = diff.normalized() * pullStrength * 0.08 *
+            (1 - dist / (radius * 1.2));
+        boat.velocity += weakPull * dt * 60;
+        // Reset so player has to re-earn escape if they fall back in
+        _escapeAttempts = 0;
+      } else {
+        // Normal pull — scales with distance; weaker at the outer edge
+        final pullScale = boatSpeed > 60 ? 0.35 : 1.0; // fast rowing halves pull
+        final pull = diff.normalized() * pullStrength * pullScale *
+            (1 - dist / (radius * 1.2));
+        boat.velocity += pull * dt * 60;
+      }
+
+      // Very gentle spin — reduced so turning keys still work clearly
+      boat.angularVelocity += dt * 0.4;
+
+      // Core damage — only in dead centre, long cooldown, minimal stun
+      if (dist < radius * 0.3 && _damageCooldown <= 0) {
+        boat.stunTimer = (boat.stunTimer + 0.3).clamp(0, 0.8); // tiny stun
+        game.reportObstacleHit('whirlpool', 2.0);
         _damageCooldown = _damageCooldownMax;
       }
+    } else if (dist >= radius * 1.2) {
+      // Reset escape counter once fully clear of whirlpool
+      _escapeAttempts = 0;
     }
   }
 
@@ -1414,7 +1441,9 @@ class WhirlpoolComponent extends PositionComponent
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  LOG JAM OBSTACLE (blocks passage; bounce boat back)
+//  LOG JAM — PASSIVE RIVER DEBRIS (collectible organic waste, not an obstacle)
+//  Logs drift downstream with the current. The boat passes through them freely.
+//  When the net is active they are swept up as organic waste items.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LogJamComponent extends PositionComponent
@@ -1422,18 +1451,17 @@ class LogJamComponent extends PositionComponent
   final int logCount;
   final List<_LogData> _logs = [];
   static final _rng = Random();
-  double _damageCooldown = 0.0;
-  static const double _damageCooldownMax = 3.0; // max one hit every 3 seconds
+  bool _collected = false; // true once the net sweeps these up
 
-  LogJamComponent({required super.position, required super.size, this.logCount = 5})
-      : super(anchor: Anchor.center, priority: 60) {
+  LogJamComponent({required super.position, required super.size, this.logCount = 3})
+      : super(anchor: Anchor.center, priority: 45) {
     for (int i = 0; i < logCount; i++) {
       _logs.add(_LogData(
         offset: Vector2(
-            (_rng.nextDouble() - 0.5) * size.x,
+            (_rng.nextDouble() - 0.5) * size.x * 0.8,
             (_rng.nextDouble() - 0.5) * size.y * 0.5),
         angle: _rng.nextDouble() * pi,
-        length: 40 + _rng.nextDouble() * 40,
+        length: 35 + _rng.nextDouble() * 30,
       ));
     }
   }
@@ -1441,34 +1469,34 @@ class LogJamComponent extends PositionComponent
   @override
   void update(double dt) {
     super.update(dt);
-    // Gentle downstream drift
-    position.y += 18 * dt;
-    if (_damageCooldown > 0) _damageCooldown -= dt;
+    if (_collected) return;
 
-    // Bounce & damage boat on collision
+    // Gentle downstream drift — purely visual, no collision with boat
+    position.y += 22 * dt;
+
+    // Check if the boat's active net sweeps over this log cluster
     final boat = game.rowingBoat;
-    if (boat == null) return;
-    final diff = boat.position - position;
-    if (diff.length < size.x * 0.6) {
-      // Always apply physical bounce (not gated by cooldown)
-      boat.velocity = diff.normalized() * 100;
-      boat.stunTimer = 0.4;
-      // Only deal HP damage once per cooldown window
-      if (_damageCooldown <= 0) {
-        game.reportObstacleHit('logjam', 5.0);
-        _damageCooldown = _damageCooldownMax;
+    if (boat != null && boat.netDeployed && boat.netRadius > 10) {
+      final dist = (boat.netWorldCenter - position).length;
+      if (dist < boat.netRadius + size.x * 0.4) {
+        _collected = true;
+        // Award organic waste points and count as a collected item
+        game.collectLogAsWaste(this);
+        return;
       }
     }
 
-    // Wrap around screen
+    // Wrap — respawn at top when scrolled off bottom
     if (position.y > game.size.y + 80) {
-      position.y = -80;
-      position.x = 40 + _rng.nextDouble() * (game.size.x - 80);
+      position.y = -60;
+      position.x = 50 + _rng.nextDouble() * (game.size.x - 100);
+      _collected = false;
     }
   }
 
   @override
   void render(Canvas canvas) {
+    if (_collected) return;
     canvas.save();
     canvas.translate(size.x / 2, size.y / 2);
 
