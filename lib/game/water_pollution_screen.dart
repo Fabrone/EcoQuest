@@ -5,6 +5,7 @@ import 'package:ecoquest/game/rowing_components.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class WaterPollutionScreen extends StatefulWidget {
@@ -34,7 +35,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   // Phase 1 — enhanced rowing HUD fields (all mutated via setState in callbacks)
   double _collectionTimeLeft = 180.0;
   double _boatHealth = 100.0;
-  int _sessionScore = 0;
+  // _sessionScore intentionally omitted — score is displayed via wasteCollected count
   bool _netOnCooldown = false;
   double _netCooldownFraction = 0.0;
   Timer? _netCooldownTimer;
@@ -45,11 +46,6 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   bool _phase1Failed = false;
   String _failReason = '';
 
-  // Phase 1 — touch joystick tracking (screen-level pan feeds into boat)
-  bool _joystickActive = false;
-  Offset _joystickOrigin = Offset.zero;
-  Offset _joystickCurrent = Offset.zero;
-  
   // Phase 2 stats
   int sortingAccuracy = 0;
   int itemsSorted = 0;
@@ -141,10 +137,9 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
       safeSetState(() => _collectionTimeLeft = timeLeft);
     };
 
-    // Collection update (score + health) — fires from collectFloatingWaste
+    // Collection update (health + collected count) — fires from collectFloatingWaste
     game.onCollectionUpdate = (score, health, collected) {
       safeSetState(() {
-        _sessionScore = score;
         _boatHealth = health;
         wasteCollected = collected;
       });
@@ -227,17 +222,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             // Main game view
             if (currentPhase == 1 || currentPhase == 2 || currentPhase == 3 || currentPhase == 4)
               SizedBox.expand(
-                // Wrap in GestureDetector for Phase 1 touch joystick
-                child: currentPhase == 1
-                    ? GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onPanStart: (d) => _onJoystickStart(d.localPosition),
-                        onPanUpdate: (d) => _onJoystickUpdate(d.localPosition),
-                        onPanEnd: (_) => _onJoystickEnd(),
-                        onPanCancel: () => _onJoystickEnd(),
-                        child: GameWidget(game: game),
-                      )
-                    : GameWidget(game: game),
+                child: GameWidget(game: game),
               ),
             
             // UI Overlays
@@ -259,41 +244,6 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  // ── Touch / mouse drag handlers — pan anywhere on screen to steer ─────────
-  // Pan from anywhere on screen to steer the boat. The drag delta is mapped
-  // to a steering direction — simple and immediately responsive.
-
-  Vector2? _screenDragBoatStart; // boat position captured once at drag-start
-
-  void _onJoystickStart(Offset pos) {
-    final boat = game.rowingBoat;
-    setState(() {
-      _joystickActive = true;
-      _joystickOrigin = pos;
-      _joystickCurrent = pos;
-    });
-    if (boat == null) return;
-    _screenDragBoatStart = boat.position.clone();
-    // Zero delta at start — just mark that a drag is active
-    boat.setScreenDrag(boat.position.clone(), boat.position.clone());
-  }
-
-  void _onJoystickUpdate(Offset pos) {
-    setState(() => _joystickCurrent = pos);
-    final boat = game.rowingBoat;
-    if (boat == null || _screenDragBoatStart == null) return;
-    final dx = pos.dx - _joystickOrigin.dx;
-    final dy = pos.dy - _joystickOrigin.dy;
-    // Steer toward: boat's start position + the screen drag delta
-    final target = _screenDragBoatStart! + Vector2(dx, dy);
-    boat.setScreenDrag(target, _screenDragBoatStart!);
-  }
-
-  void _onJoystickEnd() {
-    setState(() => _joystickActive = false);
-    _screenDragBoatStart = null;
-    game.rowingBoat?.clearScreenDrag();
-  }
 
   Widget _buildIntroScreen() {
     final size = MediaQuery.of(context).size;
@@ -534,7 +484,6 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                         _failReason = '';
                         wasteCollected = 0;
                         _boatHealth = 100.0;
-                        _sessionScore = 0;
                         _collectionTimeLeft = 180.0;
                       });
                       game.retryPhase1();
@@ -569,401 +518,152 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   }
 
   Widget _buildCollectionOverlay() {
-    final double collectionProgress =
-        (wasteCollected / (game.totalSpawnedWaste > 0 ? game.totalSpawnedWaste : totalWasteItems) * 100).clamp(0.0, 100.0);
     final bool isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
     final double screenWidth = MediaQuery.of(context).size.width;
-    final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 600;
-    final bool isTablet = screenWidth >= 600 && screenWidth < 1024;
 
-    // Derive readable timer values from _collectionTimeLeft state field
+    // Timer
     final int timeLeft = _collectionTimeLeft.toInt().clamp(0, 9999);
-    final int timeMins = timeLeft ~/ 60;
-    final int timeSecs = timeLeft % 60;
     final String timerLabel =
-        '${timeMins.toString().padLeft(2, '0')}:${timeSecs.toString().padLeft(2, '0')}';
+        '${(timeLeft ~/ 60).toString().padLeft(2, '0')}:${(timeLeft % 60).toString().padLeft(2, '0')}';
     final bool timerWarning = _collectionTimeLeft < 30;
-
-    // Boat-health colour ramp
     final double healthFraction = (_boatHealth / 100.0).clamp(0.0, 1.0);
     final Color healthColor = healthFraction > 0.6
         ? Colors.green
-        : healthFraction > 0.3
-            ? Colors.orange
-            : Colors.red;
-
-    // Net state (reads from new RowingBoatComponent)
+        : healthFraction > 0.3 ? Colors.orange : Colors.red;
     final bool netDeployed = game.rowingBoat?.netDeployed ?? false;
 
     return Stack(
       children: [
-        // ── TOP STATS PANEL ───────────────────────────────────────────────
+        // ── SLIM TOP HUD ──────────────────────────────────────────────────
         Positioned(
           top: 0,
           left: 0,
-          right: isLandscape && !isMobile ? screenWidth * 0.3 : 0,
+          right: 0,
           child: SafeArea(
             child: Container(
-              margin: EdgeInsets.all(isMobile ? 12 : isTablet ? 14 : 16),
-              padding: EdgeInsets.all(isMobile ? 12 : isTablet ? 14 : 16),
+              margin: EdgeInsets.fromLTRB(
+                isMobile ? 8 : 12, isMobile ? 6 : 8, isMobile ? 8 : 12, 0),
+              padding: EdgeInsets.symmetric(
+                  horizontal: isMobile ? 10 : 14, vertical: isMobile ? 5 : 7),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.black.withValues(alpha: 0.8),
-                    Colors.black.withValues(alpha: 0.6),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.cyan, width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.cyan.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                    spreadRadius: 2,
-                  ),
-                ],
+                color: Colors.black.withValues(alpha: 0.72),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: Colors.cyan.withValues(alpha: 0.5), width: 1.5),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+              child: Row(
                 children: [
-                  // ── Row 1: title + waste count ─────────────────────────
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          'WASTE COLLECTION',
-                          style: GoogleFonts.exo2(
-                            fontSize: isMobile ? 14 : isTablet ? 16 : 18,
-                            color: Colors.cyan,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                      ),
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: isMobile ? 8 : 12,
-                          vertical: isMobile ? 4 : 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.cyan.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.cyan, width: 1.5),
-                        ),
-                        child: Text(
-                          '$wasteCollected / ${game.totalSpawnedWaste > 0 ? game.totalSpawnedWaste : totalWasteItems}',
-                          style: GoogleFonts.exo2(
-                            fontSize: isMobile ? 14 : isTablet ? 16 : 18,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  SizedBox(height: isMobile ? 8 : 12),
-
-                  // ── Waste progress bar ────────────────────────────────
-                  Container(
-                    height: isMobile ? 16 : 20,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade900,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: Colors.cyan.withValues(alpha: 0.5),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Stack(
-                      children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          width: (screenWidth -
-                                  (isMobile ? 48 : isTablet ? 56 : 64)) *
-                              (collectionProgress / 100),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.cyan,
-                                Colors.blue,
-                                Colors.cyan.shade700,
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(9),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.cyan.withValues(alpha: 0.5),
-                                blurRadius: 8,
-                                spreadRadius: 1,
-                              ),
-                            ],
-                          ),
-                        ),
-                        Center(
-                          child: Text(
-                            '${collectionProgress.toInt()}%',
-                            style: GoogleFonts.exo2(
-                              fontSize: isMobile ? 10 : 12,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black.withValues(alpha: 0.8),
-                                  blurRadius: 4,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  SizedBox(height: isMobile ? 8 : 12),
-
-                  // ── Row 2: Timer | Score | Boat HP ───────────────────
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Countdown timer (from _collectionTimeLeft state field)
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: EdgeInsets.symmetric(
-                          horizontal: isMobile ? 8 : 10,
-                          vertical: isMobile ? 4 : 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: timerWarning
-                              ? Colors.red.withValues(alpha: 0.35)
-                              : Colors.green.withValues(alpha: 0.25),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: timerWarning ? Colors.red : Colors.green,
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.timer,
-                              size: isMobile ? 14 : 16,
-                              color:
-                                  timerWarning ? Colors.red : Colors.green,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              timerLabel,
-                              style: GoogleFonts.exo2(
-                                fontSize: isMobile ? 12 : 14,
-                                color: timerWarning
-                                    ? Colors.red
-                                    : Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Session score (from _sessionScore state field)
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: isMobile ? 8 : 10,
-                          vertical: isMobile ? 4 : 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(8),
-                          border:
-                              Border.all(color: Colors.amber, width: 1.5),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.star_rounded,
-                                size: isMobile ? 14 : 16,
-                                color: Colors.amber),
-                            const SizedBox(width: 4),
-                            Text(
-                              '$_sessionScore',
-                              style: GoogleFonts.exo2(
-                                fontSize: isMobile ? 12 : 14,
-                                color: Colors.amber,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Boat HP (from _boatHealth state field)
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: isMobile ? 8 : 10,
-                          vertical: isMobile ? 4 : 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: healthColor.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: healthColor, width: 1.5),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.directions_boat_filled,
-                                size: isMobile ? 14 : 16,
-                                color: healthColor),
-                            const SizedBox(width: 4),
-                            SizedBox(
-                              width: isMobile ? 50 : 70,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: LinearProgressIndicator(
-                                  value: healthFraction,
-                                  backgroundColor:
-                                      Colors.white.withValues(alpha: 0.2),
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                      healthColor),
-                                  minHeight: isMobile ? 8 : 10,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  SizedBox(height: isMobile ? 8 : 12),
-
-                  // ── Row 3: Net status indicator ───────────────────────
+                  // Timer
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isMobile ? 8 : 10,
-                      vertical: isMobile ? 4 : 6,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: timerWarning
+                          ? Colors.red.withValues(alpha: 0.28)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(6),
                     ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.timer,
+                          size: 14,
+                          color: timerWarning ? Colors.red : Colors.cyan),
+                      const SizedBox(width: 4),
+                      Text(timerLabel,
+                          style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 15 : 17,
+                            fontWeight: FontWeight.w900,
+                            color: timerWarning ? Colors.red : Colors.white,
+                          )),
+                    ]),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // Waste count
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Text('♻', style: TextStyle(fontSize: 13)),
+                    const SizedBox(width: 3),
+                    Text(
+                      '$wasteCollected/${game.totalSpawnedWaste > 0 ? game.totalSpawnedWaste : totalWasteItems}',
+                      style: GoogleFonts.exo2(
+                          fontSize: isMobile ? 13 : 15,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white),
+                    ),
+                  ]),
+
+                  const Spacer(),
+
+                  // Boat health bar
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.directions_boat_filled,
+                        color: healthColor, size: 14),
+                    const SizedBox(width: 5),
+                    SizedBox(
+                      width: isMobile ? 56 : 90,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: healthFraction,
+                          backgroundColor: Colors.white24,
+                          valueColor: AlwaysStoppedAnimation(healthColor),
+                          minHeight: isMobile ? 7 : 10,
+                        ),
+                      ),
+                    ),
+                  ]),
+
+                  const SizedBox(width: 8),
+
+                  // Net status pill
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: netDeployed
-                          ? Colors.amber.withValues(alpha: 0.3)
+                          ? Colors.amber.withValues(alpha: 0.25)
                           : _netOnCooldown
                               ? Colors.orange.withValues(alpha: 0.2)
-                              : Colors.grey.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
+                              : Colors.grey.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
                       border: Border.all(
                         color: netDeployed
                             ? Colors.amber
                             : _netOnCooldown
                                 ? Colors.orange
                                 : Colors.grey,
-                        width: 1.5,
+                        width: 1,
                       ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.catching_pokemon,
-                          size: isMobile ? 14 : 16,
-                          color: netDeployed
-                              ? Colors.amber
-                              : _netOnCooldown
-                                  ? Colors.orange
-                                  : Colors.grey,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          netDeployed
-                              ? 'NET ACTIVE'
-                              : _netOnCooldown
-                                  ? 'RELOADING…'
-                                  : 'NET READY',
-                          style: GoogleFonts.exo2(
-                            fontSize: isMobile ? 10 : 12,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        if (_netOnCooldown) ...[
-                          const SizedBox(width: 6),
-                          SizedBox(
-                            width: 40,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(3),
-                              child: LinearProgressIndicator(
-                                value: 1.0 - _netCooldownFraction,
-                                backgroundColor:
-                                    Colors.white.withValues(alpha: 0.2),
-                                valueColor:
-                                    const AlwaysStoppedAnimation<Color>(
-                                        Colors.orange),
-                                minHeight: 5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                    child: Text(
+                      netDeployed
+                          ? '🎣 ON'
+                          : _netOnCooldown ? '⏳ …' : '🎣 RDY',
+                      style: GoogleFonts.exo2(
+                          fontSize: isMobile ? 9 : 10,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white),
                     ),
                   ),
 
-                  SizedBox(height: isMobile ? 6 : 10),
+                  const SizedBox(width: 8),
 
-                  // ── Controls hint ─────────────────────────────────────
-                  Container(
-                    padding: EdgeInsets.all(isMobile ? 8 : 10),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      children: [
-                        if (!isMobile) ...[
-                          Text(
-                            '🎮 KEYBOARD: WASD / Arrows to row  |  SPACE to cast net & scare crocs',
-                            style: GoogleFonts.exo2(
-                              fontSize: isTablet ? 11 : 12,
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '🐊 SPACE near croc = scare it away  🌀 Steer clear of whirlpools  🪵 Dodge log jams',
-                            style: GoogleFonts.exo2(
-                              fontSize: isTablet ? 10 : 11,
-                              color: Colors.white54,
-                              fontWeight: FontWeight.w400,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ] else ...[
-                          Text(
-                            '👆 Drag anywhere to row  •  🎯 Tap Net button to collect & scare crocs',
-                            style: GoogleFonts.exo2(
-                              fontSize: 11,
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '🐊 Tap Net near croc = scare it!  🌀 Escape whirlpools  🪵 Dodge log jams',
-                            style: GoogleFonts.exo2(
-                              fontSize: 10,
-                              color: Colors.white54,
-                              fontWeight: FontWeight.w400,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ],
+                  // ℹ️ Controls guide button
+                  GestureDetector(
+                    onTap: () => _showControlsGuide(context, isMobile),
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: Colors.cyan.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.cyan, width: 1.5),
+                      ),
+                      child: const Icon(Icons.info_outline,
+                          color: Colors.cyan, size: 16),
                     ),
                   ),
                 ],
@@ -972,37 +672,65 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           ),
         ),
 
-        // ── OBSTACLE DANGER BANNER (from _lastObstacleMessage) ───────────
+        // Obstacle danger banner
         if (_lastObstacleMessage != null)
           Positioned(
-            top: screenHeight * 0.16,
+            top: isMobile ? 52 : 64,
             left: 0,
             right: 0,
             child: Center(
-              child: AnimatedOpacity(
-                opacity: _lastObstacleMessage != null ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 7),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade900.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.red, width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.red.withValues(alpha: 0.45),
+                        blurRadius: 16,
+                        spreadRadius: 2),
+                  ],
+                ),
+                child: Text(
+                  _lastObstacleMessage!,
+                  style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 12 : 14,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+
+        // "Timer starts on first move" hint
+        if (!game.playerHasStarted)
+          Positioned(
+            bottom: isMobile
+                ? (isLandscape ? 90 : 120)
+                : 60,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: IgnorePointer(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade900.withValues(alpha: 0.92),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.red, width: 2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red.withValues(alpha: 0.5),
-                        blurRadius: 20,
-                        spreadRadius: 3,
-                      ),
-                    ],
+                    color: Colors.black.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: Colors.cyan.withValues(alpha: 0.5), width: 1.5),
                   ),
                   child: Text(
-                    _lastObstacleMessage!,
+                    isMobile
+                        ? 'Use D-pad to row • Tap Net to collect • Timer starts on first move'
+                        : 'WASD / Arrows to row  •  SPACE to cast net  •  Timer starts on first move',
                     style: GoogleFonts.exo2(
-                      fontSize: isMobile ? 13 : 15,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
+                      fontSize: isMobile ? 11 : 13,
+                      color: Colors.cyan.shade200,
+                      fontWeight: FontWeight.w600,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -1011,189 +739,208 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             ),
           ),
 
-        // ── COLLECTION MILESTONE FEEDBACK ─────────────────────────────────
-        if (wasteCollected > 0 && wasteCollected % 5 == 0)
-          Positioned(
-            top: screenHeight * 0.25,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: TweenAnimationBuilder<double>(
-                duration: const Duration(milliseconds: 800),
-                tween: Tween(begin: 0.0, end: 1.0),
-                builder: (context, value, child) {
-                  return Opacity(
-                    opacity: 1.0 - value,
-                    child: Transform.scale(
-                      scale: 1.0 + (value * 0.5),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 12),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.green,
-                              Colors.green.shade700,
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.green.withValues(alpha: 0.5),
-                              blurRadius: 20,
-                              spreadRadius: 5,
-                            ),
-                          ],
-                        ),
-                        child: Text(
-                          '+5 COLLECTED! 🎉',
-                          style: GoogleFonts.exo2(
-                            fontSize: 18,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-
-        // ── "WAITING TO START" hint (shown until player first moves) ─────
-        if (!game.playerHasStarted)
-          Positioned(
-            bottom: screenHeight * 0.12,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.72),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.cyan.withValues(alpha: 0.6), width: 1.5),
-                ),
-                child: Text(
-                  isMobile
-                      ? '👆 Drag anywhere to row  •  🎯 Tap Net to collect & scare crocs  •  Timer starts on first move'
-                      : '⬆ WASD / Arrow Keys to row  •  SPACE to cast net & scare crocs  •  Timer starts on first move',
-                  style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 12 : 13,
-                    color: Colors.cyan.shade200,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          ),
-
-        // ── TOUCH JOYSTICK VISUAL (mobile only, shown while dragging) ────
-        if (isMobile && _joystickActive)
-          Positioned(
-            left: _joystickOrigin.dx - 55,
-            top: _joystickOrigin.dy - 55,
-            child: IgnorePointer(
-              child: CustomPaint(
-                size: const Size(110, 110),
-                painter: _JoystickPainter(
-                  origin: const Offset(55, 55),
-                  delta: Offset(
-                    (_joystickCurrent.dx - _joystickOrigin.dx).clamp(-50, 50),
-                    (_joystickCurrent.dy - _joystickOrigin.dy).clamp(-50, 50),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-        // ── NET CAST BUTTON (mobile bottom-right) ─────────────────────────
+        // D-PAD ARROW CONTROLS (mobile only, bottom-left)
         if (isMobile)
           Positioned(
-            right: 20,
-            bottom: 80,
-            child: GestureDetector(
-              onTap: () => game.rowingBoat?.castNet(),
-              child: CustomPaint(
-                size: const Size(76, 76),
-                painter: NetCastButtonPainter(
-                  isActive: game.rowingBoat?.netDeployed ?? false,
-                  cooldownFraction: _netCooldownFraction,
-                ),
-              ),
-            ),
+            left: 14,
+            bottom: isLandscape ? 10 : 18,
+            child: _buildDpad(),
           ),
 
-        // ── RIVER CLEANLINESS INDICATOR (bottom-right) ────────────────────
-        Positioned(
-          right: isMobile ? 12 : isTablet ? 16 : 20,
-          bottom: isMobile ? 12 : isTablet ? 16 : 20,
-          child: Container(
-            padding: EdgeInsets.all(isMobile ? 10 : 12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.blue.withValues(alpha: 0.8),
-                  Colors.cyan.withValues(alpha: 0.8),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 8,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.water_drop,
-                  color: collectionProgress > 70
-                      ? Colors.green
-                      : collectionProgress > 40
-                          ? Colors.orange
-                          : Colors.red,
-                  size: isMobile ? 24 : 32,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'RIVER',
-                  style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 10 : 12,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
+        // NET CAST BUTTON (mobile, bottom-right)
+        if (isMobile)
+          Positioned(
+            right: 18,
+            bottom: isLandscape ? 18 : 28,
+            child: GestureDetector(
+              onTap: () => game.rowingBoat?.castNet(),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                CustomPaint(
+                  size: const Size(62, 62),
+                  painter: NetCastButtonPainter(
+                    isActive: !(game.rowingBoat?.netDeployed ?? false),
+                    cooldownFraction: _netCooldownFraction,
                   ),
                 ),
+                const SizedBox(height: 3),
                 Text(
-                  collectionProgress > 70
-                      ? 'CLEAN'
-                      : collectionProgress > 40
-                          ? 'BETTER'
-                          : 'DIRTY',
+                  _netOnCooldown ? 'Reload…' : 'Cast Net',
                   style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 8 : 10,
-                    color: collectionProgress > 70
-                        ? Colors.green
-                        : collectionProgress > 40
-                            ? Colors.orange
-                            : Colors.red,
-                    fontWeight: FontWeight.w900,
-                  ),
+                      fontSize: 10,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w600),
                 ),
-              ],
+              ]),
             ),
           ),
-        ),
       ],
     );
+  }
+  // ── D-Pad arrow buttons ───────────────────────────────────────────────────
+
+  Widget _buildDpad() {
+    const btnSize = 54.0;
+    const gap = 4.0;
+
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      // Up (forward)
+      _dpadBtn(Icons.keyboard_arrow_up_rounded, LogicalKeyboardKey.arrowUp,
+          btnSize, 'FWD'),
+      SizedBox(height: gap),
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        // Left (turn left)
+        _dpadBtn(Icons.keyboard_arrow_left_rounded,
+            LogicalKeyboardKey.arrowLeft, btnSize, 'L'),
+        SizedBox(width: gap),
+        SizedBox(width: btnSize, height: btnSize), // centre gap
+        SizedBox(width: gap),
+        // Right (turn right)
+        _dpadBtn(Icons.keyboard_arrow_right_rounded,
+            LogicalKeyboardKey.arrowRight, btnSize, 'R'),
+      ]),
+      SizedBox(height: gap),
+      // Down (reverse)
+      _dpadBtn(Icons.keyboard_arrow_down_rounded,
+          LogicalKeyboardKey.arrowDown, btnSize, 'REV'),
+    ]);
+  }
+
+  Widget _dpadBtn(
+      IconData icon, LogicalKeyboardKey key, double size, String label) {
+    return GestureDetector(
+      onTapDown: (_) => game.rowingBoat?.pressKey(key),
+      onTapUp: (_) => game.rowingBoat?.releaseKey(key),
+      onTapCancel: () => game.rowingBoat?.releaseKey(key),
+      onLongPressStart: (_) => game.rowingBoat?.pressKey(key),
+      onLongPressEnd: (_) => game.rowingBoat?.releaseKey(key),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.58),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+              color: Colors.cyan.withValues(alpha: 0.65), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.cyan.withValues(alpha: 0.18), blurRadius: 8),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.cyan, size: size * 0.52),
+            Text(label,
+                style: GoogleFonts.exo2(
+                    fontSize: 8,
+                    color: Colors.white60,
+                    fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Controls guide dialog ─────────────────────────────────────────────────
+
+  void _showControlsGuide(BuildContext ctx, bool isMobile) {
+    showDialog<void>(
+      context: ctx,
+      builder: (_) => Dialog(
+        backgroundColor: const Color(0xFF0D1F33),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.sports_esports,
+                    color: Colors.cyan, size: 22),
+                const SizedBox(width: 8),
+                Text('Controls Guide',
+                    style: GoogleFonts.exo2(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.cyan)),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => Navigator.pop(ctx),
+                  child: const Icon(Icons.close,
+                      color: Colors.white54, size: 22),
+                ),
+              ]),
+              const Divider(color: Colors.white12, height: 24),
+              _guideSection('🚤 Rowing', [
+                if (isMobile) ...[
+                  '▲ Up arrow — row forward',
+                  '▼ Down arrow — reverse',
+                  '◀ Left arrow — turn left',
+                  '▶ Right arrow — turn right',
+                ] else ...[
+                  'W / ↑  —  row forward',
+                  'S / ↓  —  reverse',
+                  'A / ←  —  turn left',
+                  'D / →  —  turn right',
+                ],
+              ]),
+              const SizedBox(height: 12),
+              _guideSection('🎣 Net / Scare', [
+                if (isMobile)
+                  'Tap the Cast Net button (bottom-right)'
+                else
+                  'SPACE  —  cast net / scare crocodiles',
+              ]),
+              const SizedBox(height: 12),
+              _guideSection('⚠️ Hazards', [
+                '🐊 Crocodile — cast net nearby to scare away',
+                '🌀 Whirlpool — steer away to avoid spin lock',
+                '🪵 Log jam — dodge to avoid hull damage',
+              ]),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.cyan,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: Text('Got it!',
+                      style: GoogleFonts.exo2(
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black,
+                          fontSize: 14)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _guideSection(String title, List<String> items) {
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: GoogleFonts.exo2(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white)),
+          const SizedBox(height: 5),
+          ...items.map((item) => Padding(
+                padding: const EdgeInsets.only(left: 10, bottom: 3),
+                child: Text(item,
+                    style: GoogleFonts.exo2(
+                        fontSize: 12, color: Colors.white70)),
+              )),
+        ]);
   }
 
   Widget _buildSortingInterface() {
@@ -2024,545 +1771,5 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         ),
       ),
     );
-  }
-}
-
-class Phase1CollectionOverlay extends StatefulWidget {
-  final double timeLeft;
-  final double boatHealth;
-  final int score;
-  final int wasteCollected;
-  final int totalWaste;
-  final String? obstacleMessage;
-  final bool netOnCooldown;
-  final double netCooldownFraction;
-  final VoidCallback onNetCast;
-
-  // Joystick state reported back to this widget from gesture layer
-  final ValueChanged<Offset> onJoystickStart;
-  final ValueChanged<Offset> onJoystickUpdate;
-  final VoidCallback onJoystickEnd;
-
-  const Phase1CollectionOverlay({
-    super.key,
-    required this.timeLeft,
-    required this.boatHealth,
-    required this.score,
-    required this.wasteCollected,
-    required this.totalWaste,
-    this.obstacleMessage,
-    required this.netOnCooldown,
-    required this.netCooldownFraction,
-    required this.onNetCast,
-    required this.onJoystickStart,
-    required this.onJoystickUpdate,
-    required this.onJoystickEnd,
-  });
-
-  @override
-  State<Phase1CollectionOverlay> createState() => _Phase1CollectionOverlayState();
-}
-
-class _Phase1CollectionOverlayState extends State<Phase1CollectionOverlay>
-    with SingleTickerProviderStateMixin {
-  Offset? _joystickCenter;
-  Offset _joystickCurrent = Offset.zero;
-
-  late AnimationController _dangerPulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _dangerPulse = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 500))
-      ..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _dangerPulse.dispose();
-    super.dispose();
-  }
-
-  bool get _isLowHealth => widget.boatHealth < 30;
-  bool get _isLowTime => widget.timeLeft < 30;
-
-  String get _formattedTime {
-    final mins = (widget.timeLeft ~/ 60).toString().padLeft(2, '0');
-    final secs = (widget.timeLeft.toInt() % 60).toString().padLeft(2, '0');
-    return '$mins:$secs';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final isMobile = size.width < 700;
-
-    return Stack(
-      children: [
-        // ── Low health danger vignette ────────────────────────────────────
-        if (_isLowHealth)
-          AnimatedBuilder(
-            animation: _dangerPulse,
-            builder: (_, __) => IgnorePointer(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    colors: [
-                      Colors.transparent,
-                      Colors.red.withValues(
-                          alpha: 0.25 + _dangerPulse.value * 0.25),
-                    ],
-                    radius: 0.9,
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-        // ── TOP HUD ───────────────────────────────────────────────────────
-        SafeArea(
-          child: Padding(
-            padding: EdgeInsets.all(isMobile ? 10 : 16),
-            child: Column(
-              children: [
-                _buildTopHUD(isMobile),
-                if (widget.obstacleMessage != null)
-                  _buildObstacleAlert(widget.obstacleMessage!),
-              ],
-            ),
-          ),
-        ),
-
-        // ── JOYSTICK (bottom-left) ────────────────────────────────────────
-        Positioned(
-          left: 24,
-          bottom: isMobile ? 32 : 48,
-          child: _buildJoystick(isMobile),
-        ),
-
-        // ── NET BUTTON (bottom-right) ─────────────────────────────────────
-        Positioned(
-          right: 32,
-          bottom: isMobile ? 32 : 48,
-          child: _buildNetButton(isMobile),
-        ),
-
-        // ── PROGRESS BAR (bottom centre) ─────────────────────────────────
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: isMobile ? 16 : 20,
-          child: Center(child: _buildWasteProgress(isMobile)),
-        ),
-
-        // ── CONTROLS HINT (first 5 s handled by parent timer) ────────────
-        // (kept minimal — main controls are joystick + net button)
-      ],
-    );
-  }
-
-  // ── Top HUD ───────────────────────────────────────────────────────────────
-
-  Widget _buildTopHUD(bool isMobile) {
-    return Row(
-      children: [
-        // Timer
-        _hudCard(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.timer_outlined,
-                  color: _isLowTime ? Colors.red : Colors.cyan,
-                  size: isMobile ? 18 : 22),
-              const SizedBox(width: 6),
-              AnimatedBuilder(
-                animation: _dangerPulse,
-                builder: (_, __) => Text(
-                  _formattedTime,
-                  style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 20 : 26,
-                    fontWeight: FontWeight.w900,
-                    color: _isLowTime
-                        ? Color.lerp(Colors.red, Colors.orange,
-                            _dangerPulse.value)!
-                        : Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(width: 10),
-
-        // Score
-        _hudCard(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.star_rounded, color: Colors.amber, size: 20),
-              const SizedBox(width: 4),
-              Text(
-                '${widget.score}',
-                style: GoogleFonts.exo2(
-                  fontSize: isMobile ? 18 : 22,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.amber,
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const Spacer(),
-
-        // Health bar
-        _buildHealthBar(isMobile),
-      ],
-    );
-  }
-
-  Widget _buildHealthBar(bool isMobile) {
-    final hp = widget.boatHealth / 100.0;
-    final hpColor = hp > 0.6
-        ? Colors.green
-        : hp > 0.3
-            ? Colors.orange
-            : Colors.red;
-
-    return _hudCard(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.directions_boat_filled,
-              color: hpColor, size: isMobile ? 18 : 22),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: isMobile ? 80 : 120,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Boat HP',
-                    style: GoogleFonts.exo2(
-                        fontSize: 11, color: Colors.white60)),
-                const SizedBox(height: 3),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: hp.clamp(0, 1),
-                    backgroundColor: Colors.white24,
-                    valueColor: AlwaysStoppedAnimation(hpColor),
-                    minHeight: isMobile ? 8 : 11,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildObstacleAlert(String message) {
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.red.shade900.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.red, width: 1.5),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.red.withValues(alpha: 0.4),
-              blurRadius: 16,
-              spreadRadius: 2)
-        ],
-      ),
-      child: Text(
-        message,
-        style: GoogleFonts.exo2(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: Colors.white),
-        textAlign: TextAlign.center,
-      ),
-    );
-  }
-
-  // ── Joystick ──────────────────────────────────────────────────────────────
-
-  Widget _buildJoystick(bool isMobile) {
-    const baseSize = 110.0;
-
-    return GestureDetector(
-      onPanStart: (d) {
-        _joystickCenter = d.localPosition;
-        _joystickCurrent = d.localPosition;
-        widget.onJoystickStart(d.globalPosition);
-        setState(() {});
-      },
-      onPanUpdate: (d) {
-        _joystickCurrent = d.localPosition;
-        widget.onJoystickUpdate(d.globalPosition);
-        setState(() {});
-      },
-      onPanEnd: (_) {
-        _joystickCenter = null;
-        widget.onJoystickEnd();
-        setState(() {});
-      },
-      child: SizedBox(
-        width: baseSize,
-        height: baseSize,
-        child: CustomPaint(
-          painter: _JoystickPainter(
-            origin: Offset(baseSize / 2, baseSize / 2),
-            delta: _joystickCenter == null
-                ? Offset.zero
-                : (_joystickCurrent - _joystickCenter!),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Net button ────────────────────────────────────────────────────────────
-
-  Widget _buildNetButton(bool isMobile) {
-    const btnSize = 76.0;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: widget.netOnCooldown ? null : widget.onNetCast,
-          child: SizedBox(
-            width: btnSize,
-            height: btnSize,
-            child: CustomPaint(
-              painter: NetCastButtonPainter(
-                isActive: !widget.netOnCooldown,
-                cooldownFraction: widget.netCooldownFraction,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          widget.netOnCooldown ? 'Reloading…' : 'Cast Net',
-          style: GoogleFonts.exo2(
-            fontSize: 11,
-            color: Colors.white70,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Waste progress ────────────────────────────────────────────────────────
-
-  Widget _buildWasteProgress(bool isMobile) {
-    final fraction =
-        (widget.wasteCollected / widget.totalWaste).clamp(0.0, 1.0);
-
-    return Container(
-      width: isMobile ? 220 : 300,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.65),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.cyan.withValues(alpha: 0.4)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '♻ Waste: ${widget.wasteCollected} / ${widget.totalWaste}',
-            style: GoogleFonts.exo2(
-                fontSize: 12,
-                color: Colors.white,
-                fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: fraction,
-              backgroundColor: Colors.white24,
-              valueColor: AlwaysStoppedAnimation(
-                fraction > 0.8 ? Colors.green : Colors.cyan,
-              ),
-              minHeight: 10,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Helper ────────────────────────────────────────────────────────────────
-
-  Widget _hudCard({required Widget child}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: child,
-    );
-  }
-}
-
-class _JoystickPainter extends CustomPainter {
-  final Offset origin;  // centre of the base ring in local paint space
-  final Offset delta;   // thumb offset from origin, clamped to ±50 px
-
-  const _JoystickPainter({required this.origin, required this.delta});
-
-  @override
-  void paint(Canvas canvas, Size sz) {
-    const baseRadius = 50.0;
-
-    // Base ring — fill + stroke
-    canvas.drawCircle(
-        origin,
-        baseRadius,
-        Paint()
-          ..color = Colors.white.withValues(alpha: 0.15)
-          ..style = PaintingStyle.fill);
-    canvas.drawCircle(
-        origin,
-        baseRadius,
-        Paint()
-          ..color = Colors.cyan.withValues(alpha: 0.55)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5);
-
-    // Thumb knob — clamp so it never leaves the ring
-    final dist = delta.distance.clamp(0.0, baseRadius - 20);
-    final dir = delta.distance > 0 ? delta / delta.distance : Offset.zero;
-    final knobPos = origin + dir * dist;
-
-    canvas.drawCircle(
-        knobPos,
-        22,
-        Paint()
-          ..shader = RadialGradient(
-            colors: [Colors.cyan.shade300, Colors.cyan.shade700],
-          ).createShader(Rect.fromCircle(center: knobPos, radius: 22)));
-    canvas.drawCircle(
-        knobPos,
-        22,
-        Paint()
-          ..color = Colors.white.withValues(alpha: 0.35)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2);
-
-    // Direction arrow when thumb is displaced
-    if (dist > 8) {
-      final arrowEnd = knobPos + dir * 12;
-      canvas.drawLine(
-          knobPos,
-          arrowEnd,
-          Paint()
-            ..color = Colors.white.withValues(alpha: 0.7)
-            ..strokeWidth = 2.5
-            ..strokeCap = StrokeCap.round);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_JoystickPainter old) =>
-      old.origin != origin || old.delta != delta;
-}
-class VirtualJoystickPainter extends CustomPainter {
-  final Vector2 center;
-  final Vector2 position;
-  
-  VirtualJoystickPainter({
-    required this.center,
-    required this.position,
-  });
-  
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.3)
-      ..style = PaintingStyle.fill;
-    
-    // Draw outer circle (base)
-    canvas.drawCircle(
-      Offset(size.width / 2, size.height / 2),
-      size.width / 2,
-      paint,
-    );
-    
-    // Draw outer circle border
-    canvas.drawCircle(
-      Offset(size.width / 2, size.height / 2),
-      size.width / 2,
-      paint
-        ..color = Colors.cyan.withValues(alpha: 0.6)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
-    );
-    
-    // Calculate joystick position relative to center
-    final direction = position - center;
-    final distance = direction.length.clamp(0.0, size.width / 2 - 15);
-    final normalized = distance > 0 ? direction.normalized() : Vector2.zero();
-    final joystickPos = normalized * distance;
-    
-    // Draw inner circle (movable stick)
-    final stickPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          Colors.cyan,
-          Colors.cyan.shade700,
-        ],
-      ).createShader(
-        Rect.fromCircle(
-          center: Offset(
-            size.width / 2 + joystickPos.x,
-            size.height / 2 + joystickPos.y,
-          ),
-          radius: 25,
-        ),
-      )
-      ..style = PaintingStyle.fill;
-    
-    canvas.drawCircle(
-      Offset(
-        size.width / 2 + joystickPos.x,
-        size.height / 2 + joystickPos.y,
-      ),
-      25,
-      stickPaint,
-    );
-    
-    // Draw direction indicator line
-    if (distance > 5) {
-      final linePaint = Paint()
-        ..color = Colors.cyan.withValues(alpha: 0.5)
-        ..strokeWidth = 4
-        ..strokeCap = StrokeCap.round;
-      
-      canvas.drawLine(
-        Offset(size.width / 2, size.height / 2),
-        Offset(
-          size.width / 2 + joystickPos.x,
-          size.height / 2 + joystickPos.y,
-        ),
-        linePaint,
-      );
-    }
-  }
-  
-  @override
-  bool shouldRepaint(VirtualJoystickPainter oldDelegate) {
-    return oldDelegate.position != position || oldDelegate.center != center;
   }
 }

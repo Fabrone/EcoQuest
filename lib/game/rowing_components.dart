@@ -6,7 +6,6 @@ import 'dart:math';
 import 'package:ecoquest/game/water_pollution_game.dart';
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flame/effects.dart';
-import 'package:flame/events.dart';
 import 'package:flutter/material.dart' hide Matrix4;
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -108,7 +107,7 @@ extension WasteTypeExt on WasteType {
 /// Player steers with on-screen joystick or keyboard.
 /// Rowing animation syncs with movement — alternating left/right paddle strokes.
 class RowingBoatComponent extends PositionComponent
-    with HasGameReference<WaterPollutionGame>, KeyboardHandler, DragCallbacks {
+    with HasGameReference<WaterPollutionGame>, KeyboardHandler {
   // ── Movement ──────────────────────────────────────────────────────────────
   Vector2 velocity = Vector2.zero();
   Vector2 targetVelocity = Vector2.zero();
@@ -144,12 +143,6 @@ class RowingBoatComponent extends PositionComponent
   // ── Health & stamina ─────────────────────────────────────────────────────
   double health = 100.0; // reduced by obstacles
   double stunTimer = 0.0; // seconds of stun after croc hit
-
-  // ── Touch drag (world-space direct position) ──────────────────────────────
-  /// World-space position where the drag started (set once per drag gesture).
-  Vector2? _dragStartPos;
-  /// Boat position captured at drag-start for reference.
-  Vector2? _dragBoatStartPos;
 
   // ── Keyboard state ────────────────────────────────────────────────────────
   final Set<LogicalKeyboardKey> _heldKeys = {};
@@ -218,36 +211,10 @@ class RowingBoatComponent extends PositionComponent
     _justPressedKeys.clear();
 
     // ── Direct boatAngle rotation while key is held ───────────────────────
-    // Bypasses the angularVelocity ramp — the boat turns at a fixed rate the
-    // instant and every frame a key is held, giving zero-lag keyboard turning.
-    if (_dragStartPos == null) {
-      if (leftHeld) boatAngle -= turnRate * dt;
-      if (rightHeld) boatAngle += turnRate * dt;
-    }
-
-    // ── World-space drag steering (touch / mouse) ─────────────────────────
-    // The drag target (_dragStartPos) is set relative to the boat's start
-    // position captured at drag-begin.  The delta gives us the desired
-    // travel direction — simple and immediately responsive on touch and mouse.
-    if (_dragStartPos != null && _dragBoatStartPos != null) {
-      final dispX = _dragStartPos!.x - _dragBoatStartPos!.x;
-      final dispY = _dragStartPos!.y - _dragBoatStartPos!.y;
-      final dragDelta = Vector2(dispX, dispY);
-      final dist = dragDelta.length.clamp(0.0, 80.0);
-      if (dist > 6) {
-        // Target angle = direction the player is dragging
-        final targetAngle = atan2(dragDelta.x, -dragDelta.y);
-        // Steer boat angle toward target angle
-        double angleDiff = targetAngle - boatAngle;
-        // Normalise to [-π, π]
-        while (angleDiff > pi) { angleDiff -= 2 * pi; }
-        while (angleDiff < -pi) { angleDiff += 2 * pi; }
-        // Apply proportional angular push
-        angularVelocity += angleDiff * 6.0 * dt;
-        // Forward thrust proportional to drag magnitude
-        forwardInput = (dist / 80.0).clamp(0.0, 1.0);
-      }
-    }
+    // The boat turns at a fixed rate the instant and every frame a key is
+    // held, giving zero-lag keyboard / D-pad turning.
+    if (leftHeld) boatAngle -= turnRate * dt;
+    if (rightHeld) boatAngle += turnRate * dt;
 
     // ── Apply physics ─────────────────────────────────────────────────────
     // angularVelocity is now only used for drag-steering and impulse inertia.
@@ -268,7 +235,7 @@ class RowingBoatComponent extends PositionComponent
     if (speed > maxSpeed) velocity = velocity.normalized() * maxSpeed;
 
     // Notify game to start the countdown on the very first movement
-    if (isMoving || turnInput.abs() > 0.01 || (_dragStartPos != null)) {
+    if (isMoving || turnInput.abs() > 0.01) {
       game.notifyPlayerStarted();
     }
 
@@ -631,27 +598,18 @@ class RowingBoatComponent extends PositionComponent
     return keysPressed.isNotEmpty;
   }
 
-  @override
-  void onDragStart(DragStartEvent event) {
-    super.onDragStart(event);
-    // World-space drag: remember where the drag started in world coords
-    _dragStartPos = event.localPosition.clone();
-    _dragBoatStartPos = position.clone();
+  /// Called by the on-screen D-pad buttons (mobile) to simulate a key press.
+  /// Adds [key] to _heldKeys and records it in _justPressedKeys for the
+  /// instant-impulse on first press — identical to physical keyboard behaviour.
+  void pressKey(LogicalKeyboardKey key) {
+    _heldKeys.add(key);
+    _justPressedKeys.add(key);
     game.notifyPlayerStarted();
   }
 
-  @override
-  void onDragUpdate(DragUpdateEvent event) {
-    super.onDragUpdate(event);
-    // Track the live drag position in world space
-    _dragStartPos = event.localEndPosition.clone();
-  }
-
-  @override
-  void onDragEnd(DragEndEvent event) {
-    super.onDragEnd(event);
-    _dragStartPos = null;
-    _dragBoatStartPos = null;
+  /// Called by the on-screen D-pad buttons (mobile) to simulate key release.
+  void releaseKey(LogicalKeyboardKey key) {
+    _heldKeys.remove(key);
   }
 
   void castNet() {
@@ -689,19 +647,6 @@ class RowingBoatComponent extends PositionComponent
     }
   }
 
-  /// Called by the screen-level GestureDetector to set the world-space drag target.
-  /// [dragOrigin] is the screen position where the drag started (world-space).
-  /// [boatPosAtStart] is the boat position captured once per drag-start.
-  void setScreenDrag(Vector2? dragOrigin, Vector2? boatPosAtStart) {
-    _dragStartPos = dragOrigin;
-    _dragBoatStartPos = boatPosAtStart;
-  }
-
-  /// Clears the screen-level drag (called on pan-end).
-  void clearScreenDrag() {
-    _dragStartPos = null;
-    _dragBoatStartPos = null;
-  }
 
   /// World-space position of the net's center (used for collision).
   Vector2 get netWorldCenter {
