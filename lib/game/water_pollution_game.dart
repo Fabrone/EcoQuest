@@ -753,14 +753,16 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       );
     }
 
-    // Setup waste stack
+    // Setup waste stack — use actual WasteType definitions from rowing_components
     if (collectedWaste.isEmpty) {
-      // Generate default waste
-      final wasteTypes = ['plastic_bottle', 'can', 'bag', 'oil_slick', 'wood'];
+      // Fallback: generate a varied set using all WasteType values so Phase 2
+      // always reflects the same item types the player could collect in Phase 1.
+      final allTypes = WasteType.values;
       for (int i = 0; i < 20; i++) {
+        final wt = allTypes[i % allTypes.length];
         collectedWaste.add(
           WasteItemComponent(
-            type: wasteTypes[i % wasteTypes.length],
+            type: wt.gameKey,
             position: Vector2.zero(),
             size: Vector2.all(50),
           ),
@@ -826,6 +828,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       'plastic_bottle': 'plastic',
       'bag': 'plastic',
       'can': 'metal',
+      'metal_scrap': 'metal',
       'oil_slick': 'hazardous',
       'wood': 'organic',
     };
@@ -951,10 +954,18 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   }
 
   bool isCorrectBin(String wasteType, String binType) {
+    // Mappings cover all 6 WasteType gameKeys defined in rowing_components.dart:
+    //   plasticBottle → 'plastic_bottle'  → plastic
+    //   metalCan      → 'can'             → metal
+    //   plasticBag    → 'bag'             → plastic
+    //   oilSlick      → 'oil_slick'       → hazardous
+    //   organicWaste  → 'wood'            → organic
+    //   metalScrap    → 'metal_scrap'     → metal
     final correctMappings = {
       'plastic_bottle': 'plastic',
       'bag': 'plastic',
       'can': 'metal',
+      'metal_scrap': 'metal',
       'oil_slick': 'hazardous',
       'wood': 'organic',
     };

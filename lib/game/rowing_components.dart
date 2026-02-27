@@ -61,7 +61,7 @@ extension WasteTypeExt on WasteType {
       case WasteType.organicWaste:
         return 'wood';
       case WasteType.metalScrap:
-        return 'can';
+        return 'metal_scrap';
     }
   }
 

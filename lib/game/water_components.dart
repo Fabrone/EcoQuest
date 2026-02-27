@@ -582,14 +582,13 @@ class SpeedboatComponent extends PositionComponent
 
 class WasteItemComponent extends PositionComponent with DragCallbacks, TapCallbacks {
   final String type;
-  late Color color;
-  late Color accentColor;
+  // bobOffset drives idle animation in render (bag flutter, oil shimmer, etc.)
   double bobOffset = 0;
   double bobSpeed = 1.0 + Random().nextDouble() * 0.5;
   double bobAmount = 2.0 + Random().nextDouble() * 3.0;
   double rotation = 0.0;
   double rotationSpeed = (Random().nextDouble() - 0.5) * 0.2;
-  
+
   // Drag state
   bool isDragging = false;
   Vector2? dragStartPosition;
@@ -599,44 +598,8 @@ class WasteItemComponent extends PositionComponent with DragCallbacks, TapCallba
     required super.position,
     required super.size,
   }) {
-    color = _getColorForType(type);
-    accentColor = _getAccentColorForType(type);
     priority = 50;
     anchor = Anchor.center;
-  }
-
-  Color _getColorForType(String type) {
-    switch (type) {
-      case 'plastic_bottle':
-        return Colors.blue.shade700;
-      case 'can':
-        return Colors.grey.shade400;
-      case 'bag':
-        return Colors.white.withValues(alpha: 0.9);
-      case 'oil_slick':
-        return Colors.black87;
-      case 'wood':
-        return Colors.brown.shade600;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  Color _getAccentColorForType(String type) {
-    switch (type) {
-      case 'plastic_bottle':
-        return Colors.lightBlue.shade300;
-      case 'can':
-        return Colors.grey.shade200;
-      case 'bag':
-        return Colors.grey.shade300;
-      case 'oil_slick':
-        return Colors.brown.shade900;
-      case 'wood':
-        return Colors.brown.shade300;
-      default:
-        return Colors.white;
-    }
   }
 
   @override
@@ -856,727 +819,260 @@ class WasteItemComponent extends PositionComponent with DragCallbacks, TapCallba
       debugPrint('════════════════════════════════════\n');
       return true;
     }
-    
     debugPrint('════════════════════════════════════\n');
     return false;
   }
 
   @override
   void render(Canvas canvas) {
+    super.render(canvas);
     canvas.save();
 
-    final centerX = size.x / 2;
-    final centerY = size.y / 2;
+    // Centre-origin coordinate system — same as FloatingWasteComponent
+    final cx = size.x / 2;
+    final cy = size.y / 2;
+    canvas.translate(cx, cy);
+    // Gentle idle rotation reusing bobOffset (same variable updated in update())
+    canvas.rotate(rotation + sin(bobOffset) * 0.08);
 
-    canvas.translate(centerX, centerY);
-    canvas.rotate(rotation);
-
-    // Apply 3D perspective transform
-    final transform = Matrix4.identity()
-      ..setEntry(3, 2, 0.002)
-      ..rotateX(sin(bobOffset) * 0.2)
-      ..rotateY(cos(bobOffset * 0.7) * 0.15);
-
-    canvas.transform(transform.storage);
-    canvas.translate(-centerX, -centerY);
-
-    // Multi-layer shadow for depth
-    _draw3DShadow(canvas);
-
-    // Main object with enhanced 3D shading
-    final paint = Paint()
-      ..shader = _create3DGradient().createShader(size.toRect());
-
-    canvas.drawPath(_getPathForType(), paint);
-
-    // Specular highlights
-    _drawSpecularHighlights(canvas);
-
-    // Type-specific 3D details
-    _draw3DTypeDetails(canvas);
+    // Dispatch to the exact same artwork used in Phase 1 FloatingWasteComponent
+    switch (type) {
+      case 'plastic_bottle':
+        _renderPlasticBottle(canvas, cx, cy);
+        break;
+      case 'can':
+        _renderMetalCan(canvas, cx, cy);
+        break;
+      case 'bag':
+        _renderPlasticBag(canvas, cx, cy);
+        break;
+      case 'oil_slick':
+        _renderOilSlick(canvas, cx, cy);
+        break;
+      case 'wood':
+        _renderOrganicWaste(canvas, cx, cy);
+        break;
+      case 'metal_scrap':
+        _renderMetalScrap(canvas, cx, cy);
+        break;
+      default:
+        // Fallback: simple coloured circle so unknown types are still visible
+        canvas.drawCircle(Offset.zero, min(cx, cy) * 0.8,
+            Paint()..color = Colors.grey.shade500);
+    }
 
     canvas.restore();
   }
 
-  // Keep all existing render methods unchanged...
-  void _draw3DShadow(Canvas canvas) {
-    final shadowLayers = [
-      (offset: Offset(4, 6), blur: 8.0, alpha: 0.4),
-      (offset: Offset(2, 3), blur: 4.0, alpha: 0.3),
-      (offset: Offset(1, 1.5), blur: 2.0, alpha: 0.2),
-    ];
+  // ─── Render helpers — exact ports of FloatingWasteComponent artwork ──────
 
-    for (final layer in shadowLayers) {
-      final shadowPaint = Paint()
-        ..color = Colors.black.withValues(alpha: layer.alpha)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, layer.blur);
-
-      canvas.save();
-      canvas.translate(layer.offset.dx, layer.offset.dy);
-      canvas.drawPath(_getPathForType(), shadowPaint);
-      canvas.restore();
-    }
-  }
-
-  Path _getPathForType() {
-    final path = Path();
-    switch (type) {
-      case 'plastic_bottle':
-        path.moveTo(size.x * 0.4, 0);
-        path.lineTo(size.x * 0.6, 0);
-        path.lineTo(size.x * 0.7, size.y * 0.2);
-        path.lineTo(size.x * 0.8, size.y * 0.6);
-        path.lineTo(size.x * 0.7, size.y);
-        path.lineTo(size.x * 0.3, size.y);
-        path.lineTo(size.x * 0.2, size.y * 0.6);
-        path.lineTo(size.x * 0.3, size.y * 0.2);
-        path.close();
-        return path;
-      case 'can':
-        path.addRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(0, 0, size.x, size.y),
-            Radius.circular(size.x * 0.1),
-          ),
-        );
-        return path;
-      case 'bag':
-        path.moveTo(size.x * 0.2, size.y * 0.3);
-        path.quadraticBezierTo(size.x * 0.1, size.y * 0.5, size.x * 0.3, size.y * 0.7);
-        path.quadraticBezierTo(size.x * 0.5, size.y * 0.9, size.x * 0.7, size.y * 0.7);
-        path.quadraticBezierTo(size.x * 0.9, size.y * 0.5, size.x * 0.8, size.y * 0.3);
-        path.quadraticBezierTo(size.x * 0.7, size.y * 0.1, size.x * 0.5, size.y * 0.2);
-        path.quadraticBezierTo(size.x * 0.3, size.y * 0.1, size.x * 0.2, size.y * 0.3);
-        path.close();
-        return path;
-      case 'oil_slick':
-        path.moveTo(size.x * 0.3, size.y * 0.2);
-        path.quadraticBezierTo(size.x * 0.1, size.y * 0.3, size.x * 0.2, size.y * 0.5);
-        path.quadraticBezierTo(size.x * 0.1, size.y * 0.7, size.x * 0.4, size.y * 0.8);
-        path.quadraticBezierTo(size.x * 0.6, size.y * 0.9, size.x * 0.8, size.y * 0.7);
-        path.quadraticBezierTo(size.x * 0.9, size.y * 0.5, size.x * 0.7, size.y * 0.3);
-        path.quadraticBezierTo(size.x * 0.8, size.y * 0.1, size.x * 0.5, size.y * 0.15);
-        path.close();
-        return path;
-      case 'wood':
-        path.addRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(0, 0, size.x, size.y),
-            Radius.circular(size.y * 0.2),
-          ),
-        );
-        return path;
-      default:
-        path.addRect(Rect.fromLTWH(0, 0, size.x, size.y));
-        return path;
-    }
-  }
-
-  LinearGradient _create3DGradient() {
-    return LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [color.lighten(0.3), color, color.darken(0.2), color.darken(0.4)],
-      stops: [0.0, 0.4, 0.7, 1.0],
-    );
-  }
-
-  void _drawSpecularHighlights(Canvas canvas) {
-    final highlightPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.6)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-
-    Offset highlightPos;
-    double highlightSize;
-
-    switch (type) {
-      case 'plastic_bottle':
-        highlightPos = Offset(size.x * 0.4, size.y * 0.2);
-        highlightSize = size.x * 0.2;
-        break;
-      case 'can':
-        highlightPos = Offset(size.x * 0.35, size.y * 0.15);
-        highlightSize = size.x * 0.25;
-        break;
-      default:
-        highlightPos = Offset(size.x * 0.4, size.y * 0.3);
-        highlightSize = size.x * 0.15;
-    }
-
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: highlightPos,
-        width: highlightSize,
-        height: highlightSize * 0.6,
-      ),
-      highlightPaint,
-    );
-  }
-
-  void _draw3DTypeDetails(Canvas canvas) {
-    switch (type) {
-      case 'plastic_bottle':
-        _draw3DPlasticBottle(canvas);
-        break;
-      case 'can':
-        _draw3DCan(canvas);
-        break;
-      case 'bag':
-        _draw3DBag(canvas);
-        break;
-      case 'oil_slick':
-        _draw3DOilSlick(canvas);
-        break;
-      case 'wood':
-        _draw3DWood(canvas);
-        break;
-    }
-  }
-
-  void _draw3DPlasticBottle(Canvas canvas) {
-    // Bottle body with cylindrical shading
-    final bodyGradient = LinearGradient(
-      begin: Alignment.centerLeft,
-      end: Alignment.centerRight,
-      colors: [
-        color.darken(0.2),
-        color,
-        color.lighten(0.2),
-        color,
-        color.darken(0.2),
-      ],
-      stops: [0.0, 0.25, 0.5, 0.75, 1.0],
-    );
-
+  void _renderPlasticBottle(Canvas canvas, double cx, double cy) {
+    // Body
     final bodyPaint = Paint()
-      ..shader = bodyGradient.createShader(
-        Rect.fromLTWH(size.x * 0.25, size.y * 0.15, size.x * 0.5, size.y * 0.7),
-      );
-
+      ..shader = LinearGradient(
+        colors: [const Color(0xFF90CAF9), const Color(0xFF1565C0)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(Rect.fromLTWH(-cx * 0.45, -cy, cx * 0.9, cy * 2));
     canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(size.x * 0.25, size.y * 0.15, size.x * 0.5, size.y * 0.7),
-        const Radius.circular(6),
-      ),
-      bodyPaint,
-    );
-
-    // Cap with 3D effect
-    final capGradient = RadialGradient(
-      colors: [accentColor.lighten(0.2), accentColor.darken(0.2)],
-    );
-
-    final capPaint = Paint()
-      ..shader = capGradient.createShader(
-        Rect.fromLTWH(size.x * 0.38, -2, size.x * 0.24, size.y * 0.18),
-      );
-
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(-cx * 0.45, -cy * 0.75, cx * 0.9, cy * 1.5),
+            const Radius.circular(8)),
+        bodyPaint);
+    // Cap
+    final capPaint = Paint()..color = const Color(0xFFE53935);
     canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(size.x * 0.38, -2, size.x * 0.24, size.y * 0.18),
-        const Radius.circular(3),
-      ),
-      capPaint,
-    );
-
-    // Label with perspective
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(-cx * 0.28, -cy, cx * 0.56, cy * 0.28),
+            const Radius.circular(3)),
+        capPaint);
+    // Label
     final labelPaint = Paint()
-      ..shader =
-          LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.white.withValues(alpha: 0.9),
-              Colors.white.withValues(alpha: 0.7),
-            ],
-          ).createShader(
-            Rect.fromLTWH(
-              size.x * 0.22,
-              size.y * 0.35,
-              size.x * 0.56,
-              size.y * 0.35,
-            ),
-          );
-
-    final labelPath = Path();
-    labelPath.moveTo(size.x * 0.22, size.y * 0.35);
-    labelPath.lineTo(size.x * 0.78, size.y * 0.35);
-    labelPath.lineTo(size.x * 0.76, size.y * 0.7);
-    labelPath.lineTo(size.x * 0.24, size.y * 0.7);
-    labelPath.close();
-
-    canvas.drawPath(labelPath, labelPaint);
-
-    // Brand text simulation
-    final textPaint = Paint()
-      ..color = Colors.blue.shade700
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-
-    for (int i = 0; i < 3; i++) {
-      canvas.drawLine(
-        Offset(size.x * 0.3, size.y * (0.45 + i * 0.05)),
-        Offset(size.x * 0.7, size.y * (0.45 + i * 0.05)),
-        textPaint,
-      );
-    }
-  }
-
-  void _draw3DCan(Canvas canvas) {
-    // Cylindrical can body with metallic sheen
-    final canGradient = LinearGradient(
-      begin: Alignment.centerLeft,
-      end: Alignment.centerRight,
-      colors: [
-        Colors.grey.shade600,
-        Colors.grey.shade300,
-        Colors.grey.shade100,
-        Colors.grey.shade300,
-        Colors.grey.shade600,
-      ],
-      stops: [0.0, 0.2, 0.5, 0.8, 1.0],
-    );
-
-    final canPaint = Paint()..shader = canGradient.createShader(size.toRect());
-
+      ..color = Colors.white.withValues(alpha: 0.7)
+      ..style = PaintingStyle.fill;
     canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(size.x * 0.15, size.y * 0.05, size.x * 0.7, size.y * 0.9),
-        Radius.circular(size.x * 0.12),
-      ),
-      canPaint,
-    );
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(-cx * 0.38, -cy * 0.2, cx * 0.76, cy * 0.5),
+            const Radius.circular(3)),
+        labelPaint);
+    // Shimmer
+    canvas.drawOval(
+        Rect.fromLTWH(-cx * 0.3, -cy * 0.65, cx * 0.3, cy * 0.25),
+        Paint()..color = Colors.white.withValues(alpha: 0.5));
+  }
 
-    // Top rim
-    final rimPaint = Paint()
-      ..shader = LinearGradient(colors: [accentColor.darken(0.2), accentColor])
-          .createShader(
-            Rect.fromLTWH(
-              size.x * 0.15,
-              size.y * 0.05,
-              size.x * 0.7,
-              size.y * 0.12,
-            ),
-          );
-
+  void _renderMetalCan(Canvas canvas, double cx, double cy) {
+    final bodyPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          const Color(0xFFB0BEC5),
+          const Color(0xFF546E7A),
+          const Color(0xFF78909C)
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(Rect.fromLTWH(-cx, -cy, size.x, size.y));
     canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          size.x * 0.15,
-          size.y * 0.05,
-          size.x * 0.7,
-          size.y * 0.12,
-        ),
-        const Radius.circular(4),
-      ),
-      rimPaint,
-    );
-
-    // Pull tab
-    final tabPaint = Paint()
-      ..color = Colors.grey.shade400
-      ..style = PaintingStyle.fill;
-
-    canvas.drawOval(
-      Rect.fromLTWH(size.x * 0.42, size.y * 0.08, size.x * 0.16, size.y * 0.08),
-      tabPaint,
-    );
-
-    // Label band with 3D curve
-    final bandPaint = Paint()
-      ..shader =
-          LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.red, Colors.red.shade700],
-          ).createShader(
-            Rect.fromLTWH(
-              size.x * 0.15,
-              size.y * 0.4,
-              size.x * 0.7,
-              size.y * 0.25,
-            ),
-          );
-
-    final bandPath = Path();
-    bandPath.moveTo(size.x * 0.15, size.y * 0.4);
-    bandPath.lineTo(size.x * 0.85, size.y * 0.4);
-    bandPath.cubicTo(
-      size.x * 0.88,
-      size.y * 0.525,
-      size.x * 0.88,
-      size.y * 0.525,
-      size.x * 0.85,
-      size.y * 0.65,
-    );
-    bandPath.lineTo(size.x * 0.15, size.y * 0.65);
-    bandPath.cubicTo(
-      size.x * 0.12,
-      size.y * 0.525,
-      size.x * 0.12,
-      size.y * 0.525,
-      size.x * 0.15,
-      size.y * 0.4,
-    );
-    bandPath.close();
-
-    canvas.drawPath(bandPath, bandPaint);
-
-    // Metallic highlights
-    for (int i = 0; i < 5; i++) {
-      final highlightPaint = Paint()
-        ..color = Colors.white.withValues(alpha: 0.15 - (i * 0.02))
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1;
-
-      canvas.drawLine(
-        Offset(size.x * (0.2 + i * 0.12), size.y * 0.1),
-        Offset(size.x * (0.2 + i * 0.12), size.y * 0.9),
-        highlightPaint,
-      );
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(-cx * 0.7, -cy, cx * 1.4, cy * 2),
+            const Radius.circular(10)),
+        bodyPaint);
+    // Top/bottom rims
+    final rimPaint = Paint()..color = const Color(0xFF37474F);
+    for (double yPos in [-cy, cy - 8]) {
+      canvas.drawRect(
+          Rect.fromLTWH(-cx * 0.7, yPos, cx * 1.4, 8), rimPaint);
     }
-  }
-
-  void _draw3DBag(Canvas canvas) {
-    // Wrinkled plastic bag with transparency layers
-    final bagGradient = RadialGradient(
-      center: Alignment.center,
-      colors: [
-        color.withValues(alpha: 0.9),
-        color.withValues(alpha: 0.7),
-        color.withValues(alpha: 0.5),
-      ],
-    );
-
-    final bagPaint = Paint()
-      ..shader = bagGradient.createShader(size.toRect())
-      ..style = PaintingStyle.fill;
-
-    final bagPath = Path();
-    bagPath.moveTo(size.x * 0.25, size.y * 0.2);
-
-    // Irregular organic shape for floating bag
-    bagPath.cubicTo(
-      size.x * 0.1,
-      size.y * 0.3,
-      size.x * 0.05,
-      size.y * 0.5,
-      size.x * 0.2,
-      size.y * 0.7,
-    );
-    bagPath.cubicTo(
-      size.x * 0.35,
-      size.y * 0.85,
-      size.x * 0.65,
-      size.y * 0.85,
-      size.x * 0.8,
-      size.y * 0.7,
-    );
-    bagPath.cubicTo(
-      size.x * 0.95,
-      size.y * 0.5,
-      size.x * 0.9,
-      size.y * 0.3,
-      size.x * 0.75,
-      size.y * 0.2,
-    );
-    bagPath.cubicTo(
-      size.x * 0.65,
-      size.y * 0.1,
-      size.x * 0.35,
-      size.y * 0.1,
-      size.x * 0.25,
-      size.y * 0.2,
-    );
-    bagPath.close();
-
-    canvas.drawPath(bagPath, bagPaint);
-
-    // Wrinkle lines for realism
-    final wrinklePaint = Paint()
-      ..color = accentColor.withValues(alpha: 0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    for (int i = 0; i < 4; i++) {
-      final wrinklePath = Path();
-      final startY = size.y * (0.25 + i * 0.15);
-
-      wrinklePath.moveTo(size.x * 0.2, startY);
-      wrinklePath.quadraticBezierTo(
-        size.x * 0.35,
-        startY + sin(i * 1.5) * 8,
-        size.x * 0.5,
-        startY,
-      );
-      wrinklePath.quadraticBezierTo(
-        size.x * 0.65,
-        startY - sin(i * 1.5) * 8,
-        size.x * 0.8,
-        startY,
-      );
-
-      canvas.drawPath(wrinklePath, wrinklePaint);
-    }
-
-    // Handles
-    final handlePaint = Paint()
-      ..color = color.darken(0.3)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
-
-    final leftHandle = Path();
-    leftHandle.moveTo(size.x * 0.3, size.y * 0.15);
-    leftHandle.quadraticBezierTo(
-      size.x * 0.25,
-      size.y * 0.05,
-      size.x * 0.35,
-      size.y * 0.15,
-    );
-    canvas.drawPath(leftHandle, handlePaint);
-
-    final rightHandle = Path();
-    rightHandle.moveTo(size.x * 0.65, size.y * 0.15);
-    rightHandle.quadraticBezierTo(
-      size.x * 0.75,
-      size.y * 0.05,
-      size.x * 0.7,
-      size.y * 0.15,
-    );
-    canvas.drawPath(rightHandle, handlePaint);
-  }
-
-  void _draw3DOilSlick(Canvas canvas) {
-    // Multi-layer oil slick with iridescent effect
-    final slickGradient = RadialGradient(
-      center: Alignment.center,
-      colors: [
-        Colors.black87,
-        Colors.brown.shade900,
-        Colors.brown.shade700,
-        Colors.brown.shade900.withValues(alpha: 0.8),
-      ],
-      stops: [0.0, 0.3, 0.6, 1.0],
-    );
-
-    final slickPaint = Paint()
-      ..shader = slickGradient.createShader(size.toRect())
-      ..style = PaintingStyle.fill;
-
-    final slickPath = Path();
-    slickPath.moveTo(size.x * 0.3, size.y * 0.15);
-    slickPath.cubicTo(
-      size.x * 0.05,
-      size.y * 0.25,
-      size.x * 0.1,
-      size.y * 0.5,
-      size.x * 0.2,
-      size.y * 0.65,
-    );
-    slickPath.cubicTo(
-      size.x * 0.15,
-      size.y * 0.8,
-      size.x * 0.4,
-      size.y * 0.9,
-      size.x * 0.6,
-      size.y * 0.85,
-    );
-    slickPath.cubicTo(
-      size.x * 0.85,
-      size.y * 0.75,
-      size.x * 0.92,
-      size.y * 0.5,
-      size.x * 0.8,
-      size.y * 0.3,
-    );
-    slickPath.cubicTo(
-      size.x * 0.85,
-      size.y * 0.12,
-      size.x * 0.6,
-      size.y * 0.08,
-      size.x * 0.3,
-      size.y * 0.15,
-    );
-    slickPath.close();
-
-    canvas.drawPath(slickPath, slickPaint);
-
-    // Iridescent rainbow sheen layers
-    final sheenColors = [
-      (color: Colors.purple.withValues(alpha: 0.3), scale: 0.7),
-      (color: Colors.blue.withValues(alpha: 0.25), scale: 0.5),
-      (color: Colors.green.withValues(alpha: 0.2), scale: 0.4),
-      (color: Colors.yellow.withValues(alpha: 0.15), scale: 0.3),
-    ];
-
-    for (final sheen in sheenColors) {
-      final sheenPaint = Paint()
-        ..color = sheen.color
-        ..style = PaintingStyle.fill;
-
-      final sheenPath = Path();
-      final offsetX = sin(bobOffset * 2) * 5;
-      final offsetY = cos(bobOffset * 2) * 5;
-
-      sheenPath.moveTo(
-        size.x * (0.35 + offsetX / 100),
-        size.y * (0.25 + offsetY / 100),
-      );
-      sheenPath.cubicTo(
-        size.x * (0.25 + offsetX / 100),
-        size.y * (0.35 + offsetY / 100),
-        size.x * (0.3 + offsetX / 100),
-        size.y * (0.55 + offsetY / 100),
-        size.x * (0.45 + offsetX / 100),
-        size.y * (0.65 + offsetY / 100),
-      );
-      sheenPath.cubicTo(
-        size.x * (0.6 + offsetX / 100),
-        size.y * (0.7 + offsetY / 100),
-        size.x * (0.7 + offsetX / 100),
-        size.y * (0.5 + offsetY / 100),
-        size.x * (0.65 + offsetX / 100),
-        size.y * (0.35 + offsetY / 100),
-      );
-      sheenPath.close();
-
-      canvas.save();
-      canvas.scale(sheen.scale, sheen.scale);
-      canvas.translate(
-        size.x * (1 - sheen.scale) / 2,
-        size.y * (1 - sheen.scale) / 2,
-      );
-      canvas.drawPath(sheenPath, sheenPaint);
-      canvas.restore();
-    }
-
-    // Bubbles on surface
-    final bubblePaint = Paint()
-      ..color = Colors.brown.shade800.withValues(alpha: 0.6)
-      ..style = PaintingStyle.fill;
-
-    for (int i = 0; i < 6; i++) {
-      final x = size.x * (0.2 + (i % 3) * 0.25 + sin(bobOffset + i) * 0.05);
-      final y = size.y * (0.3 + (i ~/ 3) * 0.3 + cos(bobOffset + i) * 0.05);
-      final radius = 2 + (i % 3) * 1.5;
-
-      canvas.drawCircle(Offset(x, y), radius, bubblePaint);
-    }
-  }
-
-  void _draw3DWood(Canvas canvas) {
-    // Wooden log with bark texture
-    final woodGradient = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        Colors.brown.shade400,
-        Colors.brown.shade600,
-        Colors.brown.shade700,
-        Colors.brown.shade600,
-      ],
-      stops: [0.0, 0.3, 0.7, 1.0],
-    );
-
-    final woodPaint = Paint()
-      ..shader = woodGradient.createShader(size.toRect());
-
-    final logPath = Path();
-    logPath.addRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(size.x * 0.05, size.y * 0.25, size.x * 0.9, size.y * 0.5),
-        Radius.circular(size.y * 0.25),
-      ),
-    );
-
-    canvas.drawPath(logPath, woodPaint);
-
-    // Bark texture with vertical lines
-    final barkPaint = Paint()
-      ..color = Colors.brown.shade800
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    for (int i = 0; i < 8; i++) {
-      final x = size.x * (0.15 + i * 0.1);
-      final lineHeight = size.y * 0.45;
-      final yStart = size.y * 0.275;
-
-      // Irregular bark lines
-      final barkPath = Path();
-      barkPath.moveTo(x, yStart);
-
-      for (double j = 0; j <= 1; j += 0.2) {
-        final offset = sin((i + j) * 3) * 2;
-        barkPath.lineTo(x + offset, yStart + lineHeight * j);
-      }
-
-      canvas.drawPath(barkPath, barkPaint);
-    }
-
-    // Wood grain details
-    final grainPaint = Paint()
-      ..color = accentColor.withValues(alpha: 0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    for (int i = 0; i < 3; i++) {
-      final grainPath = Path();
-      final y = size.y * (0.35 + i * 0.15);
-
-      grainPath.moveTo(size.x * 0.1, y);
-      grainPath.cubicTo(
-        size.x * 0.3,
-        y + sin(i * 2) * 4,
-        size.x * 0.7,
-        y - sin(i * 2) * 4,
-        size.x * 0.95,
-        y,
-      );
-
-      canvas.drawPath(grainPath, grainPaint);
-    }
-
-    // End caps showing cut wood
-    final endCapPaint = Paint()
-      ..shader =
-          RadialGradient(
-            colors: [
-              Colors.brown.shade300,
-              Colors.brown.shade600,
-              Colors.brown.shade800,
-            ],
-          ).createShader(
-            Rect.fromLTWH(0, size.y * 0.25, size.x * 0.12, size.y * 0.5),
-          );
-
-    canvas.drawOval(
-      Rect.fromLTWH(size.x * 0.02, size.y * 0.28, size.x * 0.12, size.y * 0.44),
-      endCapPaint,
-    );
-
-    canvas.drawOval(
-      Rect.fromLTWH(size.x * 0.86, size.y * 0.28, size.x * 0.12, size.y * 0.44),
-      endCapPaint,
-    );
-
-    // Growth rings on end caps
+    // Ring pull
     final ringPaint = Paint()
-      ..color = Colors.brown.shade900
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
+      ..color = Colors.grey.shade300
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke;
+    canvas.drawArc(
+        Rect.fromCenter(center: Offset(0, -cy + 5), width: 12, height: 10),
+        0, pi, false, ringPaint);
+    // Label colour stripe
+    final stripePaint = Paint()..color = const Color(0xFFE53935);
+    canvas.drawRect(
+        Rect.fromLTWH(-cx * 0.7, -cy * 0.2, cx * 1.4, cy * 0.5), stripePaint);
+  }
 
-    for (int i = 1; i <= 3; i++) {
-      canvas.drawOval(
-        Rect.fromLTWH(
-          size.x * 0.02 + i * 2,
-          size.y * 0.28 + i * 3,
-          size.x * 0.12 - i * 4,
-          size.y * 0.44 - i * 6,
-        ),
-        ringPaint,
-      );
+  void _renderPlasticBag(Canvas canvas, double cx, double cy) {
+    final bagPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.65)
+      ..style = PaintingStyle.fill;
+    final bagPath = Path()
+      ..moveTo(0, -cy)
+      ..quadraticBezierTo(cx * 0.8, -cy * 0.5, cx * 0.9,
+          cy * 0.5 + sin(bobOffset) * 4)
+      ..quadraticBezierTo(cx * 0.3, cy, 0, cy)
+      ..quadraticBezierTo(-cx * 0.3, cy, -cx * 0.9,
+          cy * 0.5 + sin(bobOffset) * 4)
+      ..quadraticBezierTo(-cx * 0.8, -cy * 0.5, 0, -cy)
+      ..close();
+    canvas.drawPath(bagPath, bagPaint);
+    // Outline
+    final outlinePaint = Paint()
+      ..color = Colors.grey.shade400
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    canvas.drawPath(bagPath, outlinePaint);
+    // Knot
+    canvas.drawCircle(Offset(0, -cy + 6), 5,
+        Paint()..color = Colors.grey.shade500);
+    // Handles
+    for (double hx in [-cx * 0.25, cx * 0.25]) {
+      canvas.drawLine(Offset(hx, -cy + 2), Offset(hx * 0.6, -cy - 10),
+          outlinePaint);
     }
+  }
+
+  void _renderOilSlick(Canvas canvas, double cx, double cy) {
+    // Irregular blob shape
+    final oilPath = Path();
+    const pts = 10;
+    for (int i = 0; i <= pts; i++) {
+      final ang = (i / pts) * pi * 2;
+      final r =
+          cx * (0.75 + sin(ang * 3 + bobOffset) * 0.2 + cos(ang * 2) * 0.15);
+      final ox = cos(ang) * r;
+      final oy = sin(ang) * r * 0.5;
+      if (i == 0) {
+        oilPath.moveTo(ox, oy);
+      } else {
+        oilPath.lineTo(ox, oy);
+      }
+    }
+    oilPath.close();
+    // Iridescent colours
+    final oilPaint = Paint()
+      ..shader = SweepGradient(
+        colors: [
+          Colors.black87,
+          Colors.purple.withValues(alpha: 0.7),
+          Colors.teal.withValues(alpha: 0.7),
+          Colors.black87,
+        ],
+        startAngle: bobOffset * 0.3,
+        endAngle: bobOffset * 0.3 + pi * 2,
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: cx));
+    canvas.drawPath(oilPath, oilPaint);
+    // Sheen overlay
+    canvas.drawOval(
+        Rect.fromLTWH(-cx * 0.5, -cy * 0.2, cx, cy * 0.4),
+        Paint()
+          ..color = Colors.deepPurple.withValues(alpha: 0.3)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+  }
+
+  void _renderOrganicWaste(Canvas canvas, double cx, double cy) {
+    // Floating log
+    final woodPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [const Color(0xFFA1887F), const Color(0xFF5D4037)],
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+      ).createShader(Rect.fromLTWH(-cx, -cy * 0.5, size.x, cy));
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(-cx, -cy * 0.45, size.x, cy * 0.9),
+            const Radius.circular(12)),
+        woodPaint);
+    // Grain lines
+    final grainPaint = Paint()
+      ..color = Colors.brown.shade900.withValues(alpha: 0.5)
+      ..strokeWidth = 1;
+    for (double gx = -cx + 8; gx < cx; gx += 10) {
+      canvas.drawLine(
+          Offset(gx, -cy * 0.35), Offset(gx + 4, cy * 0.35), grainPaint);
+    }
+    // Green algae patches
+    final algaePaint = Paint()
+      ..color = Colors.green.shade700.withValues(alpha: 0.5)
+      ..style = PaintingStyle.fill;
+    canvas.drawOval(
+        Rect.fromCenter(center: Offset(-cx * 0.3, 0), width: 18, height: 10),
+        algaePaint);
+    canvas.drawOval(
+        Rect.fromCenter(
+            center: Offset(cx * 0.25, cy * 0.2), width: 14, height: 8),
+        algaePaint);
+  }
+
+  void _renderMetalScrap(Canvas canvas, double cx, double cy) {
+    // Bent/jagged metal shape
+    final scrapPath = Path()
+      ..moveTo(-cx * 0.8, -cy * 0.5)
+      ..lineTo(-cx * 0.3, -cy)
+      ..lineTo(cx * 0.5, -cy * 0.7)
+      ..lineTo(cx * 0.9, 0)
+      ..lineTo(cx * 0.4, cy * 0.8)
+      ..lineTo(-cx * 0.6, cy * 0.7)
+      ..lineTo(-cx, cy * 0.2)
+      ..close();
+    final metalPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          const Color(0xFFB0BEC5),
+          const Color(0xFF37474F),
+          const Color(0xFF78909C)
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(Rect.fromLTWH(-cx, -cy, size.x, size.y));
+    canvas.drawPath(scrapPath, metalPaint);
+    // Rust patches
+    final rustPaint = Paint()
+      ..color = const Color(0xFFBF360C).withValues(alpha: 0.6);
+    canvas.drawCircle(Offset(cx * 0.3, cy * 0.3), 8, rustPaint);
+    canvas.drawCircle(Offset(-cx * 0.4, -cy * 0.2), 5, rustPaint);
+    // Edge highlight
+    canvas.drawPath(
+        scrapPath,
+        Paint()
+          ..color = Colors.blueGrey.shade200
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5);
   }
 }
 
