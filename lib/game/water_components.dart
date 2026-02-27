@@ -3861,95 +3861,381 @@ class EnhancedRiverComponent extends PositionComponent with HasGameReference<Wat
 }
 
 class SortingFacilityBackground extends PositionComponent {
+  // ── palette ────────────────────────────────────────────────────────────
+  static const Color _bgDeep    = Color(0xFF060E12); // near-black base
+  static const Color _bgMid     = Color(0xFF0C1A22); // dark teal
+  static const Color _bgUpper   = Color(0xFF0F2230); // wall colour
+  static const Color _accentMint = Color(0xFF00E5A0);
+
+  // Bin-zone accent colours matching the overlay legend
+  static const Color _zonePlastic   = Color(0xFF4FC3F7);
+  static const Color _zoneMetal     = Color(0xFFB0BEC5);
+  static const Color _zoneHazardous = Color(0xFFFF5252);
+  static const Color _zoneOrganic   = Color(0xFF69F0AE);
+
   SortingFacilityBackground({required Vector2 size}) : super(size: size) {
     priority = -10;
   }
-  
+
   @override
   void render(Canvas canvas) {
-    // Industrial floor
-    final floorGradient = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        const Color(0xFF4A4A4A),
-        const Color(0xFF2A2A2A),
-      ],
-    );
-    
+    _drawBaseGradient(canvas);
+    _drawHexGrid(canvas);
+    _drawWallSection(canvas);
+    _drawCeilingTrim(canvas);
+    _drawSpotlights(canvas);
+    _drawConveyorZone(canvas);
+    _drawBinZoneMarkers(canvas);
+    _drawAmbientGlow(canvas);
+  }
+
+  // ── Base full-screen gradient ──────────────────────────────────────────
+  void _drawBaseGradient(Canvas canvas) {
     canvas.drawRect(
       size.toRect(),
-      Paint()..shader = floorGradient.createShader(size.toRect()),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [_bgUpper, _bgMid, _bgDeep],
+          stops: const [0.0, 0.45, 1.0],
+        ).createShader(size.toRect()),
     );
-    
-    // Floor tiles
-    final tilePaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.1)
+  }
+
+  // ── Subtle hex-grid floor texture (lower 55% of canvas) ───────────────
+  void _drawHexGrid(Canvas canvas) {
+    final gridPaint = Paint()
+      ..color = const Color(0xFF00E5A0).withValues(alpha: 0.028)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    
-    for (double i = 0; i < size.x; i += 60) {
-      canvas.drawLine(
-        Offset(i, 0),
-        Offset(i, size.y),
-        tilePaint,
-      );
+      ..strokeWidth = 0.8;
+
+    const double r = 28.0; // hex circumradius
+    final double w = r * sqrt(3);
+    final double h = r * 2.0;
+    final double startY = size.y * 0.42;
+
+    for (double row = 0; row * (h * 0.75) < size.y - startY + h; row++) {
+      final double yCenter = startY + row * h * 0.75;
+      final double xOffset = (row % 2 == 0) ? 0 : w / 2;
+      for (double col = -1; col * w < size.x + w; col++) {
+        final double xCenter = xOffset + col * w;
+        _drawHex(canvas, Offset(xCenter, yCenter), r, gridPaint);
+      }
     }
-    
-    for (double i = 0; i < size.y; i += 60) {
-      canvas.drawLine(
-        Offset(0, i),
-        Offset(size.x, i),
-        tilePaint,
-      );
-    }
-    
-    // Facility walls with industrial look
-    _drawWalls(canvas);
-    
-    // Lighting effects
-    _drawLighting(canvas);
   }
-  
-  void _drawWalls(Canvas canvas) {
-    final wallPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          const Color(0xFF6A6A6A),
-          const Color(0xFF4A4A4A),
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, size.x, size.y * 0.15));
-    
+
+  void _drawHex(Canvas canvas, Offset center, double r, Paint paint) {
+    final path = Path();
+    for (int i = 0; i < 6; i++) {
+      final angle = (pi / 3) * i - pi / 6;
+      final pt = Offset(center.dx + r * cos(angle), center.dy + r * sin(angle));
+      if (i == 0) {
+        path.moveTo(pt.dx, pt.dy);
+      } else {
+        path.lineTo(pt.dx, pt.dy);
+      }
+    }
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  // ── Back wall (top 28%) ────────────────────────────────────────────────
+  void _drawWallSection(Canvas canvas) {
+    final wallRect = Rect.fromLTWH(0, 0, size.x, size.y * 0.28);
+
+    // Wall gradient — slightly lighter than floor
     canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.x, size.y * 0.15),
-      wallPaint,
+      wallRect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF162E3E),
+            _bgMid,
+          ],
+        ).createShader(wallRect),
+    );
+
+    // Horizontal panel lines on wall
+    final panelPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.04)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (int i = 1; i <= 3; i++) {
+      final y = size.y * 0.28 * i / 4;
+      canvas.drawLine(Offset(0, y), Offset(size.x, y), panelPaint);
+    }
+
+    // Vertical pillar marks
+    for (int i = 1; i <= 3; i++) {
+      final x = size.x * i / 4;
+      final pillarPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.05)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.y * 0.28), pillarPaint);
+    }
+
+    // "ECO SORTING FACILITY" text stamp on wall
+    final textStyle = TextStyle(
+      fontSize: size.x * 0.022,
+      color: Colors.white.withValues(alpha: 0.07),
+      fontWeight: FontWeight.w900,
+      letterSpacing: size.x * 0.006,
+      fontFamily: 'monospace',
+    );
+    final tp = TextPainter(
+      text: TextSpan(text: '◈  ECO SORTING FACILITY  ◈', style: textStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset((size.x - tp.width) / 2, size.y * 0.06));
+  }
+
+  // ── Ceiling trim strip ─────────────────────────────────────────────────
+  void _drawCeilingTrim(Canvas canvas) {
+    // Glow strip at top edge
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.x, 3),
+      Paint()
+        ..shader = LinearGradient(
+          colors: [
+            _accentMint.withValues(alpha: 0.0),
+            _accentMint.withValues(alpha: 0.6),
+            _accentMint.withValues(alpha: 0.0),
+          ],
+        ).createShader(Rect.fromLTWH(0, 0, size.x, 3)),
+    );
+
+    // Ceiling beam
+    canvas.drawRect(
+      Rect.fromLTWH(0, size.y * 0.27, size.x, 4),
+      Paint()
+        ..shader = LinearGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.0),
+            Colors.white.withValues(alpha: 0.12),
+            Colors.white.withValues(alpha: 0.0),
+          ],
+        ).createShader(Rect.fromLTWH(0, 0, size.x, 4)),
     );
   }
-  
-  void _drawLighting(Canvas canvas) {
-    final lightPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          Colors.white.withValues(alpha: 0.15),
-          Colors.white.withValues(alpha: 0),
-        ],
-      ).createShader(
-        Rect.fromCenter(
-          center: Offset(size.x / 2, size.y * 0.1),
-          width: size.x * 0.6,
-          height: size.y * 0.4,
-        ),
+
+  // ── Industrial spotlights from ceiling ────────────────────────────────
+  void _drawSpotlights(Canvas canvas) {
+    final spotPositions = [
+      size.x * 0.18,
+      size.x * 0.50,
+      size.x * 0.82,
+    ];
+
+    for (final x in spotPositions) {
+      // Cone of light (wide, transparent)
+      final coneTop = Offset(x, size.y * 0.27);
+      final coneBottom = Offset(x, size.y * 0.78);
+      final coneWidth = size.x * 0.16;
+
+      final conePath = Path()
+        ..moveTo(coneTop.dx, coneTop.dy)
+        ..lineTo(coneTop.dx - coneWidth / 2, coneBottom.dy)
+        ..lineTo(coneTop.dx + coneWidth / 2, coneBottom.dy)
+        ..close();
+
+      canvas.drawPath(
+        conePath,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.white.withValues(alpha: 0.04),
+              Colors.white.withValues(alpha: 0.0),
+            ],
+          ).createShader(Rect.fromLTWH(
+              coneTop.dx - coneWidth, coneTop.dy, coneWidth * 2, size.y * 0.5)),
       );
-    
+
+      // Fixture housing
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(x, size.y * 0.265), width: 20, height: 8),
+          const Radius.circular(3),
+        ),
+        Paint()..color = const Color(0xFF203040),
+      );
+
+      // Bulb glow dot
+      canvas.drawCircle(
+        Offset(x, size.y * 0.269),
+        3.5,
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.85)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+      );
+    }
+  }
+
+  // ── Central conveyor belt zone (middle band) ───────────────────────────
+  void _drawConveyorZone(Canvas canvas) {
+    final double beltTop    = size.y * 0.28;
+    final double beltBottom = size.y * 0.62;
+    final double beltMid    = (beltTop + beltBottom) / 2;
+    const double beltH      = 14.0;
+
+    // Belt track background
+    final beltRect = Rect.fromLTWH(
+        size.x * 0.08, beltMid - beltH / 2, size.x * 0.84, beltH);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(beltRect, const Radius.circular(7)),
+      Paint()..color = const Color(0xFF0A1A22),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(beltRect, const Radius.circular(7)),
+      Paint()
+        ..color = Colors.transparent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = _accentMint.withValues(alpha: 0.20),
+    );
+
+    // Belt segmentation lines (static — movement implied by item animation)
+    final segPaint = Paint()
+      ..color = _accentMint.withValues(alpha: 0.12)
+      ..strokeWidth = 1;
+    final double segSpacing = size.x * 0.06;
+    for (double x = size.x * 0.08; x < size.x * 0.92; x += segSpacing) {
+      canvas.drawLine(
+        Offset(x, beltMid - beltH / 2 + 2),
+        Offset(x, beltMid + beltH / 2 - 2),
+        segPaint,
+      );
+    }
+
+    // Left & right belt rollers
+    for (final cx in [size.x * 0.08, size.x * 0.92]) {
+      canvas.drawCircle(
+        Offset(cx, beltMid),
+        beltH / 2 + 2,
+        Paint()..color = const Color(0xFF1A2F3F),
+      );
+      canvas.drawCircle(
+        Offset(cx, beltMid),
+        beltH / 2 + 2,
+        Paint()
+          ..color = _accentMint.withValues(alpha: 0.18)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5,
+      );
+    }
+
+    // "CONVEYOR BELT" micro-label
+    final labelStyle = TextStyle(
+      fontSize: size.x * 0.016,
+      color: _accentMint.withValues(alpha: 0.25),
+      fontWeight: FontWeight.w700,
+      letterSpacing: 2.0,
+    );
+    final lp = TextPainter(
+      text: TextSpan(text: 'CONVEYOR BELT', style: labelStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    lp.paint(canvas,
+        Offset((size.x - lp.width) / 2, beltMid + beltH / 2 + 4));
+  }
+
+  // ── Bin zone floor markers (4 coloured lanes at bottom) ───────────────
+  void _drawBinZoneMarkers(Canvas canvas) {
+    final zones = [
+      _zonePlastic, _zoneMetal, _zoneHazardous, _zoneOrganic,
+    ];
+    final labels = ['PLASTIC', 'METAL', 'HAZARDOUS', 'ORGANIC'];
+
+    final double margin  = size.x * 0.05;
+    final double spacing = size.x * 0.03;
+    final double zoneW   = (size.x - 2 * margin - spacing * 3) / 4;
+    final double zoneTop = size.y * 0.63;
+
+    for (int i = 0; i < 4; i++) {
+      final double x = margin + i * (zoneW + spacing);
+      final Color c  = zones[i];
+
+      // Floor zone tint panel
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, zoneTop, zoneW, size.y - zoneTop),
+          const Radius.circular(6),
+        ),
+        Paint()..color = c.withValues(alpha: 0.055),
+      );
+
+      // Top accent line on zone
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, zoneTop, zoneW, 3),
+          const Radius.circular(2),
+        ),
+        Paint()
+          ..shader = LinearGradient(
+            colors: [
+              c.withValues(alpha: 0.0),
+              c.withValues(alpha: 0.7),
+              c.withValues(alpha: 0.0),
+            ],
+          ).createShader(Rect.fromLTWH(x, zoneTop, zoneW, 3)),
+      );
+
+      // Zone label near top of zone
+      final lStyle = TextStyle(
+        fontSize: size.x * 0.018,
+        color: c.withValues(alpha: 0.30),
+        fontWeight: FontWeight.w800,
+        letterSpacing: 1.5,
+      );
+      final lp = TextPainter(
+        text: TextSpan(text: labels[i], style: lStyle),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: zoneW);
+      lp.paint(canvas,
+          Offset(x + (zoneW - lp.width) / 2, zoneTop + 8));
+    }
+  }
+
+  // ── Soft ambient glow in centre (depth & atmosphere) ──────────────────
+  void _drawAmbientGlow(Canvas canvas) {
+    // Centre radial bloom
     canvas.drawOval(
       Rect.fromCenter(
-        center: Offset(size.x / 2, size.y * 0.1),
-        width: size.x * 0.6,
-        height: size.y * 0.4,
+        center: Offset(size.x / 2, size.y * 0.42),
+        width: size.x * 0.7,
+        height: size.y * 0.35,
       ),
-      lightPaint,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            _accentMint.withValues(alpha: 0.04),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCenter(
+          center: Offset(size.x / 2, size.y * 0.42),
+          width: size.x * 0.7,
+          height: size.y * 0.35,
+        )),
+    );
+
+    // Floor-level gradient vignette (bottom edge darker)
+    canvas.drawRect(
+      Rect.fromLTWH(0, size.y * 0.80, size.x, size.y * 0.20),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            Colors.black.withValues(alpha: 0.35),
+          ],
+        ).createShader(Rect.fromLTWH(
+            0, size.y * 0.80, size.x, size.y * 0.20)),
     );
   }
 }

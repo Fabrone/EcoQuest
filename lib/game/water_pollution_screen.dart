@@ -1258,8 +1258,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           ),
         ),
 
-        // ── FIRST-SORT INSTRUCTION TOOLTIP (dismisses after 5 items) ─────
-        if (itemsSorted < 5)
+        // ── FIRST-SORT INSTRUCTION TOOLTIP (shown only before first item sorted) ─
+        if (itemsSorted == 0)
           Positioned(
             top: isMobile ? size.height * 0.13 : size.height * 0.12,
             left: isMobile ? 16 : size.width * 0.15,
