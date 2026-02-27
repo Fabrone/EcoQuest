@@ -943,119 +943,392 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         ]);
   }
 
+  // ── Sorting phase palette constants ─────────────────────────────────────
+  static const Color _sortAccent  = Color(0xFF00E5A0); // neon mint
+  static const Color _sortWarning = Color(0xFFFF6B35); // coral-orange
+  static const Color _sortPanel   = Color(0xFF0D1F18); // deep eco-green dark
+
   Widget _buildSortingInterface() {
-    final size = MediaQuery.of(context).size;
+    final size    = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
+
     // SYNC GAME CANVAS SIZE WITH SCREEN SIZE
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (game.size.x != size.width || game.size.y != size.height) {
         game.onGameResize(size.toVector2());
       }
     });
-    
+
+    final int total    = game.collectedWaste.length + itemsSorted;
+    final double prog  = total > 0 ? (itemsSorted / total).clamp(0.0, 1.0) : 0.0;
+    final int remaining = game.collectedWaste.length;
+    final bool nearDone = remaining <= 3 && total > 0;
+
+    // Accuracy colour ramp
+    final Color accColor = sortingAccuracy >= 80
+        ? _sortAccent
+        : sortingAccuracy >= 60
+            ? Colors.amber
+            : _sortWarning;
+
     return Stack(
       children: [
-        // Top header with stats - COMPACT VERSION
+        // ── TOP HUD PANEL ─────────────────────────────────────────────────
         Positioned(
           top: 0,
           left: 0,
           right: 0,
           child: SafeArea(
-            child: Container(
-              margin: EdgeInsets.all(isMobile ? 8 : 12),
-              padding: EdgeInsets.symmetric(
-                horizontal: isMobile ? 12 : 16,
-                vertical: isMobile ? 10 : 12,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                isMobile ? 10 : 14,
+                isMobile ? 8  : 10,
+                isMobile ? 10 : 14,
+                0,
               ),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.black.withValues(alpha: 0.75),
-                    Colors.black.withValues(alpha: 0.6),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green, width: 2),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'WASTE SORTING',
-                    style: GoogleFonts.exo2(
-                      fontSize: isMobile ? 14 : 16,
-                      color: Colors.green,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.2,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(isMobile ? 14 : 18),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        _sortPanel.withValues(alpha: 0.96),
+                        const Color(0xFF0A1A24).withValues(alpha: 0.96),
+                      ],
                     ),
-                  ),
-                  SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildCompactStat(
-                        'Accuracy',
-                        '$sortingAccuracy%',
-                        sortingAccuracy >= 70 ? Colors.green : Colors.orange,
-                        isMobile,
-                      ),
-                      Container(width: 1, height: 30, color: Colors.white24),
-                      _buildCompactStat(
-                        'Progress',
-                        '$itemsSorted/${game.collectedWaste.length + itemsSorted}',
-                        Colors.cyan,
-                        isMobile,
-                      ),
-                      Container(width: 1, height: 30, color: Colors.white24),
-                      _buildCompactStat(
-                        'Correct',
-                        '$sortedCorrectly',
-                        Colors.green,
-                        isMobile,
+                    borderRadius: BorderRadius.circular(isMobile ? 14 : 18),
+                    border: Border.all(
+                      color: _sortAccent.withValues(alpha: 0.35),
+                      width: 1.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _sortAccent.withValues(alpha: 0.12),
+                        blurRadius: 20,
+                        spreadRadius: -2,
+                        offset: const Offset(0, 4),
                       ),
                     ],
                   ),
-                ],
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isMobile ? 12 : 18,
+                      vertical:   isMobile ? 10 : 13,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ── Row 1: phase label | remaining pill ──────────
+                        Row(
+                          children: [
+                            // Phase label with dot
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: _sortAccent,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: _sortAccent.withValues(alpha: 0.8),
+                                    blurRadius: 6,
+                                    spreadRadius: 1,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                            Text(
+                              'PHASE 2  ·  WASTE SORTING',
+                              style: GoogleFonts.exo2(
+                                fontSize: isMobile ? 11 : 12,
+                                color: _sortAccent,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.6,
+                              ),
+                            ),
+                            const Spacer(),
+                            // Remaining items pill
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isMobile ? 8 : 10,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: nearDone
+                                    ? _sortAccent.withValues(alpha: 0.22)
+                                    : Colors.white.withValues(alpha: 0.07),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: nearDone
+                                      ? _sortAccent.withValues(alpha: 0.7)
+                                      : Colors.white24,
+                                  width: 1,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.inventory_2_outlined,
+                                    size: isMobile ? 11 : 12,
+                                    color: nearDone ? _sortAccent : Colors.white60,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '$remaining left',
+                                    style: GoogleFonts.exo2(
+                                      fontSize: isMobile ? 10 : 11,
+                                      color: nearDone ? _sortAccent : Colors.white60,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        SizedBox(height: isMobile ? 9 : 11),
+
+                        // ── Row 2: stat chips ─────────────────────────────
+                        Row(
+                          children: [
+                            // Accuracy chip
+                            _sortStatChip(
+                              icon: Icons.track_changes_rounded,
+                              label: 'ACCURACY',
+                              value: '$sortingAccuracy%',
+                              color: accColor,
+                              isMobile: isMobile,
+                            ),
+                            SizedBox(width: isMobile ? 6 : 10),
+                            // Correct chip
+                            _sortStatChip(
+                              icon: Icons.check_circle_outline_rounded,
+                              label: 'CORRECT',
+                              value: '$sortedCorrectly',
+                              color: _sortAccent,
+                              isMobile: isMobile,
+                            ),
+                            SizedBox(width: isMobile ? 6 : 10),
+                            // Wrong chip (only appears after first mistake)
+                            if (sortedIncorrectly > 0)
+                              _sortStatChip(
+                                icon: Icons.cancel_outlined,
+                                label: 'WRONG',
+                                value: '$sortedIncorrectly',
+                                color: _sortWarning,
+                                isMobile: isMobile,
+                              ),
+                            const Spacer(),
+                            // Sorted / Total counter
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                RichText(
+                                  text: TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: '$itemsSorted',
+                                        style: GoogleFonts.exo2(
+                                          fontSize: isMobile ? 20 : 24,
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      TextSpan(
+                                        text: '/$total',
+                                        style: GoogleFonts.exo2(
+                                          fontSize: isMobile ? 13 : 15,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.white38,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Text(
+                                  'SORTED',
+                                  style: GoogleFonts.exo2(
+                                    fontSize: 9,
+                                    color: Colors.white38,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+
+                        SizedBox(height: isMobile ? 8 : 10),
+
+                        // ── Progress bar ──────────────────────────────────
+                        Stack(
+                          children: [
+                            // Track
+                            Container(
+                              height: isMobile ? 5 : 6,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                            // Fill
+                            AnimatedFractionallySizedBox(
+                              duration: const Duration(milliseconds: 400),
+                              curve: Curves.easeOutCubic,
+                              widthFactor: prog,
+                              child: Container(
+                                height: isMobile ? 5 : 6,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      _sortAccent,
+                                      const Color(0xFF00BCD4),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(6),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: _sortAccent.withValues(alpha: 0.55),
+                                      blurRadius: 6,
+                                      spreadRadius: -1,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
         ),
-        
-        // Instructions - Floating hint (show on first few items)
-        // Position relative to SCREEN for overlay consistency
+
+        // ── CATEGORY LEGEND BAR (bottom of screen) ────────────────────────
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                isMobile ? 10 : 14,
+                0,
+                isMobile ? 10 : 14,
+                isMobile ? 10 : 12,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(isMobile ? 12 : 14),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF060F14).withValues(alpha: 0.90),
+                    borderRadius: BorderRadius.circular(isMobile ? 12 : 14),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      width: 1,
+                    ),
+                  ),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 10 : 16,
+                    vertical: isMobile ? 8 : 10,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _sortCategoryChip('♻', 'PLASTIC',   const Color(0xFF4FC3F7), isMobile),
+                      _sortCategoryChip('🔩', 'METAL',    const Color(0xFFB0BEC5), isMobile),
+                      _sortCategoryChip('⚠', 'HAZARDOUS', const Color(0xFFFF5252), isMobile),
+                      _sortCategoryChip('🌿', 'ORGANIC',  const Color(0xFF69F0AE), isMobile),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // ── FIRST-SORT INSTRUCTION TOOLTIP (dismisses after 5 items) ─────
         if (itemsSorted < 5)
           Positioned(
-            top: size.height * 0.15,
-            left: 16,
-            right: 16,
-            child: Center(
+            top: isMobile ? size.height * 0.13 : size.height * 0.12,
+            left: isMobile ? 16 : size.width * 0.15,
+            right: isMobile ? 16 : size.width * 0.15,
+            child: IgnorePointer(
               child: Container(
-                padding: EdgeInsets.all(isMobile ? 10 : 12),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isMobile ? 14 : 18,
+                  vertical:   isMobile ? 10 : 12,
+                ),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.8),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.amber, width: 2),
+                  color: const Color(0xFF0D2418).withValues(alpha: 0.93),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _sortAccent.withValues(alpha: 0.45),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.touch_app,
-                      color: Colors.amber,
-                      size: isMobile ? 20 : 24,
-                    ),
-                    SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        isMobile 
-                            ? 'TAP item → TAP bin\nOR DRAG to bin'
-                            : 'TAP item then TAP bin | OR | DRAG item to bin',
-                        style: GoogleFonts.exo2(
-                          fontSize: isMobile ? 11 : 13,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: _sortAccent.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _sortAccent.withValues(alpha: 0.5),
+                          width: 1.5,
                         ),
-                        textAlign: TextAlign.center,
+                      ),
+                      child: Icon(
+                        Icons.touch_app_rounded,
+                        color: _sortAccent,
+                        size: isMobile ? 16 : 18,
+                      ),
+                    ),
+                    SizedBox(width: isMobile ? 10 : 12),
+                    Flexible(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            isMobile ? 'TAP item  →  TAP bin' : 'TAP item  ·  then TAP the correct bin',
+                            style: GoogleFonts.exo2(
+                              fontSize: isMobile ? 12 : 13,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Or drag the item directly into a bin',
+                            style: GoogleFonts.exo2(
+                              fontSize: isMobile ? 10 : 11,
+                              color: Colors.white54,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -1063,34 +1336,97 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
               ),
             ),
           ),
-
       ],
     );
   }
 
-  Widget _buildCompactStat(String label, String value, Color color, bool isMobile) {
-    return Column(
+  // ── Sorting HUD helpers ───────────────────────────────────────────────────
+
+  Widget _sortStatChip({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+    required bool isMobile,
+  }) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 8 : 11,
+        vertical:   isMobile ? 4 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: isMobile ? 11 : 13),
+          SizedBox(width: isMobile ? 4 : 5),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                value,
+                style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 13 : 15,
+                  color: color,
+                  fontWeight: FontWeight.w900,
+                  height: 1.0,
+                ),
+              ),
+              Text(
+                label,
+                style: GoogleFonts.exo2(
+                  fontSize: 8,
+                  color: color.withValues(alpha: 0.65),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sortCategoryChip(String emoji, String label, Color color, bool isMobile) {
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          value,
-          style: GoogleFonts.exo2(
-            fontSize: isMobile ? 16 : 18,
-            color: color,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        Text(
-          label,
-          style: GoogleFonts.exo2(
-            fontSize: isMobile ? 9 : 10,
-            color: Colors.white70,
-            fontWeight: FontWeight.w500,
-          ),
+        Text(emoji, style: TextStyle(fontSize: isMobile ? 13 : 15)),
+        SizedBox(width: isMobile ? 4 : 5),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: GoogleFonts.exo2(
+                fontSize: isMobile ? 9 : 10,
+                color: color,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+              ),
+            ),
+            Container(
+              width: isMobile ? 28 : 36,
+              height: 2,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
+
+
 
   // Update _buildTreatmentOverlay method
   Widget _buildTreatmentOverlay() {
