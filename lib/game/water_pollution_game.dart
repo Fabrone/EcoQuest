@@ -92,6 +92,29 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       false; // Tracks if pipeline fully connects river to all farms
   List<Timer> growthTimers = []; // For crop growth stages
 
+  // Phase 4 — new crop & irrigation system
+  String? selectedCrop;       // 'vegetables' | 'maize' | 'rice'
+  String? irrigationMethod;   // 'furrow' | 'pipe'
+  double farmGreenProgress = 0.0; // 0.0 brown → 1.0 full green
+  int connectedChannels = 0;  // furrows or pipes connected to river
+  bool phase4Complete = false;
+  double phase4Timer = 0.0;   // countdown after crops grow
+  static const double phase4Duration = 90.0; // seconds to irrigate
+  double irrigationTimeLeft = phase4Duration;
+  bool irrigationTimerRunning = false;
+  // Harvest result
+  String harvestResult = '';  // 'bountiful' | 'average' | 'poor'
+  String educationalTip = '';
+  // Callbacks
+  Function(double greenProgress, int connected)? onFarmUpdate;
+  Function(String result, String tip)? onHarvestComplete;
+  Function(double timeLeft)? onIrrigationTick;
+  // Pipe network (parallel to furrow network)
+  List<FurrowPath> pipePaths = [];
+  Map<String, FurrowPath> pipeNetwork = {};
+  FurrowPath? currentPipeBeingDrawn;
+  bool isDrawingPipe2 = false; // renamed to avoid conflict with existing isDrawingPipe
+
   TractorComponent? tractor;
   List<FurrowPath> completedFurrows = [];
   FurrowPath? currentFurrowBeingDrawn;
@@ -1177,6 +1200,26 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
   void startPhase4Agriculture() {
     currentPhase = 4;
+    // Reset all phase 4 state
+    selectedCrop = null;
+    irrigationMethod = null;
+    farmGreenProgress = 0.0;
+    connectedChannels = 0;
+    phase4Complete = false;
+    phase4Timer = 0.0;
+    irrigationTimeLeft = phase4Duration;
+    irrigationTimerRunning = false;
+    harvestResult = '';
+    educationalTip = '';
+    completedFurrows.clear();
+    furrowNetwork.clear();
+    pipePaths.clear();
+    pipeNetwork.clear();
+    currentFurrowBeingDrawn = null;
+    currentPipeBeingDrawn = null;
+    activeWaterFlows.clear();
+    isDrawingFurrow = false;
+    isDrawingPipe2 = false;
     _setupAgriculturePhase();
   }
 
@@ -1184,15 +1227,15 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Clear previous components
     removeAll(children.whereType<WaterTileComponent>());
     removeAll(children.whereType<EnhancedRiverComponent>());
+    removeAll(children.whereType<UnifiedAgricultureBackground>());
+    removeAll(children.whereType<FurrowRenderComponent>());
+    removeAll(children.whereType<TractorComponent>());
+    removeAll(children.whereType<CropComponent>());
     await Future.delayed(const Duration(milliseconds: 100));
 
-    // Wait for proper canvas sizing
     int attempts = 0;
     while ((size.x == 0 || size.y == 0 || size.x < 100 || size.y < 100) &&
         attempts < 20) {
-      debugPrint(
-        'Canvas not ready (attempt ${attempts + 1}): ${size.x} x ${size.y}',
-      );
       await Future.delayed(const Duration(milliseconds: 100));
       attempts++;
     }
@@ -1202,155 +1245,143 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       return;
     }
 
-    // Add unified background
-    add(UnifiedAgricultureBackground(size: size));
+    // Background
+    add(ModernAgricultureBackground(size: size));
 
-    // Create adaptive river layout
+    // River — max 25% of longer dimension
     _createAdaptiveRiverLayout();
 
-    // Initialize tractor (hidden until first drag)
-    final isLandscape = size.x > size.y;
-    final farmCenter = isLandscape
-        ? Vector2(size.x * 0.7, size.y * 0.5)
-        : Vector2(size.x * 0.5, size.y * 0.7);
-
-    tractor = TractorComponent(position: farmCenter, size: Vector2(60, 60));
-    tractor!.visible = false; // Hidden initially
-    add(tractor!);
-
+    // Furrow/pipe render component
     add(FurrowRenderComponent());
 
-    debugPrint('✅ Phase 4 setup complete - Ready for furrow drawing');
+    // Tractor hidden until drawing starts
+    final farmRect = _getFarmRect();
+    tractor = TractorComponent(
+      position: Vector2(farmRect.center.dx, farmRect.center.dy),
+      size: Vector2(52, 52),
+    );
+    tractor!.visible = false;
+    add(tractor!);
 
+    debugPrint('✅ Phase 4 setup complete');
     resumeEngine();
   }
 
-  void _createAdaptiveRiverLayout() {
-    final isLandscape = size.x > size.y;
-    final isDesktop = size.x >= 1024; // Desktop/Laptop threshold
-    final isTablet = size.x >= 600 && size.x < 1024;
-    // final isMobile = size.x < 600;
-
-    EnhancedRiverComponent river;
-
-    if (isLandscape || isDesktop || isTablet) {
-      // DESKTOP/TABLET LANDSCAPE: Vertical river on left (30% width)
-      final riverWidth = size.x * 0.30;
-      final riverHeight = size.y * 0.95;
-      final riverX = 0.0;
-      final riverY = size.y * 0.025;
-
-      river = EnhancedRiverComponent(
-        size: Vector2(riverWidth, riverHeight),
-        position: Vector2(riverX, riverY),
-        flowDirection: RiverFlowDirection.topToBottom,
-        orientation: RiverOrientation.vertical,
-      );
-
-      debugPrint(
-        '🏞️ Created VERTICAL river: ${riverWidth}w x ${riverHeight}h at ($riverX, $riverY)',
-      );
+  /// Returns the farm play area rect (everything outside the river strip)
+  Rect _getFarmRect() {
+    final isPortrait = size.y > size.x;
+    final riverFraction = 0.25;
+    if (isPortrait) {
+      // River on top
+      final riverH = size.y * riverFraction;
+      return Rect.fromLTWH(0, riverH, size.x, size.y - riverH);
     } else {
-      // MOBILE PORTRAIT: Horizontal river on top (30% height)
-      final riverWidth = size.x * 0.95;
-      final riverHeight = size.y * 0.30;
-      final riverX = size.x * 0.025;
-      final riverY = 0.0;
+      // River on left
+      final riverW = size.x * riverFraction;
+      return Rect.fromLTWH(riverW, 0, size.x - riverW, size.y);
+    }
+  }
 
-      river = EnhancedRiverComponent(
-        size: Vector2(riverWidth, riverHeight),
-        position: Vector2(riverX, riverY),
+  void _createAdaptiveRiverLayout() {
+    // River occupies ≤25% of the LONGER screen dimension.
+    // Portrait / mobile  → horizontal strip across the top  (25% of height)
+    // Landscape / desktop→ vertical strip on the left       (25% of width)
+    final isPortrait = size.y > size.x;
+    EnhancedRiverComponent newRiver;
+
+    if (isPortrait) {
+      // Mobile portrait: top horizontal river
+      final riverH = size.y * 0.25;
+      newRiver = EnhancedRiverComponent(
+        size: Vector2(size.x, riverH),
+        position: Vector2.zero(),
         flowDirection: RiverFlowDirection.leftToRight,
         orientation: RiverOrientation.horizontal,
       );
-
-      debugPrint(
-        '🏞️ Created HORIZONTAL river: ${riverWidth}w x ${riverHeight}h at ($riverX, $riverY)',
+    } else {
+      // Landscape / desktop / tablet: left vertical river
+      final riverW = size.x * 0.25;
+      newRiver = EnhancedRiverComponent(
+        size: Vector2(riverW, size.y),
+        position: Vector2.zero(),
+        flowDirection: RiverFlowDirection.topToBottom,
+        orientation: RiverOrientation.vertical,
       );
     }
 
-    add(river);
+    river = newRiver;
+    add(newRiver);
+    debugPrint('🏞️ River: ${newRiver.size} at ${newRiver.position} (portrait=$isPortrait)');
   }
 
   void _repositionAgricultureComponents() {
-    final currentRiver = children
-        .whereType<EnhancedRiverComponent>()
-        .firstOrNull;
-    if (currentRiver == null) {
-      debugPrint('⚠️ No river found for repositioning');
-      return;
-    }
+    final currentRiver = children.whereType<EnhancedRiverComponent>().firstOrNull;
+    if (currentRiver == null) return;
+    river = currentRiver;
 
-    river = currentRiver; // Update reference
-
-    // Update river size and position based on new screen dimensions
-    final isLandscape = size.x > size.y;
-
-    if (isLandscape) {
-      final riverWidth = size.x * 0.30;
-      river!.size = Vector2(riverWidth, size.y * 0.95);
-      river!.position = Vector2(0, size.y * 0.025);
-      river!.orientation = RiverOrientation.vertical;
-      river!.flowDirection = RiverFlowDirection.topToBottom;
-    } else {
-      final riverHeight = size.y * 0.30;
-      river!.size = Vector2(size.x * 0.95, riverHeight);
-      river!.position = Vector2(size.x * 0.025, 0);
+    final isPortrait = size.y > size.x;
+    if (isPortrait) {
+      river!.size = Vector2(size.x, size.y * 0.25);
+      river!.position = Vector2.zero();
       river!.orientation = RiverOrientation.horizontal;
       river!.flowDirection = RiverFlowDirection.leftToRight;
+    } else {
+      river!.size = Vector2(size.x * 0.25, size.y);
+      river!.position = Vector2.zero();
+      river!.orientation = RiverOrientation.vertical;
+      river!.flowDirection = RiverFlowDirection.topToBottom;
     }
-
     river!.generateWindingRiverPath();
 
-    if (tractor != null) {
-      final isLandscape = size.x > size.y;
-      tractor!.position = isLandscape
-          ? Vector2(size.x * 0.7, size.y * 0.5)
-          : Vector2(size.x * 0.5, size.y * 0.7);
-    }
-
-    debugPrint(
-      '♻️ Repositioned agriculture components for new screen size: ${size.x} x ${size.y}',
-    );
+    final farmRect = _getFarmRect();
+    tractor?.position = Vector2(farmRect.center.dx, farmRect.center.dy);
   }
 
   void onFarmTapDown(Vector2 position) {
-    // IMPROVED: More generous detection - allow starting from anywhere including near river
+    if (irrigationMethod == 'pipe') {
+      // Start drawing a pipe path
+      if (!isDrawingPipe2) {
+        isDrawingPipe2 = true;
+        lastFurrowPoint = position.clone();
+        final isNearRiver = _isPositionNearRiver(position, threshold: 50.0);
+        currentPipeBeingDrawn = FurrowPath(
+          id: 'pipe_${DateTime.now().millisecondsSinceEpoch}',
+          points: [position.clone()],
+          isConnectedToRiver: isNearRiver,
+        );
+        if (isNearRiver) {
+          final cp = _getClosestRiverPoint(position);
+          if (cp != null) currentPipeBeingDrawn!.riverConnectionPoint = cp;
+        }
+        tractor?.position = position.clone();
+        tractor?.visible = true;
+      }
+      return;
+    }
+
+    // Default: furrow mode
     if (!isDrawingFurrow) {
       isDrawingFurrow = true;
       lastFurrowPoint = position.clone();
-
-      // Generate unique ID for this furrow
       activeFurrowId = 'furrow_${DateTime.now().millisecondsSinceEpoch}';
 
-      // Show and position tractor at tap point
       if (tractor != null) {
         tractor!.position = position.clone();
         tractor!.visible = true;
       }
 
-      // IMPROVED: Check if starting very close to river (within 40 pixels)
       final isNearRiver = _isPositionNearRiver(position, threshold: 40.0);
-
-      // Start new furrow path
       currentFurrowBeingDrawn = FurrowPath(
         id: activeFurrowId!,
         points: [position.clone()],
-        isConnectedToRiver: isNearRiver, // Auto-connect if near river
+        isConnectedToRiver: isNearRiver,
       );
-
-      // If starting near river, mark connection immediately
       if (isNearRiver) {
         final closestRiverPoint = _getClosestRiverPoint(position);
         if (closestRiverPoint != null) {
           currentFurrowBeingDrawn!.riverConnectionPoint = closestRiverPoint;
-          debugPrint('🌊 Auto-connected to river at start');
         }
       }
-
-      debugPrint(
-        '🚜 Started drawing furrow at $position (near river: $isNearRiver)',
-      );
     }
   }
 
@@ -1496,62 +1527,50 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   }
 
   void onFarmDragUpdate(Vector2 newPosition, Vector2 delta) {
+    // ── Pipe mode ─────────────────────────────────────────────────────────
+    if (irrigationMethod == 'pipe' && isDrawingPipe2 && currentPipeBeingDrawn != null) {
+      if (lastFurrowPoint != null) {
+        final dist = (newPosition - lastFurrowPoint!).length;
+        if (dist >= 10) {
+          currentPipeBeingDrawn!.points.add(newPosition.clone());
+          lastFurrowPoint = newPosition.clone();
+          tractor?.position = newPosition.clone();
+          if (delta.length > 0) tractor?.updateRotation(delta);
+          if (!currentPipeBeingDrawn!.isConnectedToRiver) {
+            if (_isPositionNearRiver(newPosition, threshold: 60.0)) {
+              final cp = _getClosestRiverPoint(newPosition);
+              if (cp != null) {
+                currentPipeBeingDrawn!.isConnectedToRiver = true;
+                currentPipeBeingDrawn!.riverConnectionPoint = cp;
+              }
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    // ── Furrow mode ───────────────────────────────────────────────────────
     if (!isDrawingFurrow || currentFurrowBeingDrawn == null) return;
 
-    // IMPROVED: Only block if clearly crossing river core
-    if (lastFurrowPoint != null) {
-      // Check if this drag would cross through river interior
-      final wouldCross = _wouldCrossRiver(lastFurrowPoint, newPosition);
+    if (lastFurrowPoint != null && _wouldCrossRiver(lastFurrowPoint, newPosition)) return;
+    if (_isPositionInRiver(newPosition) && _getDistanceToRiverEdge(newPosition) < -30) return;
 
-      if (wouldCross) {
-        debugPrint('⛔ Prevented furrow from crossing river core');
-        return;
-      }
-    }
-
-    // Allow drawing near/along river edges
-    // Only block if deep inside river core
-    if (_isPositionInRiver(newPosition)) {
-      final distanceToEdge = _getDistanceToRiverEdge(newPosition);
-
-      // If more than 30px deep into river, block
-      if (distanceToEdge < -30) {
-        return;
-      }
-    }
-
-    // Only add point if moved enough distance (smooth the path)
     if (lastFurrowPoint != null) {
       final distance = (newPosition - lastFurrowPoint!).length;
       if (distance >= 10) {
-        // Reduced from 15 to 10 for better responsiveness
         currentFurrowBeingDrawn!.points.add(newPosition.clone());
         lastFurrowPoint = newPosition.clone();
-
-        // Move tractor to follow drag
         if (tractor != null) {
           tractor!.position = newPosition.clone();
-
-          // Calculate rotation based on drag direction
-          if (delta.length > 0) {
-            tractor!.updateRotation(delta);
-          }
+          if (delta.length > 0) tractor!.updateRotation(delta);
         }
-
-        // CONTINUOUS CHECK: Auto-connect if dragging near river
         if (!currentFurrowBeingDrawn!.isConnectedToRiver) {
-          final isNearRiver = _isPositionNearRiver(
-            newPosition,
-            threshold: 60.0,
-          );
-          if (isNearRiver) {
-            final closestPoint = _getClosestRiverPoint(newPosition);
-            if (closestPoint != null) {
+          if (_isPositionNearRiver(newPosition, threshold: 60.0)) {
+            final cp = _getClosestRiverPoint(newPosition);
+            if (cp != null) {
               currentFurrowBeingDrawn!.isConnectedToRiver = true;
-              currentFurrowBeingDrawn!.riverConnectionPoint = closestPoint;
-              debugPrint(
-                '🌊 Auto-connected to river during drag at $closestPoint',
-              );
+              currentFurrowBeingDrawn!.riverConnectionPoint = cp;
             }
           }
         }
@@ -1560,61 +1579,49 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   }
 
   void onFarmDragEnd(Vector2 endPosition) {
-    if (!isDrawingFurrow || currentFurrowBeingDrawn == null) return;
+    // ── Handle pipe drawing end ───────────────────────────────────────────
+    if (isDrawingPipe2 && currentPipeBeingDrawn != null) {
+      isDrawingPipe2 = false;
+      currentPipeBeingDrawn!.points.add(endPosition.clone());
+      _finalisePipePath(currentPipeBeingDrawn!);
+      currentPipeBeingDrawn = null;
+      return;
+    }
 
+    if (!isDrawingFurrow || currentFurrowBeingDrawn == null) return;
     isDrawingFurrow = false;
 
     // Add final point
     currentFurrowBeingDrawn!.points.add(endPosition.clone());
 
-    // IMPROVED: Check both ends with generous threshold
     if (!currentFurrowBeingDrawn!.isConnectedToRiver) {
       final startPoint = currentFurrowBeingDrawn!.points.first;
-
-      // Check start with 60px threshold
       final startNearRiver = _isPositionNearRiver(startPoint, threshold: 60.0);
-
-      // Check end with 60px threshold
       final endNearRiver = _isPositionNearRiver(endPosition, threshold: 60.0);
 
       if (startNearRiver) {
         final closestPoint = _getClosestRiverPoint(startPoint);
         if (closestPoint != null) {
-          final distance = (closestPoint - startPoint).length;
           currentFurrowBeingDrawn!.isConnectedToRiver = true;
           currentFurrowBeingDrawn!.riverConnectionPoint = closestPoint;
-          debugPrint(
-            '✅ Connected to river at START (distance: ${distance.toStringAsFixed(1)}px)',
-          );
         }
       } else if (endNearRiver) {
         final closestPoint = _getClosestRiverPoint(endPosition);
         if (closestPoint != null) {
-          final distance = (closestPoint - endPosition).length;
           currentFurrowBeingDrawn!.isConnectedToRiver = true;
           currentFurrowBeingDrawn!.riverConnectionPoint = closestPoint;
-          debugPrint(
-            '✅ Connected to river at END (distance: ${distance.toStringAsFixed(1)}px)',
-          );
         }
       }
     }
 
-    // CHECK: Detect furrow interconnections
     _detectFurrowInterconnections(currentFurrowBeingDrawn!);
-
-    // Save completed furrow
     completedFurrows.add(currentFurrowBeingDrawn!);
     furrowNetwork[currentFurrowBeingDrawn!.id] = currentFurrowBeingDrawn!;
 
-    debugPrint(
-      '📝 Furrow ${currentFurrowBeingDrawn!.id}: ${currentFurrowBeingDrawn!.points.length} points, connected: ${currentFurrowBeingDrawn!.isConnectedToRiver}',
-    );
-
-    // CORRECTED: Start water flow with proper direction
     if (currentFurrowBeingDrawn!.isConnectedToRiver) {
       _startContinuousWaterFlow(currentFurrowBeingDrawn!);
       onFurrowsComplete?.call();
+      _onChannelConnected();
     }
 
     currentFurrowBeingDrawn = null;
@@ -1626,6 +1633,164 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
         tractor!.visible = false;
       }
     });
+  }
+
+  // ── Pipe path finalisation ──────────────────────────────────────────────
+  void _finalisePipePath(FurrowPath pipe) {
+    if (pipe.points.length < 2) return;
+    if (!pipe.isConnectedToRiver) {
+      final start = pipe.points.first;
+      final end   = pipe.points.last;
+      for (final pt in [start, end]) {
+        if (_isPositionNearRiver(pt, threshold: 60.0)) {
+          final cp = _getClosestRiverPoint(pt);
+          if (cp != null) {
+            pipe.isConnectedToRiver = true;
+            pipe.riverConnectionPoint = cp;
+            break;
+          }
+        }
+      }
+    }
+    pipePaths.add(pipe);
+    pipeNetwork[pipe.id] = pipe;
+    if (pipe.isConnectedToRiver) {
+      _startContinuousWaterFlow(pipe);
+      _onChannelConnected();
+    }
+  }
+
+  // ── Called whenever a furrow or pipe connects to the river ─────────────
+  void _onChannelConnected() {
+    connectedChannels++;
+    if (!irrigationTimerRunning) {
+      irrigationTimerRunning = true;
+    }
+    _spawnCropsIfNeeded();
+    _updateFarmGreenProgress();
+    onFarmUpdate?.call(farmGreenProgress, connectedChannels);
+  }
+
+  void _updateFarmGreenProgress() {
+    // Progress increases with each connected channel
+    // Maximum channels for full green depends on crop
+    final maxChannels = _maxChannelsForCrop();
+    farmGreenProgress = (connectedChannels / maxChannels).clamp(0.0, 1.0);
+    // Update background
+    children.whereType<ModernAgricultureBackground>().forEach((bg) {
+      bg.greenProgress = farmGreenProgress;
+    });
+    // Update crop growth stages
+    children.whereType<CropComponent>().forEach((crop) {
+      crop.growthStage = (farmGreenProgress * 3).floor().clamp(0, 3);
+    });
+  }
+
+  int _maxChannelsForCrop() {
+    switch (selectedCrop) {
+      case 'rice':        return 5; // Many channels
+      case 'maize':       return 3; // Few channels
+      case 'vegetables':  return 2; // Drip — pipes count more
+      default:            return 3;
+    }
+  }
+
+  void _spawnCropsIfNeeded() {
+    if (children.whereType<CropComponent>().isNotEmpty) return;
+    if (selectedCrop == null) return;
+    final farmRect = _getFarmRect();
+    final rng = Random(77);
+    final count = selectedCrop == 'rice' ? 20 : selectedCrop == 'maize' ? 12 : 16;
+    for (int i = 0; i < count; i++) {
+      final x = farmRect.left + rng.nextDouble() * farmRect.width;
+      final y = farmRect.top  + rng.nextDouble() * farmRect.height;
+      final crop = CropComponent(
+        cropType: selectedCrop!,
+        position: Vector2(x, y),
+        size: Vector2(28, 36),
+      );
+      add(crop);
+    }
+  }
+
+  // ── Irrigation timer update ─────────────────────────────────────────────
+  void _updateIrrigationTimer(double dt) {
+    if (currentPhase != 4 || !irrigationTimerRunning || phase4Complete) return;
+    irrigationTimeLeft = (irrigationTimeLeft - dt).clamp(0, phase4Duration);
+    onIrrigationTick?.call(irrigationTimeLeft);
+    if (irrigationTimeLeft <= 0) {
+      _evaluateHarvest();
+    }
+  }
+
+  // ── Harvest evaluation ──────────────────────────────────────────────────
+  void _evaluateHarvest() {
+    if (phase4Complete) return;
+    phase4Complete = true;
+    irrigationTimerRunning = false;
+
+    final method = irrigationMethod ?? 'furrow';
+    final crop   = selectedCrop   ?? 'maize';
+
+    // Correct pairings:
+    //  vegetables → pipe (drip)
+    //  maize      → furrow (tunnel, few channels)
+    //  rice       → furrow (flood, many channels)
+    bool methodCorrect;
+    bool channelCountCorrect;
+
+    if (crop == 'vegetables') {
+      methodCorrect      = method == 'pipe';
+      channelCountCorrect = connectedChannels >= 2;
+    } else if (crop == 'maize') {
+      methodCorrect      = method == 'furrow';
+      channelCountCorrect = connectedChannels >= 2 && connectedChannels <= 5;
+    } else { // rice
+      methodCorrect      = method == 'furrow';
+      channelCountCorrect = connectedChannels >= 4;
+    }
+
+    if (methodCorrect && channelCountCorrect) {
+      harvestResult  = 'bountiful';
+      waterEfficiency = 90 + Random().nextInt(10);
+    } else if (methodCorrect || channelCountCorrect) {
+      harvestResult  = 'average';
+      waterEfficiency = 55 + Random().nextInt(20);
+    } else {
+      harvestResult  = 'poor';
+      waterEfficiency = 20 + Random().nextInt(20);
+    }
+
+    educationalTip = _buildEducationalTip(crop, method, methodCorrect, channelCountCorrect);
+
+    // Final crop growth flash
+    children.whereType<CropComponent>().forEach((c) => c.growthStage = 3);
+    children.whereType<ModernAgricultureBackground>().forEach((bg) => bg.greenProgress = 1.0);
+
+    onHarvestComplete?.call(harvestResult, educationalTip);
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      onPhaseComplete?.call(4);
+      pauseEngine();
+    });
+  }
+
+  String _buildEducationalTip(String crop, String method, bool methodOk, bool countOk) {
+    if (crop == 'vegetables') {
+      if (methodOk && countOk)  return '💧 Drip irrigation delivers water directly to vegetable roots, cutting water use by up to 50% and boosting yields significantly!';
+      if (!methodOk && method == 'furrow') return '🌿 Vegetables have shallow roots. Furrow irrigation wastes water through run-off. Drip pipes deliver water precisely where needed.';
+      return '🌿 Try connecting more drip pipes to ensure every plant gets water.';
+    }
+    if (crop == 'maize') {
+      if (methodOk && countOk)  return '🌽 Tunnel furrows channel water efficiently between maize rows, keeping roots moist without waterlogging the soil!';
+      if (!methodOk && method == 'pipe') return '🌽 Maize grows in rows and benefits from furrow (tunnel) irrigation — water flows between rows reaching all roots evenly.';
+      if (countOk && !methodOk) return '🌽 Good channel count, but maize prefers furrow irrigation over pipes for even root distribution.';
+      return '🌽 Maize needs 2–5 furrow channels to get water to all rows. Try adding more connected furrows.';
+    }
+    // rice
+    if (methodOk && countOk)    return '🌾 Flood irrigation through many furrows recreates the waterlogged paddy conditions rice needs to thrive and prevents weeds!';
+    if (!methodOk && method == 'pipe') return '🌾 Rice needs flooded fields to grow well. Drip pipes cannot saturate the soil enough — dig many furrows for flood irrigation.';
+    if (methodOk && !countOk)   return '🌾 Rice paddies need a lot of water. Dig more furrows (at least 4–5) so the whole field floods evenly.';
+    return '🌾 Rice thrives in flooded soil — use furrow irrigation and dig many channels to achieve proper flooding.';
   }
 
   void _detectFurrowInterconnections(FurrowPath newFurrow) {
@@ -1792,8 +1957,8 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   void update(double dt) {
     super.update(dt);
     _updatePhase1Timer(dt);
+    _updateIrrigationTimer(dt);
 
-    // Update water flow animations
     for (var waterFlow in activeWaterFlows) {
       if (waterFlow is ContinuousWaterFlowAnimation) {
         waterFlow.update(dt);
@@ -1801,10 +1966,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
 
     activeWaterFlows.removeWhere((flow) {
-      if (flow is ContinuousWaterFlowAnimation) {
-        return false; // Never remove continuous flows
-      }
-      // For any old WaterFlowAnimation types (if they exist)
+      if (flow is ContinuousWaterFlowAnimation) return false;
       return flow.isComplete == true;
     });
   }

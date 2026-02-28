@@ -61,6 +61,18 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   int farmsIrrigated = 0;
   int totalFarms = 3;
   int cropsMature = 0;
+
+  // Phase 4 — new crop & irrigation system state
+  String? _selectedCrop;        // set by crop selection card
+  String? _irrigationMethod;    // 'furrow' | 'pipe'
+  bool    _cropSelected   = false;
+  bool    _methodSelected = false;
+  bool    _showHarvestResult = false;
+  String  _harvestResult  = '';
+  String  _educationalTip = '';
+  double  _farmGreenProgress = 0.0;
+  int     _connectedChannels = 0;
+  double  _irrigationTimeLeft = 90.0;
   
   @override
   void initState() {
@@ -130,6 +142,25 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         farmsIrrigated = farms;
         cropsMature = crops;
       });
+    };
+
+    game.onFarmUpdate = (greenProgress, connected) {
+      safeSetState(() {
+        _farmGreenProgress = greenProgress;
+        _connectedChannels = connected;
+      });
+    };
+
+    game.onHarvestComplete = (result, tip) {
+      safeSetState(() {
+        _harvestResult  = result;
+        _educationalTip = tip;
+        _showHarvestResult = true;
+      });
+    };
+
+    game.onIrrigationTick = (timeLeft) {
+      safeSetState(() => _irrigationTimeLeft = timeLeft);
     };
 
     // Timer tick — fires every frame from _updatePhase1Timer
@@ -1668,180 +1699,526 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
+  // ── Phase 4 palette ────────────────────────────────────────────────────
+  static const Color _agAccent  = Color(0xFF4CAF50);
+  static const Color _agAmber   = Color(0xFFFFA000);
+  static const Color _agPanel   = Color(0xFF0D1F0D);
+
   Widget _buildAgricultureInterface() {
-    final size = MediaQuery.of(context).size;
+    final size     = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
-    
+
+    // ── Show harvest result overlay ────────────────────────────────────────
+    if (_showHarvestResult) return _buildHarvestResultOverlay(isMobile);
+
+    // ── Step 1: Crop selection ─────────────────────────────────────────────
+    if (!_cropSelected) return _buildCropSelectionScreen(size, isMobile);
+
+    // ── Step 2: Method selection ───────────────────────────────────────────
+    if (!_methodSelected) return _buildMethodSelectionScreen(size, isMobile);
+
+    // ── Step 3: Active irrigation drawing ─────────────────────────────────
+    return _buildActiveIrrigationOverlay(size, isMobile);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 1 — Crop selection
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildCropSelectionScreen(Size size, bool isMobile) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0D2B0D), Color(0xFF062006)],
+        ),
+      ),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.all(isMobile ? 16 : 24),
+          child: Column(
+            children: [
+              SizedBox(height: isMobile ? 12 : 24),
+              // Phase badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                decoration: BoxDecoration(
+                  color: _agAccent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: _agAccent.withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(width: 6, height: 6,
+                      decoration: BoxDecoration(color: _agAccent, shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(color: _agAccent, blurRadius: 4)])),
+                    const SizedBox(width: 8),
+                    Text('PHASE 4  ·  SUSTAINABLE FARMING',
+                      style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+                        color: _agAccent, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
+                  ],
+                ),
+              ),
+              SizedBox(height: isMobile ? 14 : 20),
+              Text('Choose Your Crop',
+                style: GoogleFonts.exo2(fontSize: isMobile ? 24 : 30,
+                  color: Colors.white, fontWeight: FontWeight.w900)),
+              SizedBox(height: isMobile ? 6 : 10),
+              Text('The crop you select will determine the irrigation method needed for a bountiful harvest.',
+                style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+                  color: Colors.white54, fontWeight: FontWeight.w500),
+                textAlign: TextAlign.center),
+              SizedBox(height: isMobile ? 20 : 28),
+              // Crop cards
+              ...['vegetables', 'maize', 'rice'].map((crop) =>
+                  _buildCropCard(crop, isMobile)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCropCard(String crop, bool isMobile) {
+    final data = _cropData[crop]!;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedCrop   = crop;
+          _cropSelected   = true;
+        });
+        game.selectedCrop = crop;
+      },
+      child: Container(
+        margin: EdgeInsets.only(bottom: isMobile ? 12 : 16),
+        padding: EdgeInsets.all(isMobile ? 14 : 18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              (data['color'] as Color).withValues(alpha: 0.18),
+              (data['color'] as Color).withValues(alpha: 0.08),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: (data['color'] as Color).withValues(alpha: 0.4), width: 1.5),
+          boxShadow: [BoxShadow(color: (data['color'] as Color).withValues(alpha: 0.12),
+            blurRadius: 12, offset: const Offset(0, 4))],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: isMobile ? 52 : 64, height: isMobile ? 52 : 64,
+              decoration: BoxDecoration(
+                color: (data['color'] as Color).withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(child: Text(data['emoji'] as String,
+                style: TextStyle(fontSize: isMobile ? 28 : 34))),
+            ),
+            SizedBox(width: isMobile ? 12 : 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(data['name'] as String,
+                    style: GoogleFonts.exo2(fontSize: isMobile ? 16 : 18,
+                      color: Colors.white, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Text(data['desc'] as String,
+                    style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12,
+                      color: Colors.white60, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: (data['color'] as Color).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text('Ideal: ${data["ideal"] as String}',
+                      style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+                        color: data['color'] as Color, fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios_rounded,
+              color: (data['color'] as Color).withValues(alpha: 0.6),
+              size: isMobile ? 16 : 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const Map<String, Map<String, dynamic>> _cropData = {
+    'vegetables': {
+      'emoji': '🥦', 'name': 'Vegetables',
+      'desc': 'Shallow-rooted crops needing precise, gentle watering.',
+      'ideal': 'Drip Pipes',
+      'color': Color(0xFF69F0AE),
+    },
+    'maize': {
+      'emoji': '🌽', 'name': 'Maize',
+      'desc': 'Deep-rooted row crop — tunnel furrows deliver water between rows.',
+      'ideal': 'Furrow (2–4 tunnels)',
+      'color': Color(0xFFFFD54F),
+    },
+    'rice': {
+      'emoji': '🌾', 'name': 'Rice',
+      'desc': 'Paddy crop — needs flooded fields with many furrows.',
+      'ideal': 'Flood Furrows (5+)',
+      'color': Color(0xFF4FC3F7),
+    },
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 2 — Irrigation method selection
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildMethodSelectionScreen(Size size, bool isMobile) {
+    final cropInfo = _cropData[_selectedCrop!]!;
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0D2B0D), Color(0xFF062006)],
+        ),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.all(isMobile ? 16 : 24),
+          child: Column(
+            children: [
+              SizedBox(height: isMobile ? 16 : 28),
+              // Selected crop recap
+              Container(
+                padding: EdgeInsets.all(isMobile ? 12 : 16),
+                decoration: BoxDecoration(
+                  color: (cropInfo['color'] as Color).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: (cropInfo['color'] as Color).withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  children: [
+                    Text(cropInfo['emoji'] as String,
+                      style: TextStyle(fontSize: isMobile ? 32 : 40)),
+                    SizedBox(width: isMobile ? 12 : 16),
+                    Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Growing: ${cropInfo["name"]}',
+                          style: GoogleFonts.exo2(fontSize: isMobile ? 14 : 16,
+                            color: Colors.white, fontWeight: FontWeight.w800)),
+                        Text('Recommended: ${cropInfo["ideal"]}',
+                          style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12,
+                            color: cropInfo['color'] as Color,
+                            fontWeight: FontWeight.w600)),
+                      ],
+                    )),
+                  ],
+                ),
+              ),
+              SizedBox(height: isMobile ? 20 : 32),
+              Text('Choose Irrigation Method',
+                style: GoogleFonts.exo2(fontSize: isMobile ? 20 : 26,
+                  color: Colors.white, fontWeight: FontWeight.w900)),
+              SizedBox(height: isMobile ? 8 : 12),
+              Text('This is your choice — irrigation design affects the harvest!',
+                style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 13,
+                  color: Colors.white54),
+                textAlign: TextAlign.center),
+              SizedBox(height: isMobile ? 20 : 28),
+              // Method cards
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(child: _buildMethodCard('furrow', '⛏', 'Furrow Digging',
+                        'Dig channels across the farm\nfor tunnel or flood irrigation.',
+                        const Color(0xFFCD853F), isMobile)),
+                    SizedBox(width: isMobile ? 10 : 16),
+                    Expanded(child: _buildMethodCard('pipe', '🔧', 'Pipe Network',
+                        'Lay drip pipes for precise\nwater delivery to each plant.',
+                        const Color(0xFF78909C), isMobile)),
+                  ],
+                ),
+              ),
+              SizedBox(height: isMobile ? 12 : 16),
+              // Back button
+              TextButton(
+                onPressed: () => setState(() {
+                  _cropSelected = false;
+                  _selectedCrop = null;
+                  game.selectedCrop = null;
+                }),
+                child: Text('← Change Crop',
+                  style: GoogleFonts.exo2(color: Colors.white38,
+                    fontSize: isMobile ? 12 : 13, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMethodCard(String method, String emoji, String title, String desc,
+      Color color, bool isMobile) {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _irrigationMethod = method;
+          _methodSelected   = true;
+        });
+        game.irrigationMethod = method;
+      },
+      child: Container(
+        padding: EdgeInsets.all(isMobile ? 14 : 18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: [color.withValues(alpha: 0.20), color.withValues(alpha: 0.08)],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withValues(alpha: 0.45), width: 1.5),
+          boxShadow: [BoxShadow(color: color.withValues(alpha: 0.15),
+            blurRadius: 16, offset: const Offset(0, 4))],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(emoji, style: TextStyle(fontSize: isMobile ? 40 : 52)),
+            SizedBox(height: isMobile ? 10 : 14),
+            Text(title, style: GoogleFonts.exo2(fontSize: isMobile ? 14 : 16,
+              color: Colors.white, fontWeight: FontWeight.w800),
+              textAlign: TextAlign.center),
+            SizedBox(height: isMobile ? 8 : 10),
+            Text(desc, style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+              color: Colors.white60, fontWeight: FontWeight.w500),
+              textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 3 — Active irrigation drawing overlay
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildActiveIrrigationOverlay(Size size, bool isMobile) {
+    final methodLabel  = _irrigationMethod == 'pipe' ? 'Laying pipes' : 'Digging furrows';
+    final methodIcon   = _irrigationMethod == 'pipe' ? Icons.water : Icons.landscape;
+    final methodColor  = _irrigationMethod == 'pipe'
+        ? const Color(0xFF78909C) : const Color(0xFFCD853F);
+    final cropInfo     = _cropData[_selectedCrop ?? 'maize']!;
+
+    // Timer display
+    final int tl = _irrigationTimeLeft.toInt().clamp(0, 999);
+    final String timerStr =
+        '${(tl ~/ 60).toString().padLeft(2, '0')}:${(tl % 60).toString().padLeft(2, '0')}';
+    final bool timerWarn = _irrigationTimeLeft < 20;
+
     return Stack(
       children: [
-        // ADD: Full-screen gesture detector that sits behind UI overlays
-        // This ensures gestures reach the game canvas
+        // ── Full-screen gesture detector for drawing ───────────────────────
         Positioned.fill(
           child: GestureDetector(
-            behavior: HitTestBehavior.translucent, // CRITICAL: Allow gestures to pass through
-            onPanStart: (details) {
-              final localPosition = details.localPosition;
-              game.onFarmTapDown(Vector2(localPosition.dx, localPosition.dy));
-            },
-            onPanUpdate: (details) {
-              final localPosition = details.localPosition;
-              final delta = details.delta;
-              game.onFarmDragUpdate(
-                Vector2(localPosition.dx, localPosition.dy),
-                Vector2(delta.dx, delta.dy),
-              );
-            },
-            onPanEnd: (details) {
-              // Use last known position since onPanEnd doesn't provide localPosition
+            behavior: HitTestBehavior.translucent,
+            onPanStart: (d) => game.onFarmTapDown(
+                Vector2(d.localPosition.dx, d.localPosition.dy)),
+            onPanUpdate: (d) => game.onFarmDragUpdate(
+                Vector2(d.localPosition.dx, d.localPosition.dy),
+                Vector2(d.delta.dx, d.delta.dy)),
+            onPanEnd: (d) {
               if (game.lastFurrowPoint != null) {
                 game.onFarmDragEnd(game.lastFurrowPoint!.clone());
               }
             },
-            onLongPressStart: (details) {
-              final tapPosition = Vector2(details.localPosition.dx, details.localPosition.dy);
-              _checkForFurrowContinuation(tapPosition);
-            },
+            onLongPressStart: (d) => _checkForFurrowContinuation(
+                Vector2(d.localPosition.dx, d.localPosition.dy)),
           ),
         ),
-        
-        // Instructions overlay - with pointer events disabled so gestures pass through
+
+        // ── TOP HUD ────────────────────────────────────────────────────────
         Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: IgnorePointer( // CRITICAL: Prevent this widget from blocking gestures
-            child: SafeArea(
-              child: Container(
-                margin: EdgeInsets.all(isMobile ? 8 : 12),
-                padding: EdgeInsets.symmetric(
-                  horizontal: isMobile ? 12 : 16,
-                  vertical: isMobile ? 10 : 12,
-                ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.black.withValues(alpha: 0.75),
-                      Colors.black.withValues(alpha: 0.6),
-                    ],
+          top: 0, left: 0, right: 0,
+          child: SafeArea(
+            child: IgnorePointer(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  isMobile ? 10 : 14, isMobile ? 8 : 10, isMobile ? 10 : 14, 0),
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 12 : 16, vertical: isMobile ? 9 : 11),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: [
+                      _agPanel.withValues(alpha: 0.96),
+                      const Color(0xFF0A1A0A).withValues(alpha: 0.96),
+                    ]),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _agAccent.withValues(alpha: 0.30), width: 1.5),
+                    boxShadow: [BoxShadow(
+                      color: _agAccent.withValues(alpha: 0.10),
+                      blurRadius: 16, offset: const Offset(0, 4))],
                   ),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.green, width: 2),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.agriculture,
-                          color: Colors.green,
-                          size: isMobile ? 20 : 24,
-                        ),
-                        SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            'IRRIGATION SETUP',
-                            style: GoogleFonts.exo2(
-                              fontSize: isMobile ? 14 : 16,
-                              color: Colors.green,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1.2,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      isMobile
-                          ? 'Drag to create furrows\nConnect to river for water flow'
-                          : 'Drag across the farm to dig furrows • Connect to the river to enable water flow',
-                      style: GoogleFonts.exo2(
-                        fontSize: isMobile ? 11 : 13,
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w500,
+                  child: Row(
+                    children: [
+                      // Crop badge
+                      Text(cropInfo['emoji'] as String,
+                        style: TextStyle(fontSize: isMobile ? 20 : 24)),
+                      SizedBox(width: isMobile ? 7 : 10),
+                      // Method indicator
+                      Icon(methodIcon, color: methodColor, size: isMobile ? 14 : 16),
+                      SizedBox(width: 4),
+                      Text(methodLabel,
+                        style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12,
+                          color: methodColor, fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8)),
+                      const Spacer(),
+                      // Connected channels
+                      _agHUDStat(
+                        icon: Icons.water_drop_rounded,
+                        value: '$_connectedChannels',
+                        label: 'LINKED',
+                        color: const Color(0xFF29B6F6),
+                        isMobile: isMobile,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        
-        // Stats display - with pointer events disabled
-        Positioned(
-          bottom: 0,
-          left: 0,
-          right: 0,
-          child: IgnorePointer( // CRITICAL: Prevent this widget from blocking gestures
-            child: SafeArea(
-              child: Container(
-                margin: EdgeInsets.all(isMobile ? 8 : 12),
-                padding: EdgeInsets.all(isMobile ? 10 : 12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.blue.withValues(alpha: 0.8),
-                      Colors.cyan.withValues(alpha: 0.8),
+                      SizedBox(width: isMobile ? 8 : 12),
+                      // Farm green progress
+                      _agHUDStat(
+                        icon: Icons.eco_rounded,
+                        value: '${(_farmGreenProgress * 100).toInt()}%',
+                        label: 'GROWTH',
+                        color: _agAccent,
+                        isMobile: isMobile,
+                      ),
+                      SizedBox(width: isMobile ? 8 : 12),
+                      // Timer
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: timerWarn
+                              ? Colors.red.withValues(alpha: 0.22)
+                              : Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: timerWarn ? Colors.red : Colors.white24, width: 1),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.timer,
+                              color: timerWarn ? Colors.red : Colors.white54,
+                              size: isMobile ? 12 : 13),
+                            const SizedBox(width: 4),
+                            Text(timerStr,
+                              style: GoogleFonts.exo2(
+                                fontSize: isMobile ? 13 : 15,
+                                color: timerWarn ? Colors.red : Colors.white,
+                                fontWeight: FontWeight.w900)),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildAgricultureStat(
-                      'Furrows',
-                      '${game.completedFurrows.length}',
-                      Icons.landscape,
-                      isMobile,
-                    ),
-                    Container(width: 1, height: 30, color: Colors.white24),
-                    _buildAgricultureStat(
-                      'Connected',
-                      '${game.completedFurrows.where((f) => f.isConnectedToRiver).length}',
-                      Icons.water_drop,
-                      isMobile,
-                    ),
-                    Container(width: 1, height: 30, color: Colors.white24),
-                    _buildAgricultureStat(
-                      'Irrigated',
-                      '${game.completedFurrows.where((f) => f.hasWater).length}',
-                      Icons.check_circle,
-                      isMobile,
-                    ),
-                  ],
                 ),
               ),
             ),
           ),
         ),
-        
-        // Display hint for continuing furrows - with pointer events disabled
-        if (game.completedFurrows.isNotEmpty)
-          Positioned(
-            top: size.height * 0.15,
-            left: 16,
-            right: 16,
-            child: IgnorePointer( // CRITICAL: Prevent this widget from blocking gestures
-              child: Container(
-                padding: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'Long press on a furrow end to continue drawing',
-                  style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 10 : 12,
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w500,
+
+        // ── Progress bar across top ────────────────────────────────────────
+        Positioned(
+          top: isMobile ? 68 : 76, left: isMobile ? 10 : 14, right: isMobile ? 10 : 14,
+          child: IgnorePointer(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: _farmGreenProgress,
+                backgroundColor: Colors.white.withValues(alpha: 0.08),
+                valueColor: AlwaysStoppedAnimation(_agAccent),
+                minHeight: 3,
+              ),
+            ),
+          ),
+        ),
+
+        // ── BOTTOM hint bar ────────────────────────────────────────────────
+        Positioned(
+          bottom: 0, left: 0, right: 0,
+          child: SafeArea(
+            child: IgnorePointer(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  isMobile ? 10 : 14, 0, isMobile ? 10 : 14, isMobile ? 10 : 12),
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 12 : 16, vertical: isMobile ? 8 : 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF060F06).withValues(alpha: 0.88),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.07), width: 1),
                   ),
-                  textAlign: TextAlign.center,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _irrigationMethod == 'pipe'
+                            ? Icons.touch_app_rounded : Icons.gesture_rounded,
+                        color: methodColor, size: isMobile ? 14 : 16),
+                      SizedBox(width: isMobile ? 7 : 9),
+                      Flexible(child: Text(
+                        _irrigationMethod == 'pipe'
+                            ? 'Drag from the river across the farm to lay drip pipes'
+                            : 'Drag from the river across the farm to dig furrows',
+                        style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+                          color: Colors.white60, fontWeight: FontWeight.w500),
+                        textAlign: TextAlign.center)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // ── Water connection flash badge ───────────────────────────────────
+        if (_connectedChannels > 0 && _farmGreenProgress < 0.15)
+          Positioned(
+            top: isMobile ? 90 : 100, left: 0, right: 0,
+            child: IgnorePointer(
+              child: Center(
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: const Duration(seconds: 2),
+                  builder: (ctx, v, _) => Opacity(
+                    opacity: (sin(v * pi * 4) + 1) / 2,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0288D1).withValues(alpha: 0.90),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [BoxShadow(
+                          color: Colors.blue.withValues(alpha: 0.4),
+                          blurRadius: 12)],
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.water_drop, color: Colors.white, size: 14),
+                        const SizedBox(width: 6),
+                        Text('💧 Water flowing!',
+                          style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+                            color: Colors.white, fontWeight: FontWeight.w800)),
+                      ]),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1850,65 +2227,174 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  Widget _buildAgricultureStat(String label, String value, IconData icon, bool isMobile) {
+  Widget _agHUDStat({required IconData icon, required String value,
+      required String label, required Color color, required bool isMobile}) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          icon,
-          color: Colors.white,
-          size: isMobile ? 18 : 22,
-        ),
-        SizedBox(height: 4),
-        Text(
-          value,
-          style: GoogleFonts.exo2(
-          fontSize: isMobile ? 16 : 18,
-          color: Colors.white,
-          fontWeight: FontWeight.w900,
-          ),
-        ),
-        Text(
-          label,
-          style: GoogleFonts.exo2(
-            fontSize: isMobile ? 9 : 10,
-            color: Colors.white70,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, color: color, size: isMobile ? 11 : 12),
+          SizedBox(width: 3),
+          Text(value, style: GoogleFonts.exo2(fontSize: isMobile ? 13 : 15,
+            color: color, fontWeight: FontWeight.w900, height: 1.0)),
+        ]),
+        Text(label, style: GoogleFonts.exo2(fontSize: 8,
+          color: color.withValues(alpha: 0.65), fontWeight: FontWeight.w600,
+          letterSpacing: 0.8)),
       ],
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Harvest result + educational tip overlay
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildHarvestResultOverlay(bool isMobile) {
+    final isGood   = _harvestResult == 'bountiful';
+    final isAvg    = _harvestResult == 'average';
+    final resultColor = isGood ? const Color(0xFF4CAF50)
+        : isAvg ? _agAmber : const Color(0xFFFF5252);
+    final resultEmoji = isGood ? '🌟' : isAvg ? '🌿' : '🥀';
+    final resultLabel = isGood ? 'BOUNTIFUL HARVEST!'
+        : isAvg ? 'AVERAGE HARVEST' : 'POOR HARVEST';
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF0D2B0D),
+            resultColor.withValues(alpha: 0.15),
+            const Color(0xFF062006),
+          ],
+        ),
+      ),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.all(isMobile ? 20 : 32),
+          child: Column(
+            children: [
+              SizedBox(height: isMobile ? 20 : 36),
+              Text(resultEmoji, style: TextStyle(fontSize: isMobile ? 64 : 80)),
+              SizedBox(height: isMobile ? 12 : 16),
+              Text(resultLabel,
+                style: GoogleFonts.exo2(fontSize: isMobile ? 26 : 32,
+                  color: resultColor, fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2),
+                textAlign: TextAlign.center),
+              SizedBox(height: isMobile ? 8 : 12),
+              // Stats row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _harvestStatChip(
+                    '${(_farmGreenProgress * 100).toInt()}%',
+                    'Farm Irrigated', resultColor, isMobile),
+                  SizedBox(width: isMobile ? 8 : 12),
+                  _harvestStatChip(
+                    '$_connectedChannels',
+                    'Channels', const Color(0xFF29B6F6), isMobile),
+                ],
+              ),
+              SizedBox(height: isMobile ? 20 : 28),
+              // Educational tip card
+              Container(
+                padding: EdgeInsets.all(isMobile ? 16 : 20),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _agAccent.withValues(alpha: 0.30), width: 1.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: _agAccent.withValues(alpha: 0.15),
+                          shape: BoxShape.circle),
+                        child: Icon(Icons.lightbulb_rounded,
+                          color: _agAccent, size: isMobile ? 16 : 18)),
+                      SizedBox(width: isMobile ? 8 : 10),
+                      Text('WHAT YOU LEARNED',
+                        style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12,
+                          color: _agAccent, fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2)),
+                    ]),
+                    SizedBox(height: isMobile ? 10 : 12),
+                    Text(_educationalTip,
+                      style: GoogleFonts.exo2(fontSize: isMobile ? 13 : 14,
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontWeight: FontWeight.w500, height: 1.5)),
+                  ],
+                ),
+              ),
+              SizedBox(height: isMobile ? 24 : 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    // Phase transition handled by game callback — just trigger
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: resultColor,
+                    padding: EdgeInsets.symmetric(vertical: isMobile ? 13 : 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text('CONTINUE',
+                    style: GoogleFonts.exo2(fontSize: isMobile ? 16 : 18,
+                      fontWeight: FontWeight.w900,
+                      color: isGood ? Colors.black : Colors.white)),
+                ),
+              ),
+              SizedBox(height: isMobile ? 16 : 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _harvestStatChip(String value, String label, Color color, bool isMobile) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 14 : 18, vertical: isMobile ? 8 : 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 1),
+      ),
+      child: Column(
+        children: [
+          Text(value, style: GoogleFonts.exo2(fontSize: isMobile ? 22 : 26,
+            color: color, fontWeight: FontWeight.w900, height: 1.0)),
+          Text(label, style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+            color: Colors.white54, fontWeight: FontWeight.w600)),
+        ],
+      ),
     );
   }
 
   void _checkForFurrowContinuation(Vector2 tapPosition) {
-    const threshold = 30.0; // Pixels
-    
+    const threshold = 30.0;
     for (var furrow in game.completedFurrows) {
       if (furrow.points.isEmpty) continue;
-      
-      // Check if tapping near the end of an existing furrow
       final endPoint = furrow.points.last;
       final distance = (endPoint - tapPosition).length;
-      
       if (distance < threshold && !furrow.isConnectedToRiver) {
-        // Continue drawing this furrow
         game.resumeFurrowDrawing(furrow);
-        
-        // Show feedback
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Continuing furrow...'),
-            duration: Duration(seconds: 1),
-            backgroundColor: Colors.green,
-          ),
-        );
-        
+          const SnackBar(content: Text('Continuing furrow...'),
+            duration: Duration(seconds: 1), backgroundColor: Colors.green));
         break;
       }
     }
   }
 
-  Widget _buildCompletionScreen() {
+    Widget _buildCompletionScreen() {
     final totalPoints = game.calculateFinalScore();
     final purifiedWater = game.purifiedWaterAmount;
     final bacteriaMultiplied = game.bacteriaMultiplied;

@@ -4325,51 +4325,266 @@ class WaterFlowParticle {
     canvas.drawCircle(Offset(position.x, position.y), size * 0.7, corePaint);
   }
 }
-class UnifiedAgricultureBackground extends PositionComponent {
-  UnifiedAgricultureBackground({required Vector2 size}) 
-      : super(size: size, priority: -20); // Lowest priority (render first)
+/// Modern layered agriculture background with dynamic greening
+class ModernAgricultureBackground extends PositionComponent {
+  double greenProgress = 0.0; // 0.0 = dry brown, 1.0 = lush green
+
+  // Palette
+  static const Color _dryLow  = Color(0xFF8B5E3C);
+  static const Color _dryMid  = Color(0xFF7A4F2E);
+  static const Color _dryHigh = Color(0xFF6B3F20);
+  static const Color _lushLow  = Color(0xFF3A7D44);
+  static const Color _lushMid  = Color(0xFF2E6B38);
+  static const Color _lushHigh = Color(0xFF4CAF50);
+  static const Color _skyA    = Color(0xFF87CEEB);
+  static const Color _skyB    = Color(0xFF5BA3C9);
+
+  ModernAgricultureBackground({required Vector2 size})
+      : super(size: size, priority: -20);
+
+  Color _lerp(Color a, Color b, double t) => Color.lerp(a, b, t)!;
 
   @override
   void render(Canvas canvas) {
-    // Unified light brown gradient for tilled land
-    final backgroundGradient = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        const Color(0xFFD2B48C), // Tan/light brown
-        const Color(0xFFCD853F), // Peru/medium brown
-        const Color(0xFFA0522D), // Sienna/darker brown
-      ],
-      stops: [0.0, 0.5, 1.0],
+    final gp = greenProgress.clamp(0.0, 1.0);
+
+    // ── Sky strip (top 12%) ──────────────────────────────────────────────
+    final skyRect = Rect.fromLTWH(0, 0, size.x, size.y * 0.12);
+    canvas.drawRect(
+      skyRect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [_skyA, _skyB],
+        ).createShader(skyRect),
     );
-    
-    final backgroundPaint = Paint()
-      ..shader = backgroundGradient.createShader(size.toRect())
-      ..style = PaintingStyle.fill;
-    
-    // Draw full background
-    canvas.drawRect(size.toRect(), backgroundPaint);
-    
-    // Add subtle texture overlay for depth (remains, but adjust color if needed)
-    _drawSubtleTexture(canvas);
+
+    // ── Farm ground (below sky) ──────────────────────────────────────────
+    final groundTop = size.y * 0.12;
+    final groundRect = Rect.fromLTWH(0, groundTop, size.x, size.y - groundTop);
+
+    final lowC  = _lerp(_dryLow,  _lushLow,  gp);
+    final midC  = _lerp(_dryMid,  _lushMid,  gp);
+    final highC = _lerp(_dryHigh, _lushHigh, gp);
+
+    canvas.drawRect(
+      groundRect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [highC, midC, lowC],
+          stops: const [0.0, 0.5, 1.0],
+        ).createShader(groundRect),
+    );
+
+    // ── Tilled soil row lines ────────────────────────────────────────────
+    _drawTilledRows(canvas, groundTop, gp);
+
+    // ── Horizon tree line ────────────────────────────────────────────────
+    _drawHorizonTrees(canvas, groundTop);
+
+    // ── Ambient vignette ────────────────────────────────────────────────
+    canvas.drawRect(
+      groundRect,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment.center,
+          radius: 0.8,
+          colors: [
+            Colors.transparent,
+            Colors.black.withValues(alpha: 0.18),
+          ],
+        ).createShader(groundRect),
+    );
   }
-  
-  void _drawSubtleTexture(Canvas canvas) {
-    final random = Random(123);
-    final texturePaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.03);
-    
-    // Light grass texture dots
-    for (int i = 0; i < 200; i++) {
-      final x = random.nextDouble() * size.x;
-      final y = random.nextDouble() * size.y;
-      final radius = 0.5 + random.nextDouble() * 1.5;
-      
-      canvas.drawCircle(
-        Offset(x, y),
-        radius,
-        texturePaint,
+
+  void _drawTilledRows(Canvas canvas, double groundTop, double gp) {
+    final rowColor = Color.lerp(
+      const Color(0xFF6B3F20),
+      const Color(0xFF1B5E20),
+      gp * 0.5,
+    )!;
+    final rowPaint = Paint()
+      ..color = rowColor.withValues(alpha: 0.25)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    const rowSpacing = 22.0;
+    for (double y = groundTop + rowSpacing; y < size.y; y += rowSpacing) {
+      // Slight perspective curve
+      final curve = size.y * 0.002;
+      final path = Path()
+        ..moveTo(0, y)
+        ..quadraticBezierTo(size.x / 2, y - curve, size.x, y);
+      canvas.drawPath(path, rowPaint);
+    }
+  }
+
+  void _drawHorizonTrees(Canvas canvas, double groundTop) {
+    final treePaint = Paint()..color = const Color(0xFF2E7D32).withValues(alpha: 0.35);
+    final rng = Random(55);
+    for (int i = 0; i < 18; i++) {
+      final x = rng.nextDouble() * size.x;
+      final tH = 18 + rng.nextDouble() * 22;
+      final tW = 10 + rng.nextDouble() * 12;
+      final tY = groundTop + 4;
+      // Trunk
+      canvas.drawRect(
+        Rect.fromLTWH(x - 2, tY + tH * 0.55, 4, tH * 0.45),
+        Paint()..color = const Color(0xFF5D4037).withValues(alpha: 0.4),
       );
+      // Canopy triangle
+      final canopy = Path()
+        ..moveTo(x, tY)
+        ..lineTo(x - tW / 2, tY + tH * 0.6)
+        ..lineTo(x + tW / 2, tY + tH * 0.6)
+        ..close();
+      canvas.drawPath(canopy, treePaint);
+    }
+  }
+}
+
+// Keep old name as alias
+typedef UnifiedAgricultureBackground = ModernAgricultureBackground;
+
+
+/// Stylised crop component — rendered on Flame canvas
+class CropComponent extends PositionComponent {
+  final String cropType; // 'vegetables' | 'maize' | 'rice'
+  int growthStage = 0;   // 0=seed, 1=sprout, 2=growing, 3=mature
+  double _animTime = 0.0;
+
+  CropComponent({
+    required this.cropType,
+    required Vector2 position,
+    required Vector2 size,
+  }) : super(position: position, size: size, priority: 20) {
+    anchor = Anchor.bottomCenter;
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _animTime += dt;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (growthStage == 0) return; // Not sprouted yet
+    canvas.save();
+    final cx = size.x / 2;
+    final base = size.y;
+    switch (cropType) {
+      case 'vegetables': _renderVegetable(canvas, cx, base); break;
+      case 'maize':      _renderMaize(canvas, cx, base); break;
+      case 'rice':       _renderRice(canvas, cx, base); break;
+    }
+    canvas.restore();
+  }
+
+  void _renderVegetable(Canvas canvas, double cx, double base) {
+    final stageFrac = growthStage / 3.0;
+    final h = size.y * 0.55 * stageFrac;
+    final sway = sin(_animTime * 1.2) * 1.5;
+
+    // Stem
+    final stemPaint = Paint()..color = const Color(0xFF388E3C)..strokeWidth = 2..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(cx, base), Offset(cx + sway, base - h), stemPaint);
+
+    // Leaves
+    if (growthStage >= 2) {
+      final leafPaint = Paint()..color = const Color(0xFF4CAF50);
+      for (int i = 0; i < 3; i++) {
+        final lh = base - h * (0.3 + i * 0.25);
+        final lw = size.x * 0.35 * stageFrac;
+        final side = i % 2 == 0 ? 1 : -1;
+        final leafPath = Path()
+          ..moveTo(cx + sway, lh)
+          ..quadraticBezierTo(cx + side * lw * 1.2, lh - 6, cx + side * lw, lh + 4)
+          ..quadraticBezierTo(cx + sway * 0.5, lh + 2, cx + sway, lh);
+        canvas.drawPath(leafPath, leafPaint);
+      }
+    }
+
+    // Head (lettuce/cabbage blob when mature)
+    if (growthStage == 3) {
+      canvas.drawCircle(
+        Offset(cx + sway, base - h - 5),
+        size.x * 0.3,
+        Paint()..color = const Color(0xFF66BB6A),
+      );
+    }
+  }
+
+  void _renderMaize(Canvas canvas, double cx, double base) {
+    final stageFrac = growthStage / 3.0;
+    final h = size.y * 0.85 * stageFrac;
+    final sway = sin(_animTime * 0.8) * 2.0;
+
+    // Main stalk
+    final stalkPaint = Paint()..color = const Color(0xFF558B2F)..strokeWidth = 3..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(cx, base), Offset(cx + sway, base - h), stalkPaint);
+
+    // Long leaves
+    if (growthStage >= 2) {
+      final leafPaint = Paint()..color = const Color(0xFF8BC34A)..strokeWidth = 3..style = PaintingStyle.stroke;
+      for (int i = 1; i <= 3; i++) {
+        final lh = base - h * (i * 0.28);
+        final dir = i % 2 == 0 ? 1 : -1;
+        final lw = size.x * 0.5;
+        canvas.drawLine(Offset(cx + sway, lh), Offset(cx + sway + dir * lw, lh - 10), leafPaint);
+      }
+    }
+
+    // Cob when mature
+    if (growthStage == 3) {
+      final cobPaint = Paint()..color = const Color(0xFFFFB300);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(cx + sway + 8, base - h * 0.6), width: 7, height: 14),
+          const Radius.circular(3),
+        ),
+        cobPaint,
+      );
+      // Silk
+      canvas.drawLine(
+        Offset(cx + sway + 8, base - h * 0.6 - 7),
+        Offset(cx + sway + 12, base - h * 0.6 - 13),
+        Paint()..color = const Color(0xFFFFF9C4)..strokeWidth = 1.5,
+      );
+    }
+  }
+
+  void _renderRice(Canvas canvas, double cx, double base) {
+    final stageFrac = growthStage / 3.0;
+    final h = size.y * 0.65 * stageFrac;
+    final sway = sin(_animTime * 1.5 + cx * 0.1) * 2.5;
+
+    // Thin stalks (cluster of 3)
+    final stalkPaint = Paint()..color = const Color(0xFF9CCC65)..strokeWidth = 1.5..style = PaintingStyle.stroke;
+    for (int s = -1; s <= 1; s++) {
+      canvas.drawLine(
+        Offset(cx + s * 3, base),
+        Offset(cx + s * 2 + sway, base - h),
+        stalkPaint,
+      );
+    }
+
+    // Rice grains at top when growing / mature
+    if (growthStage >= 2) {
+      final grainColor = growthStage == 3 ? const Color(0xFFF9A825) : const Color(0xFFCDDC39);
+      final grainPaint = Paint()..color = grainColor;
+      for (int g = 0; g < 5; g++) {
+        final angle = -pi / 2 + (g - 2) * 0.28 + sway * 0.05;
+        final gx = cx + sway + cos(angle) * 5;
+        final gy = base - h + sin(angle) * 3;
+        canvas.drawOval(
+          Rect.fromCenter(center: Offset(gx, gy), width: 4, height: 6),
+          grainPaint,
+        );
+      }
     }
   }
 }
@@ -4773,30 +4988,141 @@ class TractorComponent extends PositionComponent {
   }
 }
 
-/// Component that renders all furrows
+/// Component that renders all furrows AND pipe networks
 class FurrowRenderComponent extends PositionComponent with HasGameReference<WaterPollutionGame> {
   FurrowRenderComponent() : super(priority: 10);
-  
+
   @override
   void render(Canvas canvas) {
-    // Render completed furrows
+    // ── Furrows ───────────────────────────────────────────────────────────
     for (var furrow in game.completedFurrows) {
       _renderFurrow(canvas, furrow);
-      
-      // ADD: Render intersection points
       _renderIntersectionPoints(canvas, furrow);
     }
-    
-    // Render current furrow being drawn
     if (game.currentFurrowBeingDrawn != null) {
       _renderFurrow(canvas, game.currentFurrowBeingDrawn!, isBeingDrawn: true);
     }
-    
-    // Render water flow animations
+
+    // ── Pipe network ──────────────────────────────────────────────────────
+    for (var pipe in game.pipePaths) {
+      _renderPipePath(canvas, pipe);
+    }
+    if (game.currentPipeBeingDrawn != null) {
+      _renderPipePath(canvas, game.currentPipeBeingDrawn!, isBeingDrawn: true);
+    }
+
+    // ── Water flow animations (furrows + pipes share same list) ───────────
     for (var waterFlow in game.activeWaterFlows) {
       if (waterFlow is ContinuousWaterFlowAnimation) {
         waterFlow.render(canvas, waterFlow.furrowPath.points);
       }
+    }
+  }
+
+  // ── Pipe rendering ───────────────────────────────────────────────────────
+  void _renderPipePath(Canvas canvas, FurrowPath pipe, {bool isBeingDrawn = false}) {
+    if (pipe.points.length < 2) return;
+
+    final pts = pipe.points;
+    final alpha = isBeingDrawn ? 0.65 : 1.0;
+
+    // ── Pipe outer body (dark grey casing) ────────────────────────────────
+    final bodyPaint = Paint()
+      ..color = const Color(0xFF546E7A).withValues(alpha: alpha)
+      ..strokeWidth = 11
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    final path = Path()..moveTo(pts.first.x, pts.first.y);
+    for (int i = 1; i < pts.length; i++) {
+      path.lineTo(pts[i].x, pts[i].y);
+    }
+    canvas.drawPath(path, bodyPaint);
+
+    // ── Pipe inner highlight (metallic sheen) ────────────────────────────
+    final shinePaint = Paint()
+      ..color = const Color(0xFF90A4AE).withValues(alpha: alpha * 0.6)
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    canvas.drawPath(path, shinePaint);
+
+    // ── Segment joints every ~50px ────────────────────────────────────────
+    double distAccum = 0.0;
+    for (int i = 0; i < pts.length - 1; i++) {
+      final seg = pts[i + 1] - pts[i];
+      final segLen = seg.length;
+      distAccum += segLen;
+      if (distAccum >= 50) {
+        distAccum = 0;
+        _drawPipeJoint(canvas, pts[i], alpha);
+      }
+    }
+
+    // ── Drip emitters every ~60px along pipe ─────────────────────────────
+    if (!isBeingDrawn) {
+      double emDist = 0.0;
+      for (int i = 0; i < pts.length - 1; i++) {
+        final a = pts[i]; final b = pts[i + 1];
+        final dir = (b - a);
+        final segLen = dir.length;
+        emDist += segLen;
+        if (emDist >= 60) {
+          emDist = 0;
+          final emPos = a + dir.normalized() * (segLen / 2);
+          _drawDripEmitter(canvas, emPos, pipe.hasWater, alpha);
+        }
+      }
+    }
+
+    // ── Connection indicator ──────────────────────────────────────────────
+    if (pipe.isConnectedToRiver && pipe.riverConnectionPoint != null) {
+      _drawRiverConnectionIndicator(canvas, pipe.riverConnectionPoint!);
+    }
+
+    // ── End cap ───────────────────────────────────────────────────────────
+    canvas.drawCircle(
+      Offset(pts.last.x, pts.last.y),
+      6,
+      Paint()..color = const Color(0xFF37474F).withValues(alpha: alpha),
+    );
+  }
+
+  void _drawPipeJoint(Canvas canvas, Vector2 pt, double alpha) {
+    canvas.drawCircle(
+      Offset(pt.x, pt.y),
+      7,
+      Paint()..color = const Color(0xFF455A64).withValues(alpha: alpha),
+    );
+    canvas.drawCircle(
+      Offset(pt.x, pt.y),
+      7,
+      Paint()
+        ..color = const Color(0xFF78909C).withValues(alpha: alpha * 0.5)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+  }
+
+  void _drawDripEmitter(Canvas canvas, Vector2 pos, bool active, double alpha) {
+    // Emitter nozzle body
+    canvas.drawCircle(
+      Offset(pos.x, pos.y),
+      5,
+      Paint()..color = active
+          ? const Color(0xFF0288D1).withValues(alpha: alpha)
+          : const Color(0xFF78909C).withValues(alpha: alpha * 0.7),
+    );
+    // Nozzle tip teardrop
+    if (active) {
+      final dropPath = Path()
+        ..moveTo(pos.x, pos.y + 5)
+        ..quadraticBezierTo(pos.x + 3, pos.y + 10, pos.x, pos.y + 13)
+        ..quadraticBezierTo(pos.x - 3, pos.y + 10, pos.x, pos.y + 5);
+      canvas.drawPath(
+        dropPath,
+        Paint()..color = const Color(0xFF29B6F6).withValues(alpha: alpha * 0.8),
+      );
     }
   }
   
