@@ -1,5 +1,6 @@
 import 'dart:async' show Future, Timer;
 import 'dart:math';
+import 'package:ecoquest/game/level3/polluted_city_screen.dart';
 import 'package:ecoquest/game/water_pollution_game.dart';
 import 'package:ecoquest/game/rowing_components.dart';
 import 'package:flame/extensions.dart';
@@ -51,6 +52,10 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   int itemsSorted = 0;
   int sortedCorrectly = 0;   
   int sortedIncorrectly = 0;
+  double _sortingTimeLeft = 60.0;
+  bool _sortingTimerActive = false;
+  bool _sortingTimeUpShown = false;
+  int _sortingUnsorted = 0;
   
   // Phase 3 stats
   int zonesTreated = 0;
@@ -101,6 +106,12 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     };
 
     game.onPhaseComplete = (phase) {
+      if (phase == 4) {
+        // Phase 4 completion is shown persistently — user must tap Continue
+        // We just record the phase as done; the harvest overlay stays visible
+        // Navigation to PollutedCityScreen happens from Continue button
+        return;
+      }
       safeSetState(() => _showPhaseTransition = true);
       Future.delayed(const Duration(seconds: 2), () {
         if (!mounted) return;
@@ -127,6 +138,22 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         itemsSorted = sorted;
         sortedCorrectly = game.sortedCorrectly;
         sortedIncorrectly = game.sortedIncorrectly;
+      });
+    };
+
+    game.onSortingTick = (timeLeft) {
+      safeSetState(() {
+        _sortingTimeLeft = timeLeft;
+        _sortingTimerActive = true;
+      });
+    };
+
+    game.onSortingTimeUp = (correct, wrong, unsorted) {
+      safeSetState(() {
+        _sortingTimeUpShown = true;
+        _sortingUnsorted = unsorted;
+        sortedCorrectly = correct;
+        sortedIncorrectly = wrong;
       });
     };
 
@@ -1120,6 +1147,41 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                                 ],
                               ),
                             ),
+                            // Sorting countdown timer (appears on first sort)
+                            if (_sortingTimerActive) ...[
+                              const SizedBox(width: 6),
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: _sortingTimeLeft < 15
+                                      ? Colors.red.withValues(alpha: 0.22)
+                                      : Colors.white.withValues(alpha: 0.07),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: _sortingTimeLeft < 15
+                                        ? Colors.red
+                                        : Colors.white24,
+                                  ),
+                                ),
+                                child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.timer,
+                                        color: _sortingTimeLeft < 15
+                                            ? Colors.red : Colors.white54,
+                                        size: isMobile ? 11 : 12),
+                                      const SizedBox(width: 3),
+                                      Text('${_sortingTimeLeft.toInt()}s',
+                                        style: GoogleFonts.exo2(
+                                          fontSize: isMobile ? 10 : 11,
+                                          color: _sortingTimeLeft < 15
+                                              ? Colors.red : Colors.white,
+                                          fontWeight: FontWeight.w900)),
+                                    ]),
+                              ),
+                            ],
                           ],
                         ),
 
@@ -1246,6 +1308,49 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           ),
         ),
 
+        // ── SORTING TIME-UP BANNER ────────────────────────────────────────
+        if (_sortingTimeUpShown)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.82),
+                  child: Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 40),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('⏱ TIME\'S UP!', style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 28 : 36, color: Colors.amber,
+                            fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                          SizedBox(height: isMobile ? 16 : 22),
+                          Container(
+                            padding: EdgeInsets.all(isMobile ? 16 : 20),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.07),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: Column(children: [
+                              _timeUpRow('✅ Correctly Sorted', '$sortedCorrectly items', _sortAccent, isMobile),
+                              SizedBox(height: isMobile ? 8 : 10),
+                              _timeUpRow('❌ Incorrectly Sorted', '$sortedIncorrectly items', _sortWarning, isMobile),
+                              SizedBox(height: isMobile ? 8 : 10),
+                              _timeUpRow('📦 Unsorted (Carried)', '$_sortingUnsorted items', Colors.white54, isMobile),
+                              SizedBox(height: isMobile ? 8 : 10),
+                              _timeUpRow('🎯 Accuracy', '$sortingAccuracy%', Colors.amber, isMobile),
+                            ]),
+                          ),
+                          SizedBox(height: isMobile ? 20 : 28),
+                          Text('Results saved · Proceeding to treatment...',
+                            style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12,
+                              color: Colors.white54, fontWeight: FontWeight.w500)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
         // ── CATEGORY LEGEND BAR (bottom of screen) ────────────────────────
         Positioned(
           bottom: 0,
@@ -1291,12 +1396,12 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
 
         // ── FIRST-SORT INSTRUCTION TOOLTIP (shown only before first item sorted) ─
         if (itemsSorted == 0)
-          Positioned(
-            top: isMobile ? size.height * 0.13 : size.height * 0.12,
-            left: isMobile ? 16 : size.width * 0.15,
-            right: isMobile ? 16 : size.width * 0.15,
-            child: IgnorePointer(
-              child: Container(
+              Positioned(
+                top: isMobile ? size.height * 0.13 : size.height * 0.12,
+                left: isMobile ? 16 : size.width * 0.15,
+                right: isMobile ? 16 : size.width * 0.15,
+                child: IgnorePointer(
+                  child: Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: isMobile ? 14 : 18,
                   vertical:   isMobile ? 10 : 12,
@@ -2336,7 +2441,10 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    // Phase transition handled by game callback — just trigger
+                    setState(() {
+                      _showHarvestResult = false;
+                      currentPhase = 5; // Advance to mission complete screen
+                    });
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: resultColor,
@@ -2344,10 +2452,18 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Text('CONTINUE',
-                    style: GoogleFonts.exo2(fontSize: isMobile ? 16 : 18,
-                      fontWeight: FontWeight.w900,
-                      color: isGood ? Colors.black : Colors.white)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('VIEW MISSION RESULTS',
+                        style: GoogleFonts.exo2(fontSize: isMobile ? 14 : 16,
+                          fontWeight: FontWeight.w900,
+                          color: isGood ? Colors.black : Colors.white)),
+                      const SizedBox(width: 6),
+                      Icon(Icons.arrow_forward_rounded,
+                        color: isGood ? Colors.black : Colors.white, size: 16),
+                    ],
+                  ),
                 ),
               ),
               SizedBox(height: isMobile ? 16 : 20),
@@ -2394,127 +2510,196 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     }
   }
 
-    Widget _buildCompletionScreen() {
-    final totalPoints = game.calculateFinalScore();
+    Widget _timeUpRow(String label, String value, Color color, bool isMobile) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+          color: Colors.white70, fontWeight: FontWeight.w500)),
+        Text(value, style: GoogleFonts.exo2(fontSize: isMobile ? 14 : 15,
+          color: color, fontWeight: FontWeight.w900)),
+      ],
+    );
+  }
+
+  Widget _buildCompletionScreen() {
+    final size       = MediaQuery.of(context).size;
+    final isMobile   = size.width < 600;
+
+    // Gather all session loot
+    final totalPoints   = game.calculateFinalScore();
     final purifiedWater = game.purifiedWaterAmount;
-    final bacteriaMultiplied = game.bacteriaMultiplied;
-    
-    final size = MediaQuery.of(context).size;
-    final isMobile = size.width < 600;
-    final isTablet = size.width >= 600 && size.width < 1024;
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-    
+    final bactMult      = game.bacteriaMultiplied;
+    final cropHarvest   = game.harvestYield;
+    final cropType      = game.selectedCrop ?? '';
+    final fishCaught    = game.fishCount;
+    final plasticKg     = game.recycledPlastic;
+    final metalKg       = game.recycledMetal;
+    final organicKg     = game.recycledOrganic;
+    final hazardousKg   = game.recycledHazardous;
+    final harvestLabel  = game.harvestResult == 'bountiful' ? '🌟 Bountiful'
+        : game.harvestResult == 'average' ? '🌿 Average' : '🥀 Poor';
+    final cropEmoji     = cropType == 'vegetables' ? '🥦'
+        : cropType == 'maize' ? '🌽' : cropType == 'rice' ? '🌾' : '🌱';
+
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF0F4C81),
-            const Color(0xFF1E88E5),
-          ],
+          colors: [Color(0xFF051A10), Color(0xFF0A2A18), Color(0xFF051A10)],
+          stops: [0.0, 0.5, 1.0],
         ),
       ),
       child: SafeArea(
+        bottom: true,
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-          padding: EdgeInsets.all(isMobile ? 16 : isTablet ? 20 : 24),
+          padding: EdgeInsets.fromLTRB(
+            isMobile ? 16 : 24, isMobile ? 20 : 32,
+            isMobile ? 16 : 24, isMobile ? 24 : 36),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(height: isLandscape && isMobile ? 10 : 20),
-              
-              Icon(
-                Icons.check_circle,
-                size: isMobile ? 70 : isTablet ? 85 : 100,
-                color: Colors.green,
+              // ── Header ────────────────────────────────────────────────
+              Center(
+                child: Column(children: [
+                  Text('🏆', style: TextStyle(fontSize: isMobile ? 56 : 72)),
+                  SizedBox(height: isMobile ? 8 : 12),
+                  Text('MISSION COMPLETE',
+                    style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 26 : 32,
+                      color: const Color(0xFF00E5A0),
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2.0,
+                    )),
+                  SizedBox(height: isMobile ? 4 : 6),
+                  Text('River ecosystem fully restored',
+                    style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 12 : 14,
+                      color: Colors.white54,
+                      fontWeight: FontWeight.w500)),
+                  SizedBox(height: isMobile ? 6 : 8),
+                  // Score badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.amber.withValues(alpha: 0.5))),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
+                      const SizedBox(width: 6),
+                      Text('$totalPoints ECO POINTS',
+                        style: GoogleFonts.exo2(fontSize: isMobile ? 13 : 14,
+                          color: Colors.amber, fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2)),
+                    ]),
+                  ),
+                ]),
               ),
-              SizedBox(height: isMobile ? 16 : 24),
-              
-              Text(
-                'RIVER RESTORED!',
-                style: GoogleFonts.exo2(
-                  fontSize: isMobile ? 28 : isTablet ? 32 : 36,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
+
+              SizedBox(height: isMobile ? 20 : 28),
+
+              // ── RECYCLED MATERIALS ────────────────────────────────────
+              _missionCard(
+                title: '♻ Recycled Materials',
+                subtitle: 'Ready for use in the polluted city',
+                color: const Color(0xFF4FC3F7),
+                isMobile: isMobile,
+                children: [
+                  _lootRow('🔵 Plastic', '$plasticKg items', const Color(0xFF4FC3F7), isMobile),
+                  _lootRow('⚙ Metal', '$metalKg items', const Color(0xFFB0BEC5), isMobile),
+                  _lootRow('🌿 Organic', '$organicKg items', const Color(0xFF69F0AE), isMobile),
+                  _lootRow('⚠ Hazardous', '$hazardousKg items', const Color(0xFFFF5252), isMobile),
+                ],
               ),
-              
-              SizedBox(height: isMobile ? 20 : 32),
-              
-              Container(
-                padding: EdgeInsets.all(isMobile ? 16 : 24),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.cyan, width: 2),
-                ),
-                child: Column(
+
+              SizedBox(height: isMobile ? 12 : 16),
+
+              // ── WATER & BACTERIA ──────────────────────────────────────
+              _missionCard(
+                title: '💧 Purified Water',
+                subtitle: 'Clean water secured for the community',
+                color: const Color(0xFF00E5A0),
+                isMobile: isMobile,
+                children: [
+                  _lootRow('Water Purified', '${purifiedWater}L',
+                      const Color(0xFF00E5A0), isMobile),
+                  _lootRow('Bacteria Cultures', '$bactMult',
+                      const Color(0xFF69F0AE), isMobile),
+                  if (fishCaught > 0)
+                    _lootRow('🐟 Fish (aquatic life restored)',
+                        '$fishCaught species', const Color(0xFF4FC3F7), isMobile),
+                ],
+              ),
+
+              SizedBox(height: isMobile ? 12 : 16),
+
+              // ── HARVEST ───────────────────────────────────────────────
+              if (cropType.isNotEmpty)
+                _missionCard(
+                  title: '$cropEmoji Harvest',
+                  subtitle: 'Crops for future levels',
+                  color: const Color(0xFF8BC34A),
+                  isMobile: isMobile,
                   children: [
-                    _buildCompletionStat(
-                      'Total Points',
-                      '$totalPoints',
-                      Colors.amber,
-                      isMobile,
-                    ),
-                    SizedBox(height: isMobile ? 12 : 16),
-                    _buildCompletionStat(
-                      'Purified Water',
-                      '${purifiedWater}L',
-                      Colors.cyan,
-                      isMobile,
-                    ),
-                    SizedBox(height: isMobile ? 12 : 16),
-                    _buildCompletionStat(
-                      'Bacteria Cultures',
-                      '$bacteriaMultiplied',
-                      Colors.green,
-                      isMobile,
-                    ),
-                    SizedBox(height: isMobile ? 12 : 16),
-                    _buildCompletionStat(
-                      'Recycled Materials',
-                      '${game.recycledMaterials}kg',
-                      Colors.purple,
-                      isMobile,
-                    ),
+                    _lootRow('Crop', cropType[0].toUpperCase() + cropType.substring(1),
+                        const Color(0xFF8BC34A), isMobile),
+                    _lootRow('Yield', '${cropHarvest}kg',
+                        const Color(0xFFAED581), isMobile),
+                    _lootRow('Result', harvestLabel,
+                        game.harvestResult == 'bountiful' ? Colors.amber
+                        : game.harvestResult == 'average' ? const Color(0xFFFFA000)
+                        : const Color(0xFFFF5252), isMobile),
                   ],
                 ),
-              ),
-              
-              SizedBox(height: isMobile ? 20 : 32),
-              
+
+              SizedBox(height: isMobile ? 24 : 32),
+
+              // ── CTA ───────────────────────────────────────────────────
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    Navigator.pop(context, {
-                      'purifiedWater': purifiedWater,
-                      'bacteria': bacteriaMultiplied,
-                      'recycledMaterials': game.recycledMaterials,
-                      'ecoPoints': totalPoints,
-                    });
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PollutedCityScreen(
+                          recycledPlastic:   plasticKg,
+                          recycledMetal:     metalKg,
+                          recycledOrganic:   organicKg,
+                          purifiedWater:     purifiedWater,
+                          cropType:          cropType,
+                          cropYield:         cropHarvest,
+                          fishCount:         fishCaught,
+                          ecoPoints:         totalPoints,
+                          bacteriaCultures:  bactMult,
+                        ),
+                      ),
+                    );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    padding: EdgeInsets.symmetric(
-                      vertical: isMobile ? 12 : 16,
-                    ),
+                    backgroundColor: const Color(0xFF00E5A0),
+                    padding: EdgeInsets.symmetric(vertical: isMobile ? 14 : 18),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                        borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
                   ),
-                  child: Text(
-                    'CONTINUE',
-                    style: GoogleFonts.exo2(
-                      fontSize: isMobile ? 16 : 18,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('PROCEED TO POLLUTED CITY',
+                        style: GoogleFonts.exo2(fontSize: isMobile ? 15 : 17,
+                          fontWeight: FontWeight.w900, color: Colors.black,
+                          letterSpacing: 1.0)),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.arrow_forward_rounded,
+                          color: Colors.black, size: 18),
+                    ],
                   ),
                 ),
               ),
-              
-              SizedBox(height: isLandscape && isMobile ? 10 : 20),
             ],
           ),
         ),
@@ -2522,32 +2707,54 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  Widget _buildCompletionStat(String label, String value, Color color, bool isMobile) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Flexible(
-          child: Text(
-            label,
-            style: GoogleFonts.exo2(
-              fontSize: isMobile ? 14 : 16,
-              color: Colors.white70,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: GoogleFonts.exo2(
-            fontSize: isMobile ? 20 : 24,
-            color: color,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ],
+  Widget _missionCard({
+    required String title, required String subtitle, required Color color,
+    required bool isMobile, required List<Widget> children,
+  }) {
+    return Container(
+      padding: EdgeInsets.all(isMobile ? 14 : 18),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.30), width: 1.5),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: GoogleFonts.exo2(fontSize: isMobile ? 14 : 16,
+          color: color, fontWeight: FontWeight.w800)),
+        SizedBox(height: 2),
+        Text(subtitle, style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+          color: Colors.white38, fontWeight: FontWeight.w500)),
+        Divider(color: color.withValues(alpha: 0.20), height: isMobile ? 14 : 16),
+        ...children,
+      ]),
     );
   }
 
-  Widget _buildPhaseTransition() {
+  Widget _lootRow(String label, String value, Color color, bool isMobile) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(label, style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+          color: Colors.white60, fontWeight: FontWeight.w500)),
+        Text(value, style: GoogleFonts.exo2(fontSize: isMobile ? 13 : 14,
+          color: color, fontWeight: FontWeight.w800)),
+      ]),
+    );
+  }
+
+  /*Widget _buildCompletionStat(String label, String value, Color color, bool isMobile) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Flexible(child: Text(label, style: GoogleFonts.exo2(
+          fontSize: isMobile ? 14 : 16, color: Colors.white70))),
+        Text(value, style: GoogleFonts.exo2(fontSize: isMobile ? 20 : 24,
+          color: color, fontWeight: FontWeight.w900)),
+      ],
+    );
+  }*/
+
+    Widget _buildPhaseTransition() {
     String phaseText = '';
     IconData phaseIcon = Icons.check;
     

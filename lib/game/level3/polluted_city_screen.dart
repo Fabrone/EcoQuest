@@ -3,7 +3,7 @@ import 'package:ecoquest/game/level3/city_collection_screen.dart';
 import 'package:flutter/material.dart';
 
 class PollutedCityScreen extends StatelessWidget {
-  const PollutedCityScreen({super.key});
+  const PollutedCityScreen({super.key, required int recycledPlastic, required int recycledMetal, required int bacteriaCultures, required int ecoPoints, required int fishCount, required int cropYield, required String cropType, required int purifiedWater, required int recycledOrganic});
 
   @override
   Widget build(BuildContext context) {

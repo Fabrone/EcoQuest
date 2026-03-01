@@ -75,6 +75,11 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   int sortedCorrectly = 0;
   int sortedIncorrectly = 0;
   WasteItemComponent? selectedWaste; // For tap-to-select interaction
+  bool sortingTimerStarted = false;
+  double sortingTimeLeft = 60.0;
+  bool sortingTimerRunning = false;
+  Function(double timeLeft)? onSortingTick;
+  Function(int correct, int wrong, int unsorted)? onSortingTimeUp;
 
   // Phase 3 - Treatment
   List<WaterTileComponent> waterTiles = [];
@@ -135,6 +140,14 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   int purifiedWaterAmount = 0;
   int bacteriaMultiplied = 0;
   int recycledMaterials = 0;
+  // Phase 4 carry-forward
+  int harvestYield = 0;     // kg of crop produced
+  int fishCount = 0;        // fish if water sufficiently clean
+  // Sorting breakdown for recycling
+  int recycledPlastic = 0;
+  int recycledMetal = 0;
+  int recycledOrganic = 0;
+  int recycledHazardous = 0;
 
   // New for sorting
   List<WasteItemComponent> collectedWaste = [];
@@ -957,6 +970,12 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     int total = sortedCorrectly + sortedIncorrectly;
     int accuracy = total > 0 ? ((sortedCorrectly / total) * 100).round() : 0;
 
+    // Start sorting timer on first sort action
+    if (!sortingTimerStarted && total >= 1) {
+      sortingTimerStarted = true;
+      sortingTimerRunning = true;
+    }
+
     onSortingUpdate?.call(accuracy, total);
 
     // Get original collected count (before any sorting)
@@ -1034,6 +1053,13 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     if (correct) {
       sortedCorrectly++;
       bin.triggerSuccessAnimation();
+      // Track breakdown by bin type
+      switch (bin.binType) {
+        case 'plastic':   recycledPlastic++;   break;
+        case 'metal':     recycledMetal++;     break;
+        case 'organic':   recycledOrganic++;   break;
+        case 'hazardous': recycledHazardous++; break;
+      }
     } else {
       sortedIncorrectly++;
       bin.triggerErrorAnimation();
@@ -1220,6 +1246,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     activeWaterFlows.clear();
     isDrawingFurrow = false;
     isDrawingPipe2 = false;
+    tractor = null;
     _setupAgriculturePhase();
   }
 
@@ -1229,7 +1256,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     removeAll(children.whereType<EnhancedRiverComponent>());
     removeAll(children.whereType<UnifiedAgricultureBackground>());
     removeAll(children.whereType<FurrowRenderComponent>());
-    removeAll(children.whereType<TractorComponent>());
     removeAll(children.whereType<CropComponent>());
     await Future.delayed(const Duration(milliseconds: 100));
 
@@ -1253,15 +1279,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
     // Furrow/pipe render component
     add(FurrowRenderComponent());
-
-    // Tractor hidden until drawing starts
-    final farmRect = _getFarmRect();
-    tractor = TractorComponent(
-      position: Vector2(farmRect.center.dx, farmRect.center.dy),
-      size: Vector2(52, 52),
-    );
-    tractor!.visible = false;
-    add(tractor!);
 
     debugPrint('✅ Phase 4 setup complete');
     resumeEngine();
@@ -1333,8 +1350,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
     river!.generateWindingRiverPath();
 
-    final farmRect = _getFarmRect();
-    tractor?.position = Vector2(farmRect.center.dx, farmRect.center.dy);
   }
 
   void onFarmTapDown(Vector2 position) {
@@ -1353,8 +1368,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
           final cp = _getClosestRiverPoint(position);
           if (cp != null) currentPipeBeingDrawn!.riverConnectionPoint = cp;
         }
-        tractor?.position = position.clone();
-        tractor?.visible = true;
       }
       return;
     }
@@ -1364,11 +1377,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       isDrawingFurrow = true;
       lastFurrowPoint = position.clone();
       activeFurrowId = 'furrow_${DateTime.now().millisecondsSinceEpoch}';
-
-      if (tractor != null) {
-        tractor!.position = position.clone();
-        tractor!.visible = true;
-      }
 
       final isNearRiver = _isPositionNearRiver(position, threshold: 40.0);
       currentFurrowBeingDrawn = FurrowPath(
@@ -1534,8 +1542,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
         if (dist >= 10) {
           currentPipeBeingDrawn!.points.add(newPosition.clone());
           lastFurrowPoint = newPosition.clone();
-          tractor?.position = newPosition.clone();
-          if (delta.length > 0) tractor?.updateRotation(delta);
           if (!currentPipeBeingDrawn!.isConnectedToRiver) {
             if (_isPositionNearRiver(newPosition, threshold: 60.0)) {
               final cp = _getClosestRiverPoint(newPosition);
@@ -1561,10 +1567,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       if (distance >= 10) {
         currentFurrowBeingDrawn!.points.add(newPosition.clone());
         lastFurrowPoint = newPosition.clone();
-        if (tractor != null) {
-          tractor!.position = newPosition.clone();
-          if (delta.length > 0) tractor!.updateRotation(delta);
-        }
         if (!currentFurrowBeingDrawn!.isConnectedToRiver) {
           if (_isPositionNearRiver(newPosition, threshold: 60.0)) {
             final cp = _getClosestRiverPoint(newPosition);
@@ -1627,12 +1629,19 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     currentFurrowBeingDrawn = null;
     activeFurrowId = null;
 
-    // Hide tractor with delay
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (tractor != null) {
-        tractor!.visible = false;
-      }
-    });
+
+  }
+
+  void _updateSortingTimer(double dt) {
+    if (currentPhase != 2 || !sortingTimerRunning) return;
+    sortingTimeLeft = (sortingTimeLeft - dt).clamp(0, 60.0);
+    onSortingTick?.call(sortingTimeLeft);
+    if (sortingTimeLeft <= 0) {
+      sortingTimerRunning = false;
+      final unsorted = collectedWaste.length;
+      onSortingTimeUp?.call(sortedCorrectly, sortedIncorrectly, unsorted);
+      Future.delayed(const Duration(milliseconds: 2500), _completePhase2);
+    }
   }
 
   // ── Pipe path finalisation ──────────────────────────────────────────────
@@ -1698,18 +1707,42 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   void _spawnCropsIfNeeded() {
     if (children.whereType<CropComponent>().isNotEmpty) return;
     if (selectedCrop == null) return;
+
     final farmRect = _getFarmRect();
-    final rng = Random(77);
-    final count = selectedCrop == 'rice' ? 20 : selectedCrop == 'maize' ? 12 : 16;
-    for (int i = 0; i < count; i++) {
-      final x = farmRect.left + rng.nextDouble() * farmRect.width;
-      final y = farmRect.top  + rng.nextDouble() * farmRect.height;
-      final crop = CropComponent(
-        cropType: selectedCrop!,
-        position: Vector2(x, y),
-        size: Vector2(28, 36),
-      );
-      add(crop);
+    // Determine grid density by crop type
+    final cols = selectedCrop == 'maize' ? 5 : selectedCrop == 'rice' ? 8 : 6;
+    final rows = selectedCrop == 'maize' ? 3 : selectedCrop == 'rice' ? 5 : 4;
+
+    // Margins so crops never touch the river edge or screen edge
+    const double marginH = 24.0;
+    const double marginV = 28.0;
+    final usableW = farmRect.width  - marginH * 2;
+    final usableH = farmRect.height - marginV * 2;
+    final colStep = usableW / (cols - 1);
+    final rowStep = usableH / (rows - 1);
+
+    // Collect all current channel points for exclusion check
+    final List<Vector2> channelPts = [
+      ...completedFurrows.expand((f) => f.points),
+      ...pipePaths.expand((p) => p.points),
+    ];
+
+    for (int r = 0; r < rows; r++) {
+      for (int c = 0; c < cols; c++) {
+        final baseX = farmRect.left + marginH + c * colStep;
+        final baseY = farmRect.top  + marginV + r * rowStep;
+
+        // Skip if too close to any channel (within 20px)
+        bool tooClose = channelPts.any((pt) =>
+            (pt.x - baseX).abs() < 20 && (pt.y - baseY).abs() < 20);
+        if (tooClose) continue;
+
+        add(CropComponent(
+          cropType: selectedCrop!,
+          position: Vector2(baseX, baseY),
+          size: Vector2(28, 36),
+        ));
+      }
     }
   }
 
@@ -1763,15 +1796,22 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
     educationalTip = _buildEducationalTip(crop, method, methodCorrect, channelCountCorrect);
 
+    // Calculate harvest yield
+    harvestYield = harvestResult == 'bountiful' ? 80 + Random().nextInt(40)
+        : harvestResult == 'average' ? 30 + Random().nextInt(30)
+        : 5 + Random().nextInt(15);
+
+    // Fish if water was sufficiently purified (>70% clean)
+    final cleanPct = purifiedWaterAmount / 600.0;
+    fishCount = cleanPct >= 0.7 ? 3 + Random().nextInt(5) : 0;
+
     // Final crop growth flash
     children.whereType<CropComponent>().forEach((c) => c.growthStage = 3);
     children.whereType<ModernAgricultureBackground>().forEach((bg) => bg.greenProgress = 1.0);
 
     onHarvestComplete?.call(harvestResult, educationalTip);
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      onPhaseComplete?.call(4);
-      pauseEngine();
-    });
+    // Phase 4 completion is now user-triggered via the Continue button
+    pauseEngine();
   }
 
   String _buildEducationalTip(String crop, String method, bool methodOk, bool countOk) {
@@ -1945,11 +1985,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     activeFurrowId = existingFurrow.id;
     lastFurrowPoint = existingFurrow.points.last.clone();
 
-    if (tractor != null) {
-      tractor!.position = lastFurrowPoint!.clone();
-      tractor!.visible = true;
-    }
-
     debugPrint('▶️ Resumed drawing furrow ${existingFurrow.id}');
   }
 
@@ -1957,6 +1992,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   void update(double dt) {
     super.update(dt);
     _updatePhase1Timer(dt);
+    _updateSortingTimer(dt);
     _updateIrrigationTimer(dt);
 
     for (var waterFlow in activeWaterFlows) {

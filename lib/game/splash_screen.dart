@@ -192,7 +192,17 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   void _navigateToPollutedCityTest(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => const PollutedCityScreen(),
+        builder: (_) => const PollutedCityScreen(
+          recycledPlastic: 10,
+          recycledMetal: 8,
+          bacteriaCultures: 5,
+          ecoPoints: 250,
+          fishCount: 15,
+          cropYield: 20,
+          cropType: 'Maize',
+          purifiedWater: 100,
+          recycledOrganic: 12,
+        ),
       ),
     );
   }

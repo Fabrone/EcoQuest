@@ -4711,39 +4711,37 @@ class ContinuousWaterFlowAnimation {
   }
     
   void _drawContinuousWaterStream(Canvas canvas, List<Vector2> pathPoints) {
-    // Draw water-filled furrow sections
     for (int i = 0; i < pathPoints.length - 1; i++) {
       final start = pathPoints[i];
-      final end = pathPoints[i + 1];
-      
-      // Determine if this segment has water based on progress
+      final end   = pathPoints[i + 1];
       final segmentProgress = i / (pathPoints.length - 1);
-      
-      // Draw water only after gradual fill
+
       if (timeSinceStart > segmentProgress * 2) {
-        // Draw water line with subtle flowing effect
+        // Build a safe non-degenerate shader rect that always has width & height
+        final minX = min(start.x, end.x);
+        final minY = min(start.y, end.y);
+        final w    = max((end.x - start.x).abs(), 10.0);
+        final h    = max((end.y - start.y).abs(), 10.0);
+        final shaderRect = Rect.fromLTWH(minX, minY, w, h);
+
         final waterPaint = Paint()
           ..shader = LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
             colors: [
-              Colors.blue.shade700.withValues(alpha: 0.6), // CHANGED: Darker, less vibrant
-              Colors.blue.shade600.withValues(alpha: 0.7),
-              Colors.blue.shade700.withValues(alpha: 0.6),
+              Colors.blue.shade700.withValues(alpha: 0.65),
+              Colors.blue.shade400.withValues(alpha: 0.80),
+              Colors.blue.shade700.withValues(alpha: 0.65),
             ],
-          ).createShader(Rect.fromPoints(
-            Offset(start.x, start.y),
-            Offset(end.x, end.y),
-          ))
+          ).createShader(shaderRect)
           ..strokeWidth = 10
           ..strokeCap = StrokeCap.round;
-        
+
         canvas.drawLine(
           Offset(start.x, start.y),
           Offset(end.x, end.y),
           waterPaint,
         );
-        
       }
     }
   }
