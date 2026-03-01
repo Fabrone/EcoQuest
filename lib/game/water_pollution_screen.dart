@@ -56,7 +56,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   int itemsSorted = 0;
   int sortedCorrectly = 0;   
   int sortedIncorrectly = 0;
-  double _sortingTimeLeft = 75.0;
+  double _sortingTimeLeft = 90.0;
   bool _sortingTimerActive = false;
   bool _sortingTimeUpShown = false;
   int _sortingUnsorted = 0;

@@ -86,7 +86,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   int sortedIncorrectly = 0;
   WasteItemComponent? selectedWaste; // For tap-to-select interaction
   bool sortingTimerStarted = false;
-  double sortingTimeLeft = 75.0;
+  double sortingTimeLeft = 90.0;
   bool sortingTimerRunning = false;
   Function(double timeLeft)? onSortingTick;
   Function(int correct, int wrong, int unsorted)? onSortingTimeUp;
@@ -1057,7 +1057,20 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
   /// Called by the screen's "PROCEED TO TREATMENT" button from either the
   /// time-up panel or the full-completion panel.
+  /// Unsorted items remaining in [collectedWaste] are discarded here — only
+  /// correctly sorted items (tracked via recycledPlastic/Metal/Organic/Hazardous)
+  /// carry forward to Phase 3 and beyond.
   void proceedFromSorting() {
+    // Remove every WasteItemComponent that is still attached to the game tree
+    // (the unsorted stack items were add()ed as live children in _createCentralizedStack
+    // and _spawnNextWasteItem — clearing the list alone does not detach them from render).
+    removeAll(children.whereType<WasteItemComponent>().toList());
+
+    // Also clear data so nothing carries forward to Phase 3+
+    collectedWaste.clear();
+    selectedWaste = null;
+    currentDragged = null;
+
     onPhaseComplete?.call(2);
   }
 
@@ -1139,10 +1152,12 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   }
 
   void _setupTreatmentPhase() async {
-    // Clear previous phase components
+    // Clear previous phase components — explicitly includes WasteItemComponent
+    // so any stack items not yet detached by proceedFromSorting() are guaranteed gone.
     removeAll(
       children.where(
         (c) =>
+            c is WasteItemComponent ||
             c is BinComponent ||
             c is SortingFacilityBackground ||
             c is TreatmentFacilityBackground ||
@@ -1676,7 +1691,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
   void _updateSortingTimer(double dt) {
     if (currentPhase != 2 || !sortingTimerRunning) return;
-    sortingTimeLeft = (sortingTimeLeft - dt).clamp(0, 75.0);
+    sortingTimeLeft = (sortingTimeLeft - dt).clamp(0, 90.0);
     onSortingTick?.call(sortingTimeLeft);
     if (sortingTimeLeft <= 0) {
       sortingTimerRunning = false;
