@@ -53,13 +53,18 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   int obstaclesAvoided = 0;
   int obstaclesHit = 0;
   double boatHealth = 150.0; // increased — gives player more room to survive multi-hazard encounters
+  int crocodileAttackCount = 0; // tracks number of croc hits; boat sinks at 9
 
   // Callbacks (add alongside existing callbacks)
   Function(String obstacle, double damage)? _onObstacleHitExternal;
   Function(double timeLeft)? onTimerTick;
   Function(int score, double health, int collected)? onCollectionUpdate;
-  /// Fired when the boat is sunk (health reaches 0). Screen should show retry.
+  /// Fired when the boat is sunk after 9 crocodile attacks. Screen should show retry.
   Function()? onPhase1Failed;
+
+  /// Fired when the timer lapses before all waste is collected.
+  /// Screen should show a transitional message then advance to phase 2.
+  Function(int collected, int total)? onPhase1TimeUp;
 
   /// External obstacle-hit callback. Internally always routes through
   /// [_handleObstacleHit] which updates health, HUD, and flashes danger text.
@@ -259,6 +264,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     obstaclesAvoided = 0;
     obstaclesHit = 0;
     boatHealth = 150.0;
+    crocodileAttackCount = 0;
     collectionTimeRemaining = collectionTimerMax;
     timerRunning = false;
     timeUp = false;
@@ -507,11 +513,27 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     // Obstacles only count once the player has started rowing
     if (!playerHasStarted) return;
 
-    boatHealth = (boatHealth - damage).clamp(0.0, 150.0);
+    // ── Crocodile: count attacks, normalise damage, sink at 9 hits ──────────
+    if (type == 'crocodile') {
+      crocodileAttackCount++;
+      // Each attack removes exactly 1/9 of full health so the bar shows 9 lives
+      const double crocDamagePerHit = 150.0 / 9;
+      damage = crocDamagePerHit;
+
+      if (crocodileAttackCount >= 9) {
+        // 9th attack — force immediate sinking regardless of remaining health
+        boatHealth = 0.0;
+      } else {
+        boatHealth = (boatHealth - crocDamagePerHit).clamp(0.0, 150.0);
+      }
+    } else {
+      boatHealth = (boatHealth - damage).clamp(0.0, 150.0);
+    }
+
     obstaclesHit++;
 
     final dangerMsg = {
-      'crocodile': '🐊 Crocodile Attack! −${damage.round()} HP',
+      'crocodile': '🐊 Croc Attack $crocodileAttackCount/9! −${damage.round()} HP',
       'whirlpool': '🌀 Caught in Whirlpool!',
       'logjam': '🪵 Log Jam! −${damage.round()} HP',
     }[type] ?? '⚠ Obstacle Hit!';
@@ -528,7 +550,8 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     onCollectionUpdate?.call(sessionScore, boatHealth, wasteCollectedCount);
 
     if (boatHealth <= 0) {
-      // Boat sunk — pause and notify screen to show retry, do NOT advance phase
+      // Boat sunk after 9 crocodile attacks — pause and notify screen to show retry.
+      // Player CANNOT proceed to sorting; they must retry phase 1.
       timerRunning = false;
       pauseEngine();
       onPhase1Failed?.call();
@@ -2016,9 +2039,12 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     if (collectionTimeRemaining <= 0) {
       timeUp = true;
       timerRunning = false;
-      // Time ran out without collecting all waste — treat as failure/partial
-      pauseEngine();
-      onPhase1Failed?.call();
+      // Time ran out before all waste was collected — the session ends but the
+      // player keeps whatever they collected and proceeds to phase 2 (sorting).
+      // Fire the time-up callback so the screen can show a transitional message
+      // before the phase-complete transition takes over.
+      onPhase1TimeUp?.call(wasteCollectedCount, totalSpawnedWaste > 0 ? totalSpawnedWaste : totalWasteToCollect);
+      _completePhase1Enhanced();
     }
   }
 

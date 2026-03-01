@@ -47,6 +47,10 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   bool _phase1Failed = false;
   String _failReason = '';
 
+  // Phase 1 — timer-lapsed transition state (time up → proceeds to phase 2)
+  bool _showTimeUpMessage = false;
+  String _timeUpMessage = '';
+
   // Phase 2 stats
   int sortingAccuracy = 0;
   int itemsSorted = 0;
@@ -252,13 +256,28 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
       }
     };
 
-    // Phase 1 failure (boat sunk or time up without all waste collected)
+    // Phase 1 failure — boat sunk after 9 crocodile attacks (retry required, cannot proceed)
     game.onPhase1Failed = () {
       safeSetState(() {
         _phase1Failed = true;
-        _failReason = game.timeUp
-            ? 'Time ran out! ${game.wasteCollectedCount}/${game.totalSpawnedWaste} items collected.'
-            : 'Your boat sank! ${game.wasteCollectedCount}/${game.totalSpawnedWaste} items collected.';
+        _failReason =
+            '🐊 Your boat was sunk after ${game.crocodileAttackCount} crocodile attacks!\n'
+            '${game.wasteCollectedCount}/${game.totalSpawnedWaste} items collected.';
+      });
+    };
+
+    // Phase 1 time lapse — timer ran out before all waste collected.
+    // Player proceeds to phase 2 with however much they collected.
+    game.onPhase1TimeUp = (int collected, int total) {
+      safeSetState(() {
+        _showTimeUpMessage = true;
+        _timeUpMessage =
+            'You collected $collected of $total waste items.\n'
+            'Moving on to sorting with what you\'ve got!';
+      });
+      // Auto-dismiss after 3 s; the onPhaseComplete transition takes over
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) safeSetState(() => _showTimeUpMessage = false);
       });
     };
   }
@@ -291,8 +310,11 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             if (currentPhase == 4) _buildAgricultureInterface(),
             if (currentPhase == 5) _buildCompletionScreen(),
 
-            // Phase 1 failure overlay (boat sunk / time up)
+            // Phase 1 failure overlay (boat sunk after 9 croc attacks — retry required)
             if (currentPhase == 1 && _phase1Failed) _buildPhase1FailedOverlay(),
+
+            // Phase 1 time-up overlay (timer lapsed — proceeds to phase 2)
+            if (currentPhase == 1 && _showTimeUpMessage) _buildTimeUpProceedOverlay(),
 
             // Phase transition overlay
             if (_showPhaseTransition) _buildPhaseTransition(),
@@ -471,7 +493,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  // ── Phase 1 failure overlay ───────────────────────────────────────────────
+  // ── Phase 1 failure overlay — boat sunk after 9 croc attacks (retry only) ──
 
   Widget _buildPhase1FailedOverlay() {
     final isMobile = MediaQuery.of(context).size.width < 600;
@@ -504,7 +526,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                game.timeUp ? '⏰ TIME\'S UP!' : '🚤 BOAT SUNK!',
+                '🚤 BOAT SUNK!',
                 style: GoogleFonts.exo2(
                   fontSize: isMobile ? 26 : 34,
                   fontWeight: FontWeight.w900,
@@ -524,7 +546,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'You must collect ALL waste items to clean the river.',
+                'A sunken boat cannot carry waste to the sorter.\nYou must retry the collection phase.',
                 style: GoogleFonts.exo2(
                   fontSize: isMobile ? 12 : 14,
                   color: Colors.white54,
@@ -569,6 +591,78 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 ],
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Phase 1 time-up overlay — timer lapsed, game advances with partial haul ──
+
+  Widget _buildTimeUpProceedOverlay() {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    return IgnorePointer(
+      child: Container(
+        color: Colors.black.withValues(alpha: 0.72),
+        child: Center(
+          child: Container(
+            margin: EdgeInsets.all(isMobile ? 28 : 56),
+            padding: EdgeInsets.all(isMobile ? 24 : 36),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFF1A3A5C).withValues(alpha: 0.97),
+                  Colors.black.withValues(alpha: 0.97),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.amber.shade600, width: 2.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.amber.withValues(alpha: 0.30),
+                  blurRadius: 28,
+                  spreadRadius: 5,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '⏰ TIME\'S UP!',
+                  style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 26 : 34,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.amber.shade300,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _timeUpMessage,
+                  style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 14 : 16,
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Proceeding to sorting phase…',
+                  style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 12 : 14,
+                    color: Colors.cyan.shade200,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                const CircularProgressIndicator(color: Colors.amber),
+              ],
+            ),
           ),
         ),
       ),
@@ -669,6 +763,33 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                           backgroundColor: Colors.white24,
                           valueColor: AlwaysStoppedAnimation(healthColor),
                           minHeight: isMobile ? 7 : 10,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    // Crocodile attack counter — shows remaining lives (boat sinks at 9 attacks)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: game.crocodileAttackCount >= 7
+                            ? Colors.red.withValues(alpha: 0.30)
+                            : Colors.black38,
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                          color: game.crocodileAttackCount >= 7
+                              ? Colors.red
+                              : Colors.white30,
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        '🐊 ${game.crocodileAttackCount}/9',
+                        style: GoogleFonts.exo2(
+                          fontSize: isMobile ? 9 : 10,
+                          fontWeight: FontWeight.w700,
+                          color: game.crocodileAttackCount >= 7
+                              ? Colors.red.shade300
+                              : Colors.white70,
                         ),
                       ),
                     ),
