@@ -53,7 +53,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   int obstaclesAvoided = 0;
   int obstaclesHit = 0;
   double boatHealth = 150.0; // increased — gives player more room to survive multi-hazard encounters
-  int crocodileAttackCount = 0; // tracks number of croc hits; boat sinks at 9
+  int crocodileAttackCount = 0; // tracks croc hits; boat sinks at exactly 9 attacks
 
   // Callbacks (add alongside existing callbacks)
   Function(String obstacle, double damage)? _onObstacleHitExternal;
@@ -62,9 +62,14 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   /// Fired when the boat is sunk after 9 crocodile attacks. Screen should show retry.
   Function()? onPhase1Failed;
 
-  /// Fired when the timer lapses before all waste is collected.
-  /// Screen should show a transitional message then advance to phase 2.
+  /// Fired when the 3-minute timer lapses before all waste is collected.
+  /// Player keeps what they collected and proceeds to Phase 2 — NOT a retry.
   Function(int collected, int total)? onPhase1TimeUp;
+
+  /// Fired when Phase 1 ends — either all waste collected OR timer lapsed.
+  /// Game pauses here. Screen shows a results panel and the player must tap
+  /// "PROCEED TO SORTING" which calls [proceedFromPhase1].
+  Function()? onPhase1Complete;
 
   /// External obstacle-hit callback. Internally always routes through
   /// [_handleObstacleHit] which updates health, HUD, and flashes danger text.
@@ -81,10 +86,13 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   int sortedIncorrectly = 0;
   WasteItemComponent? selectedWaste; // For tap-to-select interaction
   bool sortingTimerStarted = false;
-  double sortingTimeLeft = 60.0;
+  double sortingTimeLeft = 75.0;
   bool sortingTimerRunning = false;
   Function(double timeLeft)? onSortingTick;
   Function(int correct, int wrong, int unsorted)? onSortingTimeUp;
+  /// Fired when the player finishes sorting every item before the timer runs out.
+  /// Screen shows a results panel — user must tap "Proceed to Treatment" via [proceedFromSorting].
+  Function(int correct, int wrong, double timeRemaining)? onSortingComplete;
 
   // Phase 3 - Treatment
   List<WaterTileComponent> waterTiles = [];
@@ -510,19 +518,15 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   }
 
   void _handleObstacleHit(String type, double damage) {
-    // Obstacles only count once the player has started rowing
     if (!playerHasStarted) return;
 
-    // ── Crocodile: count attacks, normalise damage, sink at 9 hits ──────────
+    // ── Crocodile: normalise damage, count hits, force sink at 9 ──────────
     if (type == 'crocodile') {
       crocodileAttackCount++;
-      // Each attack removes exactly 1/9 of full health so the bar shows 9 lives
-      const double crocDamagePerHit = 150.0 / 9;
+      const double crocDamagePerHit = 150.0 / 9; // ≈17 HP — 9 equal steps
       damage = crocDamagePerHit;
-
       if (crocodileAttackCount >= 9) {
-        // 9th attack — force immediate sinking regardless of remaining health
-        boatHealth = 0.0;
+        boatHealth = 0.0; // Force immediate sink on 9th attack
       } else {
         boatHealth = (boatHealth - crocDamagePerHit).clamp(0.0, 150.0);
       }
@@ -535,7 +539,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     final dangerMsg = {
       'crocodile': '🐊 Croc Attack $crocodileAttackCount/9! −${damage.round()} HP',
       'whirlpool': '🌀 Caught in Whirlpool!',
-      'logjam': '🪵 Log Jam! −${damage.round()} HP',
+      'logjam':    '🪵 Log Jam! −${damage.round()} HP',
     }[type] ?? '⚠ Obstacle Hit!';
 
     if (rowingBoat != null) {
@@ -545,13 +549,11 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       ));
     }
 
-    // Fire external callback so screen HUD shows the banner
     _onObstacleHitExternal?.call(type, damage);
     onCollectionUpdate?.call(sessionScore, boatHealth, wasteCollectedCount);
 
     if (boatHealth <= 0) {
-      // Boat sunk after 9 crocodile attacks — pause and notify screen to show retry.
-      // Player CANNOT proceed to sorting; they must retry phase 1.
+      // Boat sunk after 9 croc attacks — must retry, cannot proceed to sorting
       timerRunning = false;
       pauseEngine();
       onPhase1Failed?.call();
@@ -565,7 +567,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   void _completePhase1Enhanced() {
     timerRunning = false;
 
-    // Time bonus
+    // Time bonus (only when completed before timer ran out)
     if (!timeUp && collectionTimeRemaining > 0) {
       sessionScore += (collectionTimeRemaining * 0.5).round();
     }
@@ -574,8 +576,16 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
     recycledMaterials = (wasteCollectedCount * 0.5).round();
 
-    onPhaseComplete?.call(1);
+    // Do NOT call onPhaseComplete here — game pauses and waits for the player
+    // to read the results panel and tap "Proceed to Sorting".
+    // The screen button calls proceedFromPhase1() which then fires onPhaseComplete(1).
     pauseEngine();
+    onPhase1Complete?.call();
+  }
+
+  /// Called by the screen's "PROCEED TO SORTING" button after showing results.
+  void proceedFromPhase1() {
+    onPhaseComplete?.call(1);
   }
 
   /*void _setupRiverBackground() {
@@ -1039,6 +1049,15 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   }
 
   void _completePhase2() {
+    sortingTimerRunning = false;
+    // Notify screen to show results panel — user must tap "Proceed to Treatment".
+    // Actual phase advance happens when screen calls proceedFromSorting().
+    onSortingComplete?.call(sortedCorrectly, sortedIncorrectly, sortingTimeLeft);
+  }
+
+  /// Called by the screen's "PROCEED TO TREATMENT" button from either the
+  /// time-up panel or the full-completion panel.
+  void proceedFromSorting() {
     onPhaseComplete?.call(2);
   }
 
@@ -1657,13 +1676,14 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
   void _updateSortingTimer(double dt) {
     if (currentPhase != 2 || !sortingTimerRunning) return;
-    sortingTimeLeft = (sortingTimeLeft - dt).clamp(0, 60.0);
+    sortingTimeLeft = (sortingTimeLeft - dt).clamp(0, 75.0);
     onSortingTick?.call(sortingTimeLeft);
     if (sortingTimeLeft <= 0) {
       sortingTimerRunning = false;
       final unsorted = collectedWaste.length;
+      // Notify screen — it shows a time-up panel with a "Proceed" button.
+      // Player must tap, which calls proceedFromSorting(). No auto-advance.
       onSortingTimeUp?.call(sortedCorrectly, sortedIncorrectly, unsorted);
-      Future.delayed(const Duration(milliseconds: 2500), _completePhase2);
     }
   }
 
@@ -2039,11 +2059,12 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     if (collectionTimeRemaining <= 0) {
       timeUp = true;
       timerRunning = false;
-      // Time ran out before all waste was collected — the session ends but the
-      // player keeps whatever they collected and proceeds to phase 2 (sorting).
-      // Fire the time-up callback so the screen can show a transitional message
-      // before the phase-complete transition takes over.
-      onPhase1TimeUp?.call(wasteCollectedCount, totalSpawnedWaste > 0 ? totalSpawnedWaste : totalWasteToCollect);
+      // Timer lapsed — player keeps collected waste and proceeds to sorting.
+      // onPhase1TimeUp shows a brief transitional message on screen.
+      onPhase1TimeUp?.call(
+        wasteCollectedCount,
+        totalSpawnedWaste > 0 ? totalSpawnedWaste : totalWasteToCollect,
+      );
       _completePhase1Enhanced();
     }
   }

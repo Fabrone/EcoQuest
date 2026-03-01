@@ -47,19 +47,25 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   bool _phase1Failed = false;
   String _failReason = '';
 
-  // Phase 1 — timer-lapsed transition state (time up → proceeds to phase 2)
-  bool _showTimeUpMessage = false;
-  String _timeUpMessage = '';
+  // Phase 1 — results panel (shown for BOTH success and time-up paths)
+  bool _phase1CompleteShown = false;
+  bool _phase1WasTimeUp = false; // true = time lapsed, false = all collected
 
   // Phase 2 stats
   int sortingAccuracy = 0;
   int itemsSorted = 0;
   int sortedCorrectly = 0;   
   int sortedIncorrectly = 0;
-  double _sortingTimeLeft = 60.0;
+  double _sortingTimeLeft = 75.0;
   bool _sortingTimerActive = false;
   bool _sortingTimeUpShown = false;
   int _sortingUnsorted = 0;
+
+  // Phase 2 — full-completion state (player sorted everything before timer)
+  bool _sortingCompleteShown = false;
+  int _sortingCompleteCorrect = 0;
+  int _sortingCompleteWrong = 0;
+  double _sortingCompleteTimeLeft = 0.0;
   
   // Phase 3 stats
   int zonesTreated = 0;
@@ -156,6 +162,19 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
       safeSetState(() {
         _sortingTimeUpShown = true;
         _sortingUnsorted = unsorted;
+        sortedCorrectly = correct;
+        sortedIncorrectly = wrong;
+      });
+    };
+
+    // Fires when player sorts every item before the timer runs out.
+    // Shows a completion results panel — user must tap to proceed.
+    game.onSortingComplete = (correct, wrong, timeRemaining) {
+      safeSetState(() {
+        _sortingCompleteShown = true;
+        _sortingCompleteCorrect = correct;
+        _sortingCompleteWrong = wrong;
+        _sortingCompleteTimeLeft = timeRemaining;
         sortedCorrectly = correct;
         sortedIncorrectly = wrong;
       });
@@ -267,18 +286,15 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     };
 
     // Phase 1 time lapse — timer ran out before all waste collected.
-    // Player proceeds to phase 2 with however much they collected.
+    // Just flag it — the onPhase1Complete overlay will show the details.
     game.onPhase1TimeUp = (int collected, int total) {
-      safeSetState(() {
-        _showTimeUpMessage = true;
-        _timeUpMessage =
-            'You collected $collected of $total waste items.\n'
-            'Moving on to sorting with what you\'ve got!';
-      });
-      // Auto-dismiss after 3 s; the onPhaseComplete transition takes over
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted) safeSetState(() => _showTimeUpMessage = false);
-      });
+      safeSetState(() => _phase1WasTimeUp = true);
+    };
+
+    // Phase 1 complete — fires for BOTH all-collected and time-lapsed paths.
+    // Shows results panel; player must tap "Proceed to Sorting" to advance.
+    game.onPhase1Complete = () {
+      safeSetState(() => _phase1CompleteShown = true);
     };
   }
 
@@ -313,8 +329,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             // Phase 1 failure overlay (boat sunk after 9 croc attacks — retry required)
             if (currentPhase == 1 && _phase1Failed) _buildPhase1FailedOverlay(),
 
-            // Phase 1 time-up overlay (timer lapsed — proceeds to phase 2)
-            if (currentPhase == 1 && _showTimeUpMessage) _buildTimeUpProceedOverlay(),
+            // Phase 1 results panel (time-up OR success — user must tap to proceed)
+            if (currentPhase == 1 && _phase1CompleteShown) _buildPhase1CompleteOverlay(),
 
             // Phase transition overlay
             if (_showPhaseTransition) _buildPhaseTransition(),
@@ -597,76 +613,314 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  // ── Phase 1 time-up overlay — timer lapsed, game advances with partial haul ──
+  // ── Phase 1 results panel — shown for BOTH success and time-up paths ─────
+  // User MUST tap "PROCEED TO SORTING" — no auto-advance.
 
-  Widget _buildTimeUpProceedOverlay() {
+  Widget _buildPhase1CompleteOverlay() {
     final isMobile = MediaQuery.of(context).size.width < 600;
-    return IgnorePointer(
-      child: Container(
-        color: Colors.black.withValues(alpha: 0.72),
-        child: Center(
+    final bool wasTimeUp = _phase1WasTimeUp;
+
+    // Compute waste breakdown from what's actually in collectedWaste list
+    final breakdown = <String, int>{};
+    for (final w in game.collectedWaste) {
+      breakdown[w.type] = (breakdown[w.type] ?? 0) + 1;
+    }
+    const wasteDisplay = {
+      'plastic_bottle': ('🔵', 'Plastic Bottles'),
+      'bag':            ('🛍', 'Plastic Bags'),
+      'can':            ('⚙',  'Metal Cans'),
+      'metal_scrap':    ('🔩', 'Metal Scrap'),
+      'oil_slick':      ('⚠',  'Oil Slicks'),
+      'wood':           ('🌿', 'Organic Wood'),
+    };
+
+    final int collected  = game.wasteCollectedCount;
+    final int total      = game.totalSpawnedWaste > 0
+        ? game.totalSpawnedWaste : WaterPollutionGame.totalWasteToCollect;
+    final int score      = game.sessionScore;
+    final int timeLeft   = game.collectionTimeRemaining.toInt().clamp(0, 999);
+    final int crocHits   = game.crocodileAttackCount;
+    final double health  = (game.boatHealth / 150.0 * 100).clamp(0, 100);
+
+    // Colours / heading differ by outcome
+    final Color accentColor  = wasTimeUp ? Colors.amber        : const Color(0xFF00E5A0);
+    final Color borderColor  = wasTimeUp ? Colors.amber.shade600: const Color(0xFF00E5A0);
+    final String headingEmoji= wasTimeUp ? '⏰'               : '🎉';
+    final String headingText = wasTimeUp ? 'TIME\'S UP!'       : 'RIVER CLEARED!';
+    final String subText     = wasTimeUp
+        ? 'You collected $collected of $total items before time ran out.\nYour haul heads to the sorting facility!'
+        : 'You collected all $collected waste items with ${timeLeft}s to spare!\nFantastic river cleanup!';
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.88),
+      child: Center(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.all(isMobile ? 16 : 28),
           child: Container(
-            margin: EdgeInsets.all(isMobile ? 28 : 56),
-            padding: EdgeInsets.all(isMobile ? 24 : 36),
+            padding: EdgeInsets.all(isMobile ? 20 : 30),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  const Color(0xFF1A3A5C).withValues(alpha: 0.97),
-                  Colors.black.withValues(alpha: 0.97),
+                  const Color(0xFF0D1F33).withValues(alpha: 0.98),
+                  Colors.black.withValues(alpha: 0.98),
                 ],
               ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.amber.shade600, width: 2.5),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: borderColor, width: 2.5),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.amber.withValues(alpha: 0.30),
-                  blurRadius: 28,
-                  spreadRadius: 5,
+                  color: accentColor.withValues(alpha: 0.30),
+                  blurRadius: 32, spreadRadius: 4,
                 ),
               ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+
+                // ── Heading ─────────────────────────────────────────────
                 Text(
-                  '⏰ TIME\'S UP!',
+                  '$headingEmoji $headingText',
                   style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 26 : 34,
+                    fontSize: isMobile ? 24 : 30,
                     fontWeight: FontWeight.w900,
-                    color: Colors.amber.shade300,
-                    letterSpacing: 1.5,
+                    color: accentColor,
+                    letterSpacing: 1.4,
                   ),
+                  textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: isMobile ? 8 : 10),
                 Text(
-                  _timeUpMessage,
+                  subText,
                   style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 14 : 16,
-                    color: Colors.white70,
+                    fontSize: isMobile ? 12 : 13,
+                    color: Colors.white60,
                     fontWeight: FontWeight.w500,
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Proceeding to sorting phase…',
-                  style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 12 : 14,
-                    color: Colors.cyan.shade200,
-                    fontWeight: FontWeight.w600,
+
+                SizedBox(height: isMobile ? 16 : 20),
+
+                // ── Collection summary row ───────────────────────────────
+                Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 12 : 16, vertical: isMobile ? 10 : 12),
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: accentColor.withValues(alpha: 0.35), width: 1.5),
                   ),
-                  textAlign: TextAlign.center,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _phase1Stat('$collected/$total', 'COLLECTED',
+                          accentColor, isMobile),
+                      _phase1StatDivider(),
+                      _phase1Stat('$score pts', 'SCORE',
+                          Colors.amber, isMobile),
+                      _phase1StatDivider(),
+                      _phase1Stat('${health.toInt()}%', 'HULL',
+                          health > 66 ? Colors.green
+                          : health > 33 ? Colors.orange : Colors.red,
+                          isMobile),
+                      if (!wasTimeUp) ...[
+                        _phase1StatDivider(),
+                        _phase1Stat('${timeLeft}s', 'REMAINING',
+                            Colors.cyan, isMobile),
+                      ],
+                      if (crocHits > 0) ...[
+                        _phase1StatDivider(),
+                        _phase1Stat('$crocHits/9', 'CROC HITS',
+                            Colors.red.shade300, isMobile),
+                      ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 20),
-                const CircularProgressIndicator(color: Colors.amber),
+
+                SizedBox(height: isMobile ? 14 : 18),
+
+                // ── Waste breakdown by category ──────────────────────────
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '♻  HAUL BREAKDOWN',
+                    style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 10 : 11,
+                      color: Colors.white38,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.6,
+                    ),
+                  ),
+                ),
+                SizedBox(height: isMobile ? 8 : 10),
+
+                if (breakdown.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      'No waste items collected this run.',
+                      style: GoogleFonts.exo2(
+                          fontSize: isMobile ? 12 : 13,
+                          color: Colors.white38),
+                    ),
+                  )
+                else
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.08)),
+                    ),
+                    child: Column(
+                      children: breakdown.entries.map((entry) {
+                        final display = wasteDisplay[entry.key];
+                        final emoji  = display?.$1 ?? '📦';
+                        final label  = display?.$2 ?? entry.key;
+                        // Pick a colour per category
+                        final Color catColor = _wasteTypeColor(entry.key);
+                        return _breakdownRow(
+                          emoji, label, entry.value, catColor, isMobile,
+                          isLast: entry.key == breakdown.keys.last,
+                        );
+                      }).toList(),
+                    ),
+                  ),
+
+                SizedBox(height: isMobile ? 22 : 28),
+
+                // ── Proceed button ───────────────────────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _phase1CompleteShown = false;
+                        _phase1WasTimeUp     = false;
+                      });
+                      game.proceedFromPhase1();
+                    },
+                    icon: const Icon(Icons.recycling_rounded,
+                        color: Colors.black),
+                    label: Text(
+                      'PROCEED TO SORTING',
+                      style: GoogleFonts.exo2(
+                        fontSize: isMobile ? 14 : 16,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.black,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: accentColor,
+                      padding: EdgeInsets.symmetric(
+                          vertical: isMobile ? 13 : 16),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  // ── Phase 1 overlay helpers ───────────────────────────────────────────────
+
+  Widget _phase1Stat(String value, String label, Color color, bool isMobile) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(value,
+            style: GoogleFonts.exo2(
+              fontSize: isMobile ? 15 : 18,
+              fontWeight: FontWeight.w900,
+              color: color,
+              height: 1.0,
+            )),
+        const SizedBox(height: 2),
+        Text(label,
+            style: GoogleFonts.exo2(
+              fontSize: 8,
+              color: color.withValues(alpha: 0.65),
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            )),
+      ],
+    );
+  }
+
+  Widget _phase1StatDivider() =>
+      Container(width: 1, height: 28, color: Colors.white12);
+
+  Widget _breakdownRow(String emoji, String label, int count,
+      Color color, bool isMobile, {bool isLast = false}) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+          horizontal: isMobile ? 12 : 16, vertical: isMobile ? 8 : 10),
+      decoration: BoxDecoration(
+        border: isLast
+            ? null
+            : const Border(bottom: BorderSide(color: Colors.white10)),
+      ),
+      child: Row(
+        children: [
+          Text(emoji, style: TextStyle(fontSize: isMobile ? 14 : 16)),
+          SizedBox(width: isMobile ? 8 : 10),
+          Expanded(
+            child: Text(label,
+                style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 12 : 13,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w500,
+                )),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color.withValues(alpha: 0.35)),
+            ),
+            child: Text(
+              '$count item${count == 1 ? "" : "s"}',
+              style: GoogleFonts.exo2(
+                fontSize: isMobile ? 11 : 12,
+                color: color,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _wasteTypeColor(String type) {
+    switch (type) {
+      case 'plastic_bottle':
+      case 'bag':
+        return const Color(0xFF4FC3F7); // blue
+      case 'can':
+      case 'metal_scrap':
+        return const Color(0xFFB0BEC5); // grey-silver
+      case 'oil_slick':
+        return const Color(0xFFFF5252); // red
+      case 'wood':
+        return const Color(0xFF69F0AE); // green
+      default:
+        return Colors.white54;
+    }
   }
 
   Widget _buildCollectionOverlay() {
@@ -1461,10 +1715,107 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                               _timeUpRow('🎯 Accuracy', '$sortingAccuracy%', Colors.amber, isMobile),
                             ]),
                           ),
-                          SizedBox(height: isMobile ? 20 : 28),
-                          Text('Results saved · Proceeding to treatment...',
-                            style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12,
-                              color: Colors.white54, fontWeight: FontWeight.w500)),
+                          SizedBox(height: isMobile ? 24 : 30),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                setState(() => _sortingTimeUpShown = false);
+                                game.proceedFromSorting();
+                              },
+                              icon: const Icon(Icons.science_rounded, color: Colors.black),
+                              label: Text(
+                                'PROCEED TO TREATMENT',
+                                style: GoogleFonts.exo2(
+                                  fontSize: isMobile ? 14 : 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.black,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.amber,
+                                padding: EdgeInsets.symmetric(vertical: isMobile ? 13 : 16),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                                elevation: 0,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+        // ── SORTING COMPLETE OVERLAY (all items sorted before timer) ─────
+        if (_sortingCompleteShown)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.82),
+                  child: Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 40),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('♻ SORTING COMPLETE!', style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 26 : 34, color: const Color(0xFF00E5A0),
+                            fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+                          SizedBox(height: isMobile ? 6 : 10),
+                          Text(
+                            'All waste sorted with ${_sortingCompleteTimeLeft.toInt()}s remaining',
+                            style: GoogleFonts.exo2(
+                              fontSize: isMobile ? 12 : 14,
+                              color: Colors.white54,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          SizedBox(height: isMobile ? 16 : 22),
+                          Container(
+                            padding: EdgeInsets.all(isMobile ? 16 : 20),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.07),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                  color: const Color(0xFF00E5A0).withValues(alpha: 0.35)),
+                            ),
+                            child: Column(children: [
+                              _timeUpRow('✅ Correctly Sorted', '$_sortingCompleteCorrect items', _sortAccent, isMobile),
+                              SizedBox(height: isMobile ? 8 : 10),
+                              _timeUpRow('❌ Incorrectly Sorted', '$_sortingCompleteWrong items', _sortWarning, isMobile),
+                              SizedBox(height: isMobile ? 8 : 10),
+                              _timeUpRow('🎯 Accuracy', '$sortingAccuracy%', Colors.amber, isMobile),
+                            ]),
+                          ),
+                          SizedBox(height: isMobile ? 24 : 30),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                setState(() => _sortingCompleteShown = false);
+                                game.proceedFromSorting();
+                              },
+                              icon: const Icon(Icons.science_rounded, color: Colors.black),
+                              label: Text(
+                                'PROCEED TO TREATMENT',
+                                style: GoogleFonts.exo2(
+                                  fontSize: isMobile ? 14 : 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.black,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF00E5A0),
+                                padding: EdgeInsets.symmetric(vertical: isMobile ? 13 : 16),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                                elevation: 0,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
