@@ -149,6 +149,47 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   bool isDrawingPipe = false;
   String? selectedIrrigationMethod;
 
+  // ── Application selection (chosen after Phase 3) ──────────────────────
+  // 'agriculture' | 'urban' | 'industrial' | 'environmental'
+  String? selectedApplication;
+
+  // Urban water supply phase state
+  int urbanHouseholdsConnected = 0;
+  int urbanTotalHouseholds = 6;
+  int urbanPipesLaid = 0;
+  double urbanProgress = 0.0;
+  bool urbanPhaseComplete = false;
+  String urbanResult = '';
+  Function(int households, double progress)? onUrbanUpdate;
+  Function(String result)? onUrbanComplete;
+  Function(double timeLeft)? onUrbanTick;
+  double urbanTimeLeft = 90.0;
+  bool urbanTimerRunning = false;
+
+  // Industrial phase state
+  int industrialSystemsUpgraded = 0;
+  int industrialTotalSystems = 4;
+  double industrialEfficiency = 0.0;
+  bool industrialPhaseComplete = false;
+  String industrialResult = '';
+  Function(int systems, double efficiency)? onIndustrialUpdate;
+  Function(String result)? onIndustrialComplete;
+  Function(double timeLeft)? onIndustrialTick;
+  double industrialTimeLeft = 90.0;
+  bool industrialTimerRunning = false;
+
+  // Environmental restoration phase state
+  int habitatsRestored = 0;
+  int totalHabitats = 5;
+  double ecosystemHealth = 0.0;
+  bool environmentalPhaseComplete = false;
+  String environmentalResult = '';
+  Function(int habitats, double health)? onEnvironmentalUpdate;
+  Function(String result)? onEnvironmentalComplete;
+  Function(double timeLeft)? onEnvironmentalTick;
+  double environmentalTimeLeft = 90.0;
+  bool environmentalTimerRunning = false;
+
   // Carry-forward resources
   int purifiedWaterAmount = 0;
   int bacteriaMultiplied = 0;
@@ -1281,6 +1322,149 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
   }
 
+  void startUrbanPhase() {
+    currentPhase = 5; // Urban supply
+    urbanHouseholdsConnected = 0;
+    urbanPipesLaid = 0;
+    urbanProgress = 0.0;
+    urbanPhaseComplete = false;
+    urbanResult = '';
+    urbanTimeLeft = 90.0;
+    urbanTimerRunning = false;
+    _setupUrbanPhase();
+  }
+
+  void _setupUrbanPhase() async {
+    removeAll(children.whereType<WaterTileComponent>());
+    removeAll(children.whereType<EnhancedRiverComponent>());
+    removeAll(children.whereType<FurrowRenderComponent>());
+    await Future.delayed(const Duration(milliseconds: 100));
+    resumeEngine();
+  }
+
+  void connectUrbanHousehold() {
+    if (urbanPhaseComplete) return;
+    urbanHouseholdsConnected++;
+    urbanPipesLaid++;
+    urbanProgress = (urbanHouseholdsConnected / urbanTotalHouseholds).clamp(0.0, 1.0);
+    if (!urbanTimerRunning) urbanTimerRunning = true;
+    onUrbanUpdate?.call(urbanHouseholdsConnected, urbanProgress);
+    if (urbanHouseholdsConnected >= urbanTotalHouseholds) {
+      _completeUrbanPhase();
+    }
+  }
+
+  void _completeUrbanPhase() {
+    if (urbanPhaseComplete) return;
+    urbanPhaseComplete = true;
+    urbanTimerRunning = false;
+    urbanResult = urbanProgress >= 1.0 ? 'excellent'
+        : urbanProgress >= 0.6 ? 'good' : 'partial';
+    onUrbanComplete?.call(urbanResult);
+    pauseEngine();
+  }
+
+  void startIndustrialPhase() {
+    currentPhase = 6; // Industrial
+    industrialSystemsUpgraded = 0;
+    industrialEfficiency = 0.0;
+    industrialPhaseComplete = false;
+    industrialResult = '';
+    industrialTimeLeft = 90.0;
+    industrialTimerRunning = false;
+    _setupIndustrialPhase();
+  }
+
+  void _setupIndustrialPhase() async {
+    removeAll(children.whereType<WaterTileComponent>());
+    removeAll(children.whereType<EnhancedRiverComponent>());
+    removeAll(children.whereType<FurrowRenderComponent>());
+    await Future.delayed(const Duration(milliseconds: 100));
+    resumeEngine();
+  }
+
+  void upgradeIndustrialSystem(int systemIndex) {
+    if (industrialPhaseComplete) return;
+    industrialSystemsUpgraded++;
+    industrialEfficiency = (industrialSystemsUpgraded / industrialTotalSystems).clamp(0.0, 1.0);
+    if (!industrialTimerRunning) industrialTimerRunning = true;
+    onIndustrialUpdate?.call(industrialSystemsUpgraded, industrialEfficiency);
+    if (industrialSystemsUpgraded >= industrialTotalSystems) {
+      _completeIndustrialPhase();
+    }
+  }
+
+  void _completeIndustrialPhase() {
+    if (industrialPhaseComplete) return;
+    industrialPhaseComplete = true;
+    industrialTimerRunning = false;
+    industrialResult = industrialEfficiency >= 1.0 ? 'optimized'
+        : industrialEfficiency >= 0.5 ? 'improved' : 'partial';
+    onIndustrialComplete?.call(industrialResult);
+    pauseEngine();
+  }
+
+  void startEnvironmentalPhase() {
+    currentPhase = 7; // Environmental
+    habitatsRestored = 0;
+    ecosystemHealth = 0.0;
+    environmentalPhaseComplete = false;
+    environmentalResult = '';
+    environmentalTimeLeft = 90.0;
+    environmentalTimerRunning = false;
+    _setupEnvironmentalPhase();
+  }
+
+  void _setupEnvironmentalPhase() async {
+    removeAll(children.whereType<WaterTileComponent>());
+    removeAll(children.whereType<EnhancedRiverComponent>());
+    removeAll(children.whereType<FurrowRenderComponent>());
+    await Future.delayed(const Duration(milliseconds: 100));
+    resumeEngine();
+  }
+
+  void restoreHabitat(int habitatIndex) {
+    if (environmentalPhaseComplete) return;
+    habitatsRestored++;
+    ecosystemHealth = (habitatsRestored / totalHabitats).clamp(0.0, 1.0);
+    if (!environmentalTimerRunning) environmentalTimerRunning = true;
+    onEnvironmentalUpdate?.call(habitatsRestored, ecosystemHealth);
+    if (habitatsRestored >= totalHabitats) {
+      _completeEnvironmentalPhase();
+    }
+  }
+
+  void _completeEnvironmentalPhase() {
+    if (environmentalPhaseComplete) return;
+    environmentalPhaseComplete = true;
+    environmentalTimerRunning = false;
+    environmentalResult = ecosystemHealth >= 1.0 ? 'thriving'
+        : ecosystemHealth >= 0.6 ? 'recovering' : 'degraded';
+    onEnvironmentalComplete?.call(environmentalResult);
+    pauseEngine();
+  }
+
+  void _updateUrbanTimer(double dt) {
+    if (currentPhase != 5 || !urbanTimerRunning || urbanPhaseComplete) return;
+    urbanTimeLeft = (urbanTimeLeft - dt).clamp(0, 90.0);
+    onUrbanTick?.call(urbanTimeLeft);
+    if (urbanTimeLeft <= 0) _completeUrbanPhase();
+  }
+
+  void _updateIndustrialTimer(double dt) {
+    if (currentPhase != 6 || !industrialTimerRunning || industrialPhaseComplete) return;
+    industrialTimeLeft = (industrialTimeLeft - dt).clamp(0, 90.0);
+    onIndustrialTick?.call(industrialTimeLeft);
+    if (industrialTimeLeft <= 0) _completeIndustrialPhase();
+  }
+
+  void _updateEnvironmentalTimer(double dt) {
+    if (currentPhase != 7 || !environmentalTimerRunning || environmentalPhaseComplete) return;
+    environmentalTimeLeft = (environmentalTimeLeft - dt).clamp(0, 90.0);
+    onEnvironmentalTick?.call(environmentalTimeLeft);
+    if (environmentalTimeLeft <= 0) _completeEnvironmentalPhase();
+  }
+
   void startPhase4Agriculture() {
     currentPhase = 4;
     // Reset all phase 4 state
@@ -2052,6 +2236,9 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     _updatePhase1Timer(dt);
     _updateSortingTimer(dt);
     _updateIrrigationTimer(dt);
+    _updateUrbanTimer(dt);
+    _updateIndustrialTimer(dt);
+    _updateEnvironmentalTimer(dt);
 
     for (var waterFlow in activeWaterFlows) {
       if (waterFlow is ContinuousWaterFlowAnimation) {

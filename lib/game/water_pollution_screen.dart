@@ -26,7 +26,9 @@ class WaterPollutionScreen extends StatefulWidget {
 class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   late final WaterPollutionGame game;
   
-  int currentPhase = 0; // 0=Intro, 1=Collection, 2=Sorting, 3=Treatment, 4=Agriculture, 5=Complete
+  int currentPhase = 0; // 0=Intro, 1=Collection, 2=Sorting, 3=Treatment, 3.5=AppSelect(shown as bool), 4=Agriculture, 5=Urban, 6=Industrial, 7=Environmental, 8=Complete
+  bool _showApplicationSelection = false; // shown after Phase 3 completes
+  String? _selectedApplication; // 'agriculture' | 'urban' | 'industrial' | 'environmental'
   bool _showPhaseTransition = false;
   
   // Phase 1 stats
@@ -77,6 +79,29 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   int totalFarms = 3;
   int cropsMature = 0;
 
+  // Urban water supply phase state
+  int _urbanHouseholds = 0;
+  double _urbanProgress = 0.0;
+  double _urbanTimeLeft = 90.0;
+  bool _showUrbanResult = false;
+  String _urbanResult = '';
+
+  // Industrial phase state
+  int _industrialSystems = 0;
+  double _industrialEfficiency = 0.0;
+  double _industrialTimeLeft = 90.0;
+  bool _showIndustrialResult = false;
+  String _industrialResult = '';
+  final List<bool> _systemsUpgraded = [false, false, false, false];
+
+  // Environmental restoration phase state
+  int _habitatsRestored = 0;
+  double _ecosystemHealth = 0.0;
+  double _environmentalTimeLeft = 90.0;
+  bool _showEnvironmentalResult = false;
+  String _environmentalResult = '';
+  final List<bool> _habitatsRestoredList = [false, false, false, false, false];
+
   // Phase 4 — new crop & irrigation system state
   String? _selectedCrop;        // set by crop selection card
   String? _irrigationMethod;    // 'furrow' | 'pipe'
@@ -126,17 +151,16 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
       Future.delayed(const Duration(seconds: 2), () {
         if (!mounted) return;
         safeSetState(() {
-          currentPhase = phase + 1;
           _showPhaseTransition = false;
           if (phase == 1) {
+            currentPhase = 2;
             game.startPhase2Sorting();
           } else if (phase == 2) {
+            currentPhase = 3;
             game.startPhase3Treatment();
           } else if (phase == 3) {
-            game.startPhase4Agriculture();
-            Future.delayed(const Duration(milliseconds: 100), () {
-              if (mounted) safeSetState(() {});
-            });
+            // Show application selection instead of going directly to agriculture
+            _showApplicationSelection = true;
           }
         });
       });
@@ -206,6 +230,60 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         _harvestResult  = result;
         _educationalTip = tip;
         _showHarvestResult = true;
+      });
+    };
+
+    game.onUrbanUpdate = (households, progress) {
+      safeSetState(() {
+        _urbanHouseholds = households;
+        _urbanProgress = progress;
+      });
+    };
+
+    game.onUrbanTick = (timeLeft) {
+      safeSetState(() => _urbanTimeLeft = timeLeft);
+    };
+
+    game.onUrbanComplete = (result) {
+      safeSetState(() {
+        _urbanResult = result;
+        _showUrbanResult = true;
+      });
+    };
+
+    game.onIndustrialUpdate = (systems, efficiency) {
+      safeSetState(() {
+        _industrialSystems = systems;
+        _industrialEfficiency = efficiency;
+      });
+    };
+
+    game.onIndustrialTick = (timeLeft) {
+      safeSetState(() => _industrialTimeLeft = timeLeft);
+    };
+
+    game.onIndustrialComplete = (result) {
+      safeSetState(() {
+        _industrialResult = result;
+        _showIndustrialResult = true;
+      });
+    };
+
+    game.onEnvironmentalUpdate = (habitats, health) {
+      safeSetState(() {
+        _habitatsRestored = habitats;
+        _ecosystemHealth = health;
+      });
+    };
+
+    game.onEnvironmentalTick = (timeLeft) {
+      safeSetState(() => _environmentalTimeLeft = timeLeft);
+    };
+
+    game.onEnvironmentalComplete = (result) {
+      safeSetState(() {
+        _environmentalResult = result;
+        _showEnvironmentalResult = true;
       });
     };
 
@@ -324,7 +402,13 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             if (currentPhase == 2) _buildSortingInterface(),
             if (currentPhase == 3) _buildTreatmentOverlay(),
             if (currentPhase == 4) _buildAgricultureInterface(),
-            if (currentPhase == 5) _buildCompletionScreen(),
+            if (currentPhase == 5) _buildUrbanInterface(),
+            if (currentPhase == 6) _buildIndustrialInterface(),
+            if (currentPhase == 7) _buildEnvironmentalInterface(),
+            if (currentPhase == 8) _buildCompletionScreen(),
+
+            // Application selection overlay (after phase 3)
+            if (_showApplicationSelection) _buildApplicationSelectionScreen(),
 
             // Phase 1 failure overlay (boat sunk after 9 croc attacks — retry required)
             if (currentPhase == 1 && _phase1Failed) _buildPhase1FailedOverlay(),
@@ -2915,7 +2999,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                   onPressed: () {
                     setState(() {
                       _showHarvestResult = false;
-                      currentPhase = 5; // Advance to mission complete screen
+                      currentPhase = 8; // Advance to mission complete screen
                     });
                   },
                   style: ElevatedButton.styleFrom(
@@ -2994,25 +3078,1052 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // APPLICATION SELECTION SCREEN — shown after Phase 3 completion
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildApplicationSelectionScreen() {
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0A1628), Color(0xFF051020), Color(0xFF0A1628)],
+        ),
+      ),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.all(isMobile ? 16 : 24),
+          child: Column(
+            children: [
+              SizedBox(height: isMobile ? 12 : 24),
+              // Badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.cyan.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.cyan.withValues(alpha: 0.5)),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Container(width: 7, height: 7,
+                    decoration: BoxDecoration(color: Colors.cyan, shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(color: Colors.cyan, blurRadius: 5)])),
+                  const SizedBox(width: 8),
+                  Text('PHASE 4  ·  CLEAN WATER APPLICATION',
+                    style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+                      color: Colors.cyan, fontWeight: FontWeight.w700, letterSpacing: 1.4)),
+                ]),
+              ),
+              SizedBox(height: isMobile ? 16 : 24),
+              // Header
+              Text('💧 Water is Purified!', style: GoogleFonts.exo2(
+                fontSize: isMobile ? 26 : 32, color: Colors.white, fontWeight: FontWeight.w900)),
+              SizedBox(height: isMobile ? 8 : 12),
+              Container(
+                padding: EdgeInsets.all(isMobile ? 12 : 16),
+                decoration: BoxDecoration(
+                  color: Colors.cyan.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.cyan.withValues(alpha: 0.25)),
+                ),
+                child: Text(
+                  'The river has been cleaned and ${game.purifiedWaterAmount}L of clean water is ready.\n'
+                  'Choose how to apply this precious resource to help the community.',
+                  style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+                    color: Colors.white60, fontWeight: FontWeight.w500),
+                  textAlign: TextAlign.center),
+              ),
+              SizedBox(height: isMobile ? 20 : 28),
+              Text('Choose Your Application', style: GoogleFonts.exo2(
+                fontSize: isMobile ? 18 : 22, color: Colors.white70, fontWeight: FontWeight.w800)),
+              SizedBox(height: isMobile ? 14 : 20),
+              // Application cards
+              _buildAppCard('agriculture', '🌾', 'Agricultural Irrigation',
+                'Use clean water for sustainable crop farming. Irrigate fields and harvest food for the community.',
+                'Design irrigation channels & grow crops', const Color(0xFF4CAF50), isMobile),
+              _buildAppCard('urban', '🏙', 'Urban Water Supply',
+                'Pipe clean water to homes and families in the city, improving public health.',
+                'Connect households to the water network', const Color(0xFF29B6F6), isMobile),
+              _buildAppCard('industrial', '🏭', 'Industrial Processes',
+                'Supply industries with clean water for eco-friendly manufacturing, reducing pollution.',
+                'Upgrade factory systems with clean water', const Color(0xFFFF8F00), isMobile),
+              _buildAppCard('environmental', '🌿', 'Environmental Restoration',
+                'Release clean water back into ecosystems to restore wetlands, fish habitats, and wildlife.',
+                'Restore habitats and revive biodiversity', const Color(0xFF00BFA5), isMobile),
+              SizedBox(height: isMobile ? 12 : 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAppCard(String appKey, String emoji, String title, String desc,
+      String actionHint, Color color, bool isMobile) {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedApplication = appKey;
+          _showApplicationSelection = false;
+          game.selectedApplication = appKey;
+        });
+        _launchApplication(appKey);
+      },
+      child: Container(
+        margin: EdgeInsets.only(bottom: isMobile ? 12 : 16),
+        padding: EdgeInsets.all(isMobile ? 14 : 18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: [color.withValues(alpha: 0.18), color.withValues(alpha: 0.07)],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withValues(alpha: 0.45), width: 1.5),
+          boxShadow: [BoxShadow(color: color.withValues(alpha: 0.12),
+            blurRadius: 14, offset: const Offset(0, 4))],
+        ),
+        child: Row(children: [
+          Container(
+            width: isMobile ? 56 : 68, height: isMobile ? 56 : 68,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(14)),
+            child: Center(child: Text(emoji, style: TextStyle(fontSize: isMobile ? 30 : 36))),
+          ),
+          SizedBox(width: isMobile ? 12 : 16),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: GoogleFonts.exo2(fontSize: isMobile ? 15 : 17,
+              color: Colors.white, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text(desc, style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+              color: Colors.white54, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(6)),
+              child: Text(actionHint, style: GoogleFonts.exo2(fontSize: isMobile ? 9 : 10,
+                color: color, fontWeight: FontWeight.w700)),
+            ),
+          ])),
+          Icon(Icons.arrow_forward_ios_rounded,
+            color: color.withValues(alpha: 0.6), size: isMobile ? 16 : 18),
+        ]),
+      ),
+    );
+  }
+
+  void _launchApplication(String appKey) {
+    switch (appKey) {
+      case 'agriculture':
+        setState(() => currentPhase = 4);
+        game.startPhase4Agriculture();
+        break;
+      case 'urban':
+        setState(() => currentPhase = 5);
+        game.startUrbanPhase();
+        break;
+      case 'industrial':
+        setState(() => currentPhase = 6);
+        game.startIndustrialPhase();
+        break;
+      case 'environmental':
+        setState(() => currentPhase = 7);
+        game.startEnvironmentalPhase();
+        break;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // URBAN WATER SUPPLY PHASE (Phase 5)
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildUrbanInterface() {
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    if (_showUrbanResult) return _buildUrbanResultOverlay(isMobile);
+    return _buildUrbanGameplay(size, isMobile);
+  }
+
+  Widget _buildUrbanGameplay(Size size, bool isMobile) {
+    final tl = _urbanTimeLeft.toInt().clamp(0, 999);
+    final timerStr = '${(tl ~/ 60).toString().padLeft(2, '0')}:${(tl % 60).toString().padLeft(2, '0')}';
+    final timerWarn = _urbanTimeLeft < 20;
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0A1E35), Color(0xFF051428)],
+        ),
+      ),
+      child: SafeArea(
+        child: Column(children: [
+          // HUD
+          Container(
+            margin: EdgeInsets.all(isMobile ? 10 : 14),
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16, vertical: isMobile ? 10 : 12),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.4), width: 1.5),
+            ),
+            child: Row(children: [
+              Container(width: 7, height: 7, decoration: BoxDecoration(
+                color: const Color(0xFF29B6F6), shape: BoxShape.circle,
+                boxShadow: [BoxShadow(color: const Color(0xFF29B6F6), blurRadius: 5)])),
+              const SizedBox(width: 8),
+              Text('PHASE 4  ·  URBAN WATER SUPPLY',
+                style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+                  color: const Color(0xFF29B6F6), fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: timerWarn ? Colors.red.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: timerWarn ? Colors.red : Colors.white24)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.timer, color: timerWarn ? Colors.red : Colors.white54, size: 13),
+                  const SizedBox(width: 4),
+                  Text(timerStr, style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 13 : 15, color: timerWarn ? Colors.red : Colors.white,
+                    fontWeight: FontWeight.w900)),
+                ]),
+              ),
+            ]),
+          ),
+          // Progress
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+            child: Column(children: [
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Text('Households Connected', style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 12 : 13, color: Colors.white60, fontWeight: FontWeight.w600)),
+                Text('$_urbanHouseholds / ${game.urbanTotalHouseholds}',
+                  style: GoogleFonts.exo2(fontSize: isMobile ? 14 : 16,
+                    color: const Color(0xFF29B6F6), fontWeight: FontWeight.w900)),
+              ]),
+              const SizedBox(height: 6),
+              ClipRRect(borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: _urbanProgress,
+                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  valueColor: const AlwaysStoppedAnimation(Color(0xFF29B6F6)),
+                  minHeight: 8)),
+            ]),
+          ),
+          SizedBox(height: isMobile ? 12 : 20),
+          // Instruction
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+            child: Container(
+              padding: EdgeInsets.all(isMobile ? 10 : 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF29B6F6).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.25))),
+              child: Row(children: [
+                const Icon(Icons.info_outline, color: Color(0xFF29B6F6), size: 18),
+                const SizedBox(width: 8),
+                Flexible(child: Text(
+                  'Tap each household to connect it to the clean water pipeline.',
+                  style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12, color: Colors.white60))),
+              ]),
+            ),
+          ),
+          SizedBox(height: isMobile ? 16 : 24),
+          // Household grid
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+              child: GridView.builder(
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12,
+                  childAspectRatio: 0.85),
+                itemCount: game.urbanTotalHouseholds,
+                itemBuilder: (ctx, i) => _buildHouseholdCard(i, isMobile),
+              ),
+            ),
+          ),
+          SizedBox(height: isMobile ? 10 : 16),
+        ]),
+      ),
+    );
+  }
+
+  final List<bool> _householdsConnected = List.generate(6, (_) => false);
+
+  Widget _buildHouseholdCard(int index, bool isMobile) {
+    final connected = _householdsConnected[index];
+    return GestureDetector(
+      onTap: connected ? null : () {
+        setState(() => _householdsConnected[index] = true);
+        game.connectUrbanHousehold();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOutBack,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: connected
+                ? [const Color(0xFF29B6F6).withValues(alpha: 0.3), const Color(0xFF0288D1).withValues(alpha: 0.2)]
+                : [Colors.white.withValues(alpha: 0.06), Colors.white.withValues(alpha: 0.03)]),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: connected ? const Color(0xFF29B6F6) : Colors.white24, width: 1.5),
+          boxShadow: connected ? [BoxShadow(
+            color: const Color(0xFF29B6F6).withValues(alpha: 0.25), blurRadius: 12)] : [],
+        ),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(connected ? '🏠' : '🏚', style: TextStyle(fontSize: isMobile ? 32 : 40)),
+          const SizedBox(height: 6),
+          Text('House ${index + 1}', style: GoogleFonts.exo2(
+            fontSize: isMobile ? 10 : 11, color: Colors.white70, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: connected
+                  ? const Color(0xFF29B6F6).withValues(alpha: 0.2)
+                  : Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(8)),
+            child: Text(connected ? '💧 Connected' : 'Tap to connect',
+              style: GoogleFonts.exo2(fontSize: isMobile ? 8 : 9,
+                color: connected ? const Color(0xFF29B6F6) : Colors.white38,
+                fontWeight: FontWeight.w700)),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildUrbanResultOverlay(bool isMobile) {
+    final isExcellent = _urbanResult == 'excellent';
+    final isGood = _urbanResult == 'good';
+    final resultColor = isExcellent ? const Color(0xFF29B6F6)
+        : isGood ? Colors.amber : Colors.orange;
+    final resultEmoji = isExcellent ? '🌊' : isGood ? '💧' : '🚰';
+    final resultLabel = isExcellent ? 'FULL COVERAGE!'
+        : isGood ? 'GOOD COVERAGE' : 'PARTIAL COVERAGE';
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [const Color(0xFF051428), resultColor.withValues(alpha: 0.12), const Color(0xFF051428)],
+        ),
+      ),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.all(isMobile ? 20 : 32),
+          child: Column(children: [
+            SizedBox(height: isMobile ? 24 : 40),
+            Text(resultEmoji, style: TextStyle(fontSize: isMobile ? 72 : 90)),
+            SizedBox(height: isMobile ? 12 : 16),
+            Text(resultLabel, style: GoogleFonts.exo2(
+              fontSize: isMobile ? 28 : 34, color: resultColor,
+              fontWeight: FontWeight.w900, letterSpacing: 1.2), textAlign: TextAlign.center),
+            SizedBox(height: isMobile ? 8 : 12),
+            Text('$_urbanHouseholds of ${game.urbanTotalHouseholds} households now have clean water access!',
+              style: GoogleFonts.exo2(fontSize: isMobile ? 13 : 14, color: Colors.white54),
+              textAlign: TextAlign.center),
+            SizedBox(height: isMobile ? 20 : 28),
+            // Stats
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 20),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: resultColor.withValues(alpha: 0.25))),
+              child: Column(children: [
+                _appResultRow('🏠 Households Connected', '$_urbanHouseholds / ${game.urbanTotalHouseholds}', resultColor, isMobile),
+                _appResultRow('💧 Water Delivered', '${game.purifiedWaterAmount}L', const Color(0xFF29B6F6), isMobile),
+                _appResultRow('🌍 Health Impact', isExcellent ? 'Excellent' : isGood ? 'Good' : 'Moderate', resultColor, isMobile),
+              ]),
+            ),
+            SizedBox(height: isMobile ? 16 : 22),
+            // Educational tip
+            Container(
+              padding: EdgeInsets.all(isMobile ? 14 : 18),
+              decoration: BoxDecoration(
+                color: const Color(0xFF29B6F6).withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.25))),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Container(padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(color: const Color(0xFF29B6F6).withValues(alpha: 0.15), shape: BoxShape.circle),
+                    child: const Icon(Icons.lightbulb_rounded, color: Color(0xFF29B6F6), size: 16)),
+                  const SizedBox(width: 8),
+                  Text('DID YOU KNOW?', style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 10 : 11, color: const Color(0xFF29B6F6),
+                    fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+                ]),
+                const SizedBox(height: 10),
+                Text(
+                  '🚰 Access to clean water reduces waterborne diseases by up to 80%. '
+                  'Urban water supply systems are essential infrastructure — when every household '
+                  'is connected, entire communities thrive with better health, education, and productivity.',
+                  style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+                    color: Colors.white.withValues(alpha: 0.82), fontWeight: FontWeight.w500, height: 1.5)),
+              ]),
+            ),
+            SizedBox(height: isMobile ? 24 : 32),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => setState(() {
+                  _showUrbanResult = false;
+                  currentPhase = 8;
+                }),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: resultColor,
+                  padding: EdgeInsets.symmetric(vertical: isMobile ? 14 : 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Text('VIEW MISSION RESULTS', style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 14 : 16, fontWeight: FontWeight.w900,
+                    color: Colors.black, letterSpacing: 0.8)),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.arrow_forward_rounded, color: Colors.black, size: 18),
+                ]),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // INDUSTRIAL PHASE (Phase 6)
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildIndustrialInterface() {
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    if (_showIndustrialResult) return _buildIndustrialResultOverlay(isMobile);
+    return _buildIndustrialGameplay(size, isMobile);
+  }
+
+  static const List<Map<String, dynamic>> _industrialSystemsData = [
+    {'emoji': '⚙️', 'name': 'Cooling System', 'desc': 'Replace toxic coolant with clean water', 'color': Color(0xFF78909C)},
+    {'emoji': '🔧', 'name': 'Steam Generator', 'desc': 'Use purified water to generate steam power', 'color': Color(0xFFFF8F00)},
+    {'emoji': '🧪', 'name': 'Chemical Process', 'desc': 'Switch to water-based eco-chemicals', 'color': Color(0xFF26A69A)},
+    {'emoji': '💨', 'name': 'Air Scrubber', 'desc': 'Use water to filter factory emissions', 'color': Color(0xFF7E57C2)},
+  ];
+
+  Widget _buildIndustrialGameplay(Size size, bool isMobile) {
+    final tl = _industrialTimeLeft.toInt().clamp(0, 999);
+    final timerStr = '${(tl ~/ 60).toString().padLeft(2, '0')}:${(tl % 60).toString().padLeft(2, '0')}';
+    final timerWarn = _industrialTimeLeft < 20;
+    const accent = Color(0xFFFF8F00);
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF1A1200), Color(0xFF0D0A00)],
+        ),
+      ),
+      child: SafeArea(
+        child: Column(children: [
+          // HUD
+          Container(
+            margin: EdgeInsets.all(isMobile ? 10 : 14),
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16, vertical: isMobile ? 10 : 12),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: accent.withValues(alpha: 0.4), width: 1.5)),
+            child: Row(children: [
+              const Text('🏭', style: TextStyle(fontSize: 18)),
+              const SizedBox(width: 8),
+              Text('PHASE 4  ·  INDUSTRIAL UPGRADE', style: GoogleFonts.exo2(
+                fontSize: isMobile ? 10 : 11, color: accent,
+                fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+              const Spacer(),
+              _agHUDStat(icon: Icons.settings, value: '$_industrialSystems/${game.industrialTotalSystems}',
+                label: 'UPGRADED', color: accent, isMobile: isMobile),
+              SizedBox(width: isMobile ? 10 : 14),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: timerWarn ? Colors.red.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: timerWarn ? Colors.red : Colors.white24)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.timer, color: timerWarn ? Colors.red : Colors.white54, size: 13),
+                  const SizedBox(width: 4),
+                  Text(timerStr, style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 13 : 15, color: timerWarn ? Colors.red : Colors.white,
+                    fontWeight: FontWeight.w900)),
+                ]),
+              ),
+            ]),
+          ),
+          // Progress bar
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+            child: Column(children: [
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Text('Factory Efficiency', style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 11 : 12, color: Colors.white60)),
+                Text('${(_industrialEfficiency * 100).toInt()}%', style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 13 : 14, color: accent, fontWeight: FontWeight.w900)),
+              ]),
+              const SizedBox(height: 5),
+              ClipRRect(borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(value: _industrialEfficiency,
+                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  valueColor: const AlwaysStoppedAnimation(accent), minHeight: 8)),
+            ]),
+          ),
+          SizedBox(height: isMobile ? 8 : 14),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+            child: Container(
+              padding: EdgeInsets.all(isMobile ? 10 : 12),
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: accent.withValues(alpha: 0.2))),
+              child: Row(children: [
+                const Icon(Icons.info_outline, color: Color(0xFFFF8F00), size: 16),
+                const SizedBox(width: 8),
+                Flexible(child: Text('Tap each system to upgrade it with clean water technology.',
+                  style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11, color: Colors.white54))),
+              ]),
+            ),
+          ),
+          SizedBox(height: isMobile ? 12 : 18),
+          // Systems grid
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+              child: GridView.builder(
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12,
+                  childAspectRatio: 1.1),
+                itemCount: 4,
+                itemBuilder: (ctx, i) => _buildIndustrialSystemCard(i, isMobile),
+              ),
+            ),
+          ),
+          SizedBox(height: isMobile ? 10 : 16),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildIndustrialSystemCard(int index, bool isMobile) {
+    final sys = _industrialSystemsData[index];
+    final upgraded = _systemsUpgraded[index];
+    final color = sys['color'] as Color;
+    return GestureDetector(
+      onTap: upgraded ? null : () {
+        setState(() => _systemsUpgraded[index] = true);
+        game.upgradeIndustrialSystem(index);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOutBack,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: upgraded
+                ? [color.withValues(alpha: 0.28), color.withValues(alpha: 0.12)]
+                : [Colors.white.withValues(alpha: 0.06), Colors.white.withValues(alpha: 0.03)]),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: upgraded ? color : Colors.white24, width: 1.5),
+          boxShadow: upgraded ? [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 14)] : []),
+        child: Padding(
+          padding: EdgeInsets.all(isMobile ? 12 : 16),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Text(sys['emoji'] as String, style: TextStyle(fontSize: isMobile ? 30 : 36)),
+            SizedBox(height: isMobile ? 6 : 8),
+            Text(sys['name'] as String, style: GoogleFonts.exo2(
+              fontSize: isMobile ? 11 : 12, color: Colors.white, fontWeight: FontWeight.w800),
+              textAlign: TextAlign.center),
+            SizedBox(height: isMobile ? 4 : 5),
+            Text(sys['desc'] as String, style: GoogleFonts.exo2(
+              fontSize: isMobile ? 8 : 9, color: Colors.white38, fontWeight: FontWeight.w500),
+              textAlign: TextAlign.center, maxLines: 2),
+            SizedBox(height: isMobile ? 6 : 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: (upgraded ? color : Colors.white).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8)),
+              child: Text(upgraded ? '✅ Upgraded' : 'Tap to upgrade',
+                style: GoogleFonts.exo2(fontSize: isMobile ? 8 : 9,
+                  color: upgraded ? color : Colors.white38, fontWeight: FontWeight.w700)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIndustrialResultOverlay(bool isMobile) {
+    final isOptimized = _industrialResult == 'optimized';
+    final isImproved = _industrialResult == 'improved';
+    final resultColor = isOptimized ? const Color(0xFF66BB6A)
+        : isImproved ? const Color(0xFFFF8F00) : Colors.orange;
+    final resultEmoji = isOptimized ? '🏆' : isImproved ? '⚙️' : '🔧';
+    final resultLabel = isOptimized ? 'FACTORY OPTIMIZED!'
+        : isImproved ? 'SYSTEMS IMPROVED' : 'PARTIAL UPGRADE';
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [const Color(0xFF0D0A00), resultColor.withValues(alpha: 0.10), const Color(0xFF0D0A00)]),
+      ),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.all(isMobile ? 20 : 32),
+          child: Column(children: [
+            SizedBox(height: isMobile ? 24 : 40),
+            Text(resultEmoji, style: TextStyle(fontSize: isMobile ? 72 : 90)),
+            SizedBox(height: isMobile ? 12 : 16),
+            Text(resultLabel, style: GoogleFonts.exo2(
+              fontSize: isMobile ? 26 : 32, color: resultColor,
+              fontWeight: FontWeight.w900, letterSpacing: 1.2), textAlign: TextAlign.center),
+            SizedBox(height: isMobile ? 8 : 12),
+            Text('$_industrialSystems of ${game.industrialTotalSystems} industrial systems upgraded with clean water technology.',
+              style: GoogleFonts.exo2(fontSize: isMobile ? 13 : 14, color: Colors.white54),
+              textAlign: TextAlign.center),
+            SizedBox(height: isMobile ? 20 : 28),
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 20),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: resultColor.withValues(alpha: 0.25))),
+              child: Column(children: [
+                _appResultRow('⚙️ Systems Upgraded', '$_industrialSystems / ${game.industrialTotalSystems}', resultColor, isMobile),
+                _appResultRow('📈 Factory Efficiency', '${(_industrialEfficiency * 100).toInt()}%', const Color(0xFFFF8F00), isMobile),
+                _appResultRow('🌍 Pollution Reduced', isOptimized ? 'Greatly' : isImproved ? 'Moderately' : 'Slightly', resultColor, isMobile),
+              ]),
+            ),
+            SizedBox(height: isMobile ? 16 : 22),
+            Container(
+              padding: EdgeInsets.all(isMobile ? 14 : 18),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF8F00).withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFFF8F00).withValues(alpha: 0.25))),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Container(padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(color: const Color(0xFFFF8F00).withValues(alpha: 0.15), shape: BoxShape.circle),
+                    child: const Icon(Icons.lightbulb_rounded, color: Color(0xFFFF8F00), size: 16)),
+                  const SizedBox(width: 8),
+                  Text('WHAT YOU LEARNED', style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 10 : 11, color: const Color(0xFFFF8F00),
+                    fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+                ]),
+                const SizedBox(height: 10),
+                Text(
+                  '🏭 Industries that switch to clean water processes reduce toxic discharge by up to 75%. '
+                  'Closed-loop water systems in factories can be reused dozens of times, '
+                  'drastically cutting water consumption while improving product quality and reducing environmental fines.',
+                  style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+                    color: Colors.white.withValues(alpha: 0.82), fontWeight: FontWeight.w500, height: 1.5)),
+              ]),
+            ),
+            SizedBox(height: isMobile ? 24 : 32),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => setState(() {
+                  _showIndustrialResult = false;
+                  currentPhase = 8;
+                }),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: resultColor,
+                  padding: EdgeInsets.symmetric(vertical: isMobile ? 14 : 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Text('VIEW MISSION RESULTS', style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 14 : 16, fontWeight: FontWeight.w900,
+                    color: Colors.black, letterSpacing: 0.8)),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.arrow_forward_rounded, color: Colors.black, size: 18),
+                ]),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ENVIRONMENTAL RESTORATION PHASE (Phase 7)
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _buildEnvironmentalInterface() {
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    if (_showEnvironmentalResult) return _buildEnvironmentalResultOverlay(isMobile);
+    return _buildEnvironmentalGameplay(size, isMobile);
+  }
+
+  static const List<Map<String, dynamic>> _habitats = [
+    {'emoji': '🐸', 'name': 'Wetland',      'desc': 'Restore frog & amphibian habitat', 'color': Color(0xFF2E7D32)},
+    {'emoji': '🐟', 'name': 'Fish Spawning','desc': 'Clear gravel beds for fish eggs',   'color': Color(0xFF0288D1)},
+    {'emoji': '🦅', 'name': 'Riparian Zone','desc': 'Plant trees along riverbanks',      'color': Color(0xFF558B2F)},
+    {'emoji': '🦋', 'name': 'Meadow Pool',  'desc': 'Create shallow pools for insects',  'color': Color(0xFF6A1B9A)},
+    {'emoji': '🐢', 'name': 'Turtle Beach', 'desc': 'Restore sandy riverbanks for turtles','color': Color(0xFF00695C)},
+  ];
+
+  Widget _buildEnvironmentalGameplay(Size size, bool isMobile) {
+    final tl = _environmentalTimeLeft.toInt().clamp(0, 999);
+    final timerStr = '${(tl ~/ 60).toString().padLeft(2, '0')}:${(tl % 60).toString().padLeft(2, '0')}';
+    final timerWarn = _environmentalTimeLeft < 20;
+    const accent = Color(0xFF00BFA5);
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [Color(0xFF0A1F0A), Color(0xFF051208)],
+        ),
+      ),
+      child: SafeArea(
+        child: Column(children: [
+          // HUD
+          Container(
+            margin: EdgeInsets.all(isMobile ? 10 : 14),
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16, vertical: isMobile ? 10 : 12),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: accent.withValues(alpha: 0.4), width: 1.5)),
+            child: Row(children: [
+              const Text('🌿', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Text('PHASE 4  ·  ECOSYSTEM RESTORATION', style: GoogleFonts.exo2(
+                fontSize: isMobile ? 10 : 11, color: accent,
+                fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+              const Spacer(),
+              _agHUDStat(icon: Icons.eco_rounded, value: '$_habitatsRestored/${game.totalHabitats}',
+                label: 'RESTORED', color: accent, isMobile: isMobile),
+              SizedBox(width: isMobile ? 10 : 14),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: timerWarn ? Colors.red.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: timerWarn ? Colors.red : Colors.white24)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.timer, color: timerWarn ? Colors.red : Colors.white54, size: 13),
+                  const SizedBox(width: 4),
+                  Text(timerStr, style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 13 : 15, color: timerWarn ? Colors.red : Colors.white,
+                    fontWeight: FontWeight.w900)),
+                ]),
+              ),
+            ]),
+          ),
+          // Ecosystem health
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+            child: Column(children: [
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Text('Ecosystem Health', style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 11 : 12, color: Colors.white60)),
+                Text('${(_ecosystemHealth * 100).toInt()}%', style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 13 : 14, color: accent, fontWeight: FontWeight.w900)),
+              ]),
+              const SizedBox(height: 5),
+              ClipRRect(borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(value: _ecosystemHealth,
+                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  valueColor: const AlwaysStoppedAnimation(accent), minHeight: 8)),
+            ]),
+          ),
+          SizedBox(height: isMobile ? 8 : 12),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+            child: Container(
+              padding: EdgeInsets.all(isMobile ? 10 : 12),
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: accent.withValues(alpha: 0.2))),
+              child: Row(children: [
+                const Icon(Icons.info_outline, color: Color(0xFF00BFA5), size: 16),
+                const SizedBox(width: 8),
+                Flexible(child: Text('Release clean water to restore each habitat. Tap to revive!',
+                  style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11, color: Colors.white54))),
+              ]),
+            ),
+          ),
+          SizedBox(height: isMobile ? 12 : 18),
+          // Habitats
+          Expanded(
+            child: ListView.builder(
+              padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+              itemCount: _habitats.length,
+              itemBuilder: (ctx, i) => _buildHabitatCard(i, isMobile),
+            ),
+          ),
+          SizedBox(height: isMobile ? 10 : 16),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildHabitatCard(int index, bool isMobile) {
+    final habitat = _habitats[index];
+    final restored = _habitatsRestoredList[index];
+    final color = habitat['color'] as Color;
+    return GestureDetector(
+      onTap: restored ? null : () {
+        setState(() => _habitatsRestoredList[index] = true);
+        game.restoreHabitat(index);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutBack,
+        margin: EdgeInsets.only(bottom: isMobile ? 10 : 14),
+        padding: EdgeInsets.all(isMobile ? 14 : 18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: restored
+                ? [color.withValues(alpha: 0.30), color.withValues(alpha: 0.12)]
+                : [Colors.white.withValues(alpha: 0.04), Colors.transparent]),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: restored ? color : Colors.white.withValues(alpha: 0.12), width: 1.5),
+          boxShadow: restored ? [BoxShadow(color: color.withValues(alpha: 0.30), blurRadius: 16)] : []),
+        child: Row(children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
+            width: isMobile ? 52 : 64, height: isMobile ? 52 : 64,
+            decoration: BoxDecoration(
+              color: restored ? color.withValues(alpha: 0.25) : Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12)),
+            child: Center(child: Text(habitat['emoji'] as String,
+              style: TextStyle(fontSize: isMobile ? 26 : 32))),
+          ),
+          SizedBox(width: isMobile ? 12 : 16),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(habitat['name'] as String, style: GoogleFonts.exo2(
+              fontSize: isMobile ? 14 : 16, color: Colors.white, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3),
+            Text(habitat['desc'] as String, style: GoogleFonts.exo2(
+              fontSize: isMobile ? 10 : 11, color: Colors.white54)),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: restored ? color.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(8)),
+              child: Text(restored ? '🌱 Habitat Restored!' : '💧 Tap to release water',
+                style: GoogleFonts.exo2(fontSize: isMobile ? 9 : 10,
+                  color: restored ? color : Colors.white38, fontWeight: FontWeight.w700)),
+            ),
+          ])),
+          if (!restored) Icon(Icons.water_drop, color: const Color(0xFF00BFA5).withValues(alpha: 0.6),
+            size: isMobile ? 20 : 24),
+          if (restored) Icon(Icons.check_circle, color: color, size: isMobile ? 24 : 28),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildEnvironmentalResultOverlay(bool isMobile) {
+    final isThriving = _environmentalResult == 'thriving';
+    final isRecovering = _environmentalResult == 'recovering';
+    final resultColor = isThriving ? const Color(0xFF00BFA5)
+        : isRecovering ? const Color(0xFF66BB6A) : Colors.amber;
+    final resultEmoji = isThriving ? '🌍' : isRecovering ? '🌿' : '🌱';
+    final resultLabel = isThriving ? 'ECOSYSTEM THRIVING!'
+        : isRecovering ? 'ECOSYSTEM RECOVERING' : 'RESTORATION BEGUN';
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [const Color(0xFF051208), resultColor.withValues(alpha: 0.12), const Color(0xFF051208)]),
+      ),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.all(isMobile ? 20 : 32),
+          child: Column(children: [
+            SizedBox(height: isMobile ? 24 : 40),
+            Text(resultEmoji, style: TextStyle(fontSize: isMobile ? 72 : 90)),
+            SizedBox(height: isMobile ? 12 : 16),
+            Text(resultLabel, style: GoogleFonts.exo2(
+              fontSize: isMobile ? 26 : 32, color: resultColor,
+              fontWeight: FontWeight.w900, letterSpacing: 1.2), textAlign: TextAlign.center),
+            SizedBox(height: isMobile ? 8 : 12),
+            Text('$_habitatsRestored of ${game.totalHabitats} habitats restored with clean water.',
+              style: GoogleFonts.exo2(fontSize: isMobile ? 13 : 14, color: Colors.white54),
+              textAlign: TextAlign.center),
+            SizedBox(height: isMobile ? 20 : 28),
+            Container(
+              padding: EdgeInsets.all(isMobile ? 16 : 20),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: resultColor.withValues(alpha: 0.25))),
+              child: Column(children: [
+                _appResultRow('🌿 Habitats Restored', '$_habitatsRestored / ${game.totalHabitats}', resultColor, isMobile),
+                _appResultRow('💚 Ecosystem Health', '${(_ecosystemHealth * 100).toInt()}%', const Color(0xFF66BB6A), isMobile),
+                _appResultRow('🐟 Biodiversity', isThriving ? 'Flourishing' : isRecovering ? 'Recovering' : 'Fragile', resultColor, isMobile),
+              ]),
+            ),
+            SizedBox(height: isMobile ? 16 : 22),
+            Container(
+              padding: EdgeInsets.all(isMobile ? 14 : 18),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00BFA5).withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF00BFA5).withValues(alpha: 0.25))),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Container(padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(color: const Color(0xFF00BFA5).withValues(alpha: 0.15), shape: BoxShape.circle),
+                    child: const Icon(Icons.lightbulb_rounded, color: Color(0xFF00BFA5), size: 16)),
+                  const SizedBox(width: 8),
+                  Text('WHAT YOU LEARNED', style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 10 : 11, color: const Color(0xFF00BFA5),
+                    fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+                ]),
+                const SizedBox(height: 10),
+                Text(
+                  '🐸 Freshwater ecosystems support 10% of all known species despite covering less than 1% of Earth\'s surface. '
+                  'When rivers are restored, fish populations rebound within 2–5 years, insects return first, '
+                  'then amphibians, birds, and mammals — triggering a cascade of ecological recovery.',
+                  style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+                    color: Colors.white.withValues(alpha: 0.82), fontWeight: FontWeight.w500, height: 1.5)),
+              ]),
+            ),
+            SizedBox(height: isMobile ? 24 : 32),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => setState(() {
+                  _showEnvironmentalResult = false;
+                  currentPhase = 8;
+                }),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: resultColor,
+                  padding: EdgeInsets.symmetric(vertical: isMobile ? 14 : 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Text('VIEW MISSION RESULTS', style: GoogleFonts.exo2(
+                    fontSize: isMobile ? 14 : 16, fontWeight: FontWeight.w900,
+                    color: Colors.black, letterSpacing: 0.8)),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.arrow_forward_rounded, color: Colors.black, size: 18),
+                ]),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _appResultRow(String label, String value, Color color, bool isMobile) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(label, style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+          color: Colors.white60, fontWeight: FontWeight.w500)),
+        Text(value, style: GoogleFonts.exo2(fontSize: isMobile ? 13 : 14,
+          color: color, fontWeight: FontWeight.w800)),
+      ]),
+    );
+  }
+
   Widget _buildCompletionScreen() {
     final size       = MediaQuery.of(context).size;
     final isMobile   = size.width < 600;
 
-    // Gather all session loot
     final totalPoints   = game.calculateFinalScore();
     final purifiedWater = game.purifiedWaterAmount;
     final bactMult      = game.bacteriaMultiplied;
-    final cropHarvest   = game.harvestYield;
-    final cropType      = game.selectedCrop ?? '';
-    final fishCaught    = game.fishCount;
     final plasticKg     = game.recycledPlastic;
     final metalKg       = game.recycledMetal;
     final organicKg     = game.recycledOrganic;
     final hazardousKg   = game.recycledHazardous;
-    final harvestLabel  = game.harvestResult == 'bountiful' ? '🌟 Bountiful'
-        : game.harvestResult == 'average' ? '🌿 Average' : '🥀 Poor';
-    final cropEmoji     = cropType == 'vegetables' ? '🥦'
-        : cropType == 'maize' ? '🌽' : cropType == 'rice' ? '🌾' : '🌱';
+    final fishCaught    = game.fishCount;
+    final application   = _selectedApplication ?? 'agriculture';
+
+    // Application-specific data
+    String appEmoji = '🌾';
+    String appTitle = 'Application Complete';
+    Color appColor = const Color(0xFF4CAF50);
+    List<Widget> appRows = [];
+
+    switch (application) {
+      case 'agriculture':
+        final cropType = game.selectedCrop ?? '';
+        final cropHarvest = game.harvestYield;
+        final harvestLabel = game.harvestResult == 'bountiful' ? '🌟 Bountiful'
+            : game.harvestResult == 'average' ? '🌿 Average' : '🥀 Poor';
+        final cropEmoji = cropType == 'vegetables' ? '🥦' : cropType == 'maize' ? '🌽' : cropType == 'rice' ? '🌾' : '🌱';
+        appEmoji = cropEmoji;
+        appTitle = 'Agricultural Harvest';
+        appColor = const Color(0xFF4CAF50);
+        appRows = [
+          if (cropType.isNotEmpty) _lootRow('Crop', cropType[0].toUpperCase() + cropType.substring(1), const Color(0xFF8BC34A), isMobile),
+          _lootRow('Yield', '${cropHarvest}kg', const Color(0xFFAED581), isMobile),
+          _lootRow('Result', harvestLabel, game.harvestResult == 'bountiful' ? Colors.amber : game.harvestResult == 'average' ? const Color(0xFFFFA000) : const Color(0xFFFF5252), isMobile),
+        ];
+        break;
+      case 'urban':
+        appEmoji = '🏙';
+        appTitle = 'Urban Water Network';
+        appColor = const Color(0xFF29B6F6);
+        appRows = [
+          _lootRow('🏠 Households Connected', '${game.urbanHouseholdsConnected} / ${game.urbanTotalHouseholds}', const Color(0xFF29B6F6), isMobile),
+          _lootRow('📊 Coverage', game.urbanResult == 'excellent' ? 'Full Coverage' : game.urbanResult == 'good' ? 'Good Coverage' : 'Partial', const Color(0xFF29B6F6), isMobile),
+          _lootRow('❤️ Health Impact', game.urbanResult == 'excellent' ? 'Transformative' : 'Significant', Colors.pinkAccent, isMobile),
+        ];
+        break;
+      case 'industrial':
+        appEmoji = '🏭';
+        appTitle = 'Industrial Upgrade';
+        appColor = const Color(0xFFFF8F00);
+        appRows = [
+          _lootRow('⚙️ Systems Upgraded', '${game.industrialSystemsUpgraded} / ${game.industrialTotalSystems}', const Color(0xFFFF8F00), isMobile),
+          _lootRow('📈 Efficiency', '${(game.industrialEfficiency * 100).toInt()}%', const Color(0xFF66BB6A), isMobile),
+          _lootRow('🌍 Pollution Reduced', game.industrialResult == 'optimized' ? 'Greatly' : 'Moderately', const Color(0xFFFF8F00), isMobile),
+        ];
+        break;
+      case 'environmental':
+        appEmoji = '🌿';
+        appTitle = 'Ecosystem Restoration';
+        appColor = const Color(0xFF00BFA5);
+        appRows = [
+          _lootRow('🌿 Habitats Restored', '${game.habitatsRestored} / ${game.totalHabitats}', const Color(0xFF00BFA5), isMobile),
+          _lootRow('💚 Ecosystem Health', '${(game.ecosystemHealth * 100).toInt()}%', const Color(0xFF66BB6A), isMobile),
+          _lootRow('🐟 Biodiversity', game.environmentalResult == 'thriving' ? 'Flourishing' : 'Recovering', const Color(0xFF00BFA5), isMobile),
+        ];
+        break;
+    }
+
+    final cropType = application == 'agriculture' ? (game.selectedCrop ?? '') : '';
+    final cropHarvest = application == 'agriculture' ? game.harvestYield : 0;
 
     return Container(
       decoration: const BoxDecoration(
@@ -3052,7 +4163,6 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                       color: Colors.white54,
                       fontWeight: FontWeight.w500)),
                   SizedBox(height: isMobile ? 6 : 8),
-                  // Score badge
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
                     decoration: BoxDecoration(
@@ -3108,24 +4218,14 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
 
               SizedBox(height: isMobile ? 12 : 16),
 
-              // ── HARVEST ───────────────────────────────────────────────
-              if (cropType.isNotEmpty)
-                _missionCard(
-                  title: '$cropEmoji Harvest',
-                  subtitle: 'Crops for future levels',
-                  color: const Color(0xFF8BC34A),
-                  isMobile: isMobile,
-                  children: [
-                    _lootRow('Crop', cropType[0].toUpperCase() + cropType.substring(1),
-                        const Color(0xFF8BC34A), isMobile),
-                    _lootRow('Yield', '${cropHarvest}kg',
-                        const Color(0xFFAED581), isMobile),
-                    _lootRow('Result', harvestLabel,
-                        game.harvestResult == 'bountiful' ? Colors.amber
-                        : game.harvestResult == 'average' ? const Color(0xFFFFA000)
-                        : const Color(0xFFFF5252), isMobile),
-                  ],
-                ),
+              // ── APPLICATION RESULT ────────────────────────────────────
+              _missionCard(
+                title: '$appEmoji $appTitle',
+                subtitle: 'Impact of your clean water application',
+                color: appColor,
+                isMobile: isMobile,
+                children: appRows,
+              ),
 
               SizedBox(height: isMobile ? 24 : 32),
 
@@ -3240,7 +4340,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         phaseIcon = Icons.science;
         break;
       case 3:
-        phaseText = 'Water Purified!\nSetting up Irrigation...';
+        phaseText = 'Water Purified!\n            Choose your application...';
         phaseIcon = Icons.agriculture;
         break;
       case 4:
