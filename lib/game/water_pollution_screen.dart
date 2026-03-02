@@ -4314,18 +4314,6 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  /*Widget _buildCompletionStat(String label, String value, Color color, bool isMobile) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Flexible(child: Text(label, style: GoogleFonts.exo2(
-          fontSize: isMobile ? 14 : 16, color: Colors.white70))),
-        Text(value, style: GoogleFonts.exo2(fontSize: isMobile ? 20 : 24,
-          color: color, fontWeight: FontWeight.w900)),
-      ],
-    );
-  }*/
-
     Widget _buildPhaseTransition() {
     String phaseText = '';
     IconData phaseIcon = Icons.check;
