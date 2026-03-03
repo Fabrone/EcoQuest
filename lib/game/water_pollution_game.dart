@@ -14,15 +14,40 @@ import 'package:google_fonts/google_fonts.dart';
 
 // ── Urban pipe-network tile ────────────────────────────────────────────────
 class UrbanTile {
-  /// 'reservoir' | 'house' | 'straight' | 'corner' | 'empty'
+  /// 'reservoir'|'house'|'straight'|'corner'|'t_junction'|'obstacle'|'empty'
   String type;
-  /// 0‥3 (multiples of 90°)
+  /// 0..3  (multiples of 90°)
   int rotation;
   bool isConnected = false;
   bool isLeaking   = false;
   double pressure  = 0.0;
 
   UrbanTile({required this.type, this.rotation = 0, this.isLeaking = false});
+
+  // ── Directional open-ends ──────────────────────────────────────────────
+  // Directions:  0 = up  |  1 = right  |  2 = down  |  3 = left
+  // BFS will only flow A→B if A.openEnds contains the outgoing direction
+  // AND B.openEnds contains the opposite (incoming) direction.
+  List<int> get openEnds {
+    switch (type) {
+      case 'reservoir':
+      case 'house':
+        return [0, 1, 2, 3]; // accept flow from any direction
+      case 'straight':
+        // rotation 0/2 = horizontal (left+right), rotation 1/3 = vertical (up+down)
+        return rotation % 2 == 0 ? [1, 3] : [0, 2];
+      case 'corner':
+        // 0=right+down  1=down+left  2=left+up  3=up+right
+        const e = [[1,2],[2,3],[3,0],[0,1]];
+        return e[rotation % 4];
+      case 't_junction':
+        // 0=right+down+left  1=up+down+left  2=up+right+left  3=up+right+down
+        const e = [[1,2,3],[0,2,3],[0,1,3],[0,1,2]];
+        return e[rotation % 4];
+      default:
+        return []; // obstacle, empty
+    }
+  }
 }
 
 class WaterPollutionGame extends FlameGame with KeyboardEvents {
@@ -168,21 +193,33 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
   // Urban water supply phase state
   int urbanHouseholdsConnected = 0;
-  int urbanTotalHouseholds = 5;   // grid houses (was 6 for tap-card UI)
+  int urbanTotalHouseholds = 5;
   int urbanPipesLaid = 0;
   double urbanProgress = 0.0;
   bool urbanPhaseComplete = false;
-  String urbanResult = '';
+  String urbanResult = ''; // 'excellent'|'good'|'partial'|'poor'|'failed'
   Function(int households, double progress)? onUrbanUpdate;
   Function(String result)? onUrbanComplete;
   Function(double timeLeft)? onUrbanTick;
   double urbanTimeLeft = 90.0;
-  bool urbanTimerRunning = false;
+  bool urbanTimerRunning = false;   // false until player's first tap
+  bool urbanTimerStarted = false;   // latched true on first tap
+
+  // Challenge tracking
+  int urbanTotalBursts = 0;         // cumulative burst events spawned
+  int urbanBurstsFixed = 0;         // bursts player patched
+  int urbanActiveBursts = 0;        // bursts currently unresolved
+  double urbanAveragePressure = 0.0;// avg pressure across connected houses
+  double urbanTimeTaken = 0.0;      // elapsed seconds when phase ends
+  int urbanSupplyScore = 0;         // 0-100 composite quality score
+
+  // Callbacks
+  Function()? onUrbanTimerStart;    // fired the moment the timer begins
 
   // Urban pipe-puzzle grid
   List<List<UrbanTile>> urbanGrid = [];
   final Random _rng = Random();
-  double _urbanLeakAccumulator = 0.0; // seconds since last leak-spawn check
+  double _urbanBurstAccumulator = 0.0; // seconds since last burst check
 
   // Industrial phase state
   int industrialSystemsUpgraded = 0;
@@ -1348,154 +1385,302 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     urbanPhaseComplete = false;
     urbanResult = '';
     urbanTimeLeft = 90.0;
-    urbanTimerRunning = true;
-    _urbanLeakAccumulator = 0.0;
+    urbanTimerRunning = false;
+    urbanTimerStarted = false;
+    urbanTotalBursts = 0;
+    urbanBurstsFixed = 0;
+    urbanActiveBursts = 0;
+    urbanAveragePressure = 0.0;
+    urbanTimeTaken = 0.0;
+    urbanSupplyScore = 0;
+    _urbanBurstAccumulator = 0.0;
 
-    // Clean up previous phase components
     removeAll(children.whereType<WaterTileComponent>());
     removeAll(children.whereType<EnhancedRiverComponent>());
     removeAll(children.whereType<FurrowRenderComponent>());
 
-    // ── Initialise 5×5 pipe-puzzle grid ──────────────────────────────────
+    // ── 6×6 pipe-puzzle grid ─────────────────────────────────────────────
+    const gs = 6; // grid size
+    urbanTotalHouseholds = 5;
     urbanGrid = List.generate(
-        5, (r) => List.generate(5, (c) => UrbanTile(type: 'empty')));
+        gs, (r) => List.generate(gs, (c) => UrbanTile(type: 'empty')));
 
     // Fixed reservoir at top-left
-    urbanGrid[0][0] = UrbanTile(type: 'reservoir', rotation: 0);
+    urbanGrid[0][0] = UrbanTile(type: 'reservoir');
 
-    // Randomly place 5 households — prefer cells farther from reservoir
+    // ── Place 5 households in far zone (r+c >= 5) ───────────────────────
+    final houseCells = <String>{};
     int placed = 0;
-    while (placed < 5) {
-      int r = _rng.nextInt(5);
-      int c = _rng.nextInt(5);
-      if (urbanGrid[r][c].type == 'empty' && (r + c > 2)) {
-        urbanGrid[r][c] = UrbanTile(type: 'house');
-        placed++;
+    int attempts = 0;
+    while (placed < 5 && attempts < 500) {
+      attempts++;
+      final r = _rng.nextInt(gs);
+      final c = _rng.nextInt(gs);
+      if (urbanGrid[r][c].type != 'empty') continue;
+      if (r + c < 5) continue; // keep houses far from reservoir
+      urbanGrid[r][c] = UrbanTile(type: 'house');
+      houseCells.add('$r,$c');
+      placed++;
+    }
+
+    // ── Place 7 terrain obstacles (force non-trivial routing) ────────────
+    // Rules: not in row 0, not in col 0, not adjacent to any house
+    int obs = 0;
+    attempts = 0;
+    while (obs < 7 && attempts < 400) {
+      attempts++;
+      final r = 1 + _rng.nextInt(gs - 1); // rows 1..5
+      final c = 1 + _rng.nextInt(gs - 1); // cols 1..5
+      if (urbanGrid[r][c].type != 'empty') continue;
+      // Don't block cells adjacent to a house
+      bool nearHouse = false;
+      for (final hp in houseCells) {
+        final parts = hp.split(',');
+        final hr = int.parse(parts[0]);
+        final hc = int.parse(parts[1]);
+        if ((r - hr).abs() <= 1 && (c - hc).abs() <= 1) {
+          nearHouse = true;
+          break;
+        }
       }
+      if (nearHouse) continue;
+      urbanGrid[r][c] = UrbanTile(type: 'obstacle');
+      obs++;
     }
 
     _calculateUrbanFlow();
     resumeEngine();
   }
 
+  /// Starts the timer without placing any pipe — called by the overlay "Begin" button.
+  void activateUrbanTimer() {
+    if (urbanTimerStarted || urbanPhaseComplete) return;
+    urbanTimerStarted = true;
+    urbanTimerRunning = true;
+    onUrbanTimerStart?.call();
+  }
+
   // ── Tile-tap handler ────────────────────────────────────────────────────
   void handleUrbanTileTap(int r, int c) {
     if (urbanPhaseComplete) return;
 
+    if (!urbanTimerStarted) {
+      urbanTimerStarted = true;
+      urbanTimerRunning = true;
+      onUrbanTimerStart?.call();
+    }
+
     final tile = urbanGrid[r][c];
 
+    // Fix a burst first — highest priority
     if (tile.isLeaking) {
-      // Fix the leak
       tile.isLeaking = false;
-    } else if (tile.type == 'empty') {
-      // Place a straight pipe
+      urbanBurstsFixed++;
+      urbanActiveBursts = (urbanActiveBursts - 1).clamp(0, 999);
+      _calculateUrbanFlow();
+      return;
+    }
+
+    // Immutable tiles
+    if (tile.type == 'obstacle' ||
+        tile.type == 'reservoir' ||
+        tile.type == 'house') {
+      return;
+    }
+
+    // Track before state for pipe count
+    final bool wasEmpty = tile.type == 'empty';
+
+    // ── Tile cycle: empty → straight(H→V) → corner(×4) → t_junction(×4) → empty
+    if (tile.type == 'empty') {
       tile.type = 'straight';
-      tile.rotation = 0;
-    } else if (tile.type == 'straight' || tile.type == 'corner') {
-      tile.rotation = (tile.rotation + 1) % 4;
-      // Cycle straight → corner → empty
-      if (tile.rotation == 0 && tile.type == 'straight') {
+      tile.rotation = 0; // horizontal
+    } else if (tile.type == 'straight') {
+      if (tile.rotation == 0) {
+        tile.rotation = 1; // flip to vertical
+      } else {
         tile.type = 'corner';
-      } else if (tile.rotation == 0 && tile.type == 'corner') {
+        tile.rotation = 0;
+      }
+    } else if (tile.type == 'corner') {
+      tile.rotation = (tile.rotation + 1) % 4;
+      if (tile.rotation == 0) {
+        tile.type = 't_junction';
+        tile.rotation = 0;
+      }
+    } else if (tile.type == 't_junction') {
+      tile.rotation = (tile.rotation + 1) % 4;
+      if (tile.rotation == 0) {
         tile.type = 'empty';
       }
     }
 
+    // Track pipe count (only non-empty tiles count as laid pipes)
+    final bool isNowEmpty = tile.type == 'empty';
+    if (wasEmpty && !isNowEmpty) urbanPipesLaid++;
+    if (!wasEmpty && isNowEmpty) urbanPipesLaid = (urbanPipesLaid - 1).clamp(0, 999);
+
     _calculateUrbanFlow();
   }
 
-  // ── BFS pressure/flow calculation ──────────────────────────────────────
+  // ── Direction-aware BFS pressure/flow calculation ──────────────────────
+  // Directions: 0=up  1=right  2=down  3=left
+  static const _dr = [-1, 0, 1, 0];
+  static const _dc = [ 0, 1, 0,-1];
+
   void _calculateUrbanFlow() {
-    // Reset every tile
+    const gs = 6;
+
+    // Reset all tiles
     for (var row in urbanGrid) {
-      for (var tile in row) {
-        tile.isConnected = false;
-        tile.pressure    = 0.0;
+      for (var t in row) {
+        t.isConnected = false;
+        t.pressure    = 0.0;
       }
     }
 
     // BFS from reservoir [0,0]
-    final queue = <List<int>>[[0, 0]];
     urbanGrid[0][0].isConnected = true;
     urbanGrid[0][0].pressure    = 100.0;
+    final queue = <List<int>>[[0, 0]];
 
     while (queue.isNotEmpty) {
-      final pos = queue.removeAt(0);
-      final r = pos[0], c = pos[1];
-      final currentP = urbanGrid[r][c].pressure;
+      final pos  = queue.removeAt(0);
+      final r    = pos[0];
+      final c    = pos[1];
+      final curr = urbanGrid[r][c];
 
-      final neighbors = <List<int>>[
-        [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]
-      ];
+      for (int dir = 0; dir < 4; dir++) {
+        // Current tile must open toward this direction
+        if (!curr.openEnds.contains(dir)) continue;
 
-      for (final n in neighbors) {
-        final nr = n[0], nc = n[1];
-        if (nr < 0 || nr >= 5 || nc < 0 || nc >= 5) continue;
+        final nr = r + _dr[dir];
+        final nc = c + _dc[dir];
+        if (nr < 0 || nr >= gs || nc < 0 || nc >= gs) continue;
 
         final next = urbanGrid[nr][nc];
-        if (!next.isConnected && next.type != 'empty') {
-          // Leaking pipes drop pressure significantly
-          final drop = next.isLeaking ? 25.0 : 5.0;
-          next.pressure = (currentP - drop).clamp(0.0, 100.0);
+        if (next.isConnected) continue;
 
-          if (next.pressure > 10) {
-            next.isConnected = true;
-            queue.add([nr, nc]);
-          }
+        // Neighbour tile must open back toward current tile
+        final incoming = (dir + 2) % 4;
+        if (!next.openEnds.contains(incoming)) continue;
+
+        // Pressure loss: bursting pipe bleeds heavily
+        final drop = next.isLeaking ? 32.0 : 6.0;
+        next.pressure = (curr.pressure - drop).clamp(0.0, 100.0);
+
+        if (next.pressure > 10) {
+          next.isConnected = true;
+          queue.add([nr, nc]);
         }
       }
     }
 
-    // Tally connected households with sufficient pressure (>30)
+    // Tally households with sufficient pressure
     int connectedHouses = 0;
+    double totalP = 0.0;
     for (var row in urbanGrid) {
-      for (var tile in row) {
-        if (tile.type == 'house' && tile.isConnected && tile.pressure > 30) {
+      for (var t in row) {
+        if (t.type == 'house' && t.isConnected && t.pressure > 30) {
           connectedHouses++;
+          totalP += t.pressure;
         }
       }
     }
 
     urbanHouseholdsConnected = connectedHouses;
-    urbanProgress = (connectedHouses / 5.0).clamp(0.0, 1.0);
+    urbanAveragePressure =
+        connectedHouses > 0 ? totalP / connectedHouses : 0.0;
+    urbanProgress = (connectedHouses / urbanTotalHouseholds).clamp(0.0, 1.0);
     onUrbanUpdate?.call(urbanHouseholdsConnected, urbanProgress);
 
-    if (connectedHouses == 5) {
+    // Complete only when all houses connected AND no unresolved bursts
+    if (connectedHouses == urbanTotalHouseholds &&
+        urbanActiveBursts == 0 &&
+        urbanTimerStarted) {
       _completeUrbanPhase();
     }
   }
 
-  // ── Random leak spawner ─────────────────────────────────────────────────
-  void _spawnUrbanLeak() {
-    if (_rng.nextDouble() < 0.10) {
-      final r = _rng.nextInt(5);
-      final c = _rng.nextInt(5);
-      final tile = urbanGrid[r][c];
-      if (tile.type == 'straight' || tile.type == 'corner') {
-        tile.isLeaking = true;
-        _calculateUrbanFlow();
+  // ── Dynamic burst interval (shrinks as network grows) ──────────────────
+  double get _dynamicBurstInterval {
+    if (urbanPipesLaid < 3)  return 999.0; // no bursts until network started
+    if (urbanPipesLaid < 6)  return 3.5;
+    if (urbanPipesLaid < 10) return 2.2;
+    return 1.4;
+  }
+
+  double get _dynamicBurstChance {
+    if (urbanPipesLaid < 3) return 0.0;
+    return (0.20 + urbanPipesLaid * 0.025).clamp(0.0, 0.55);
+  }
+
+  // ── Burst spawner ───────────────────────────────────────────────────────
+  void _spawnUrbanBurst() {
+    if (_rng.nextDouble() >= _dynamicBurstChance) return;
+
+    // Prefer CONNECTED pipes — bursts on active flow are most disruptive
+    final connected = <List<int>>[];
+    final any       = <List<int>>[];
+    const gs = 6;
+    for (int r = 0; r < gs; r++) {
+      for (int c = 0; c < gs; c++) {
+        final t = urbanGrid[r][c];
+        if ((t.type == 'straight' || t.type == 'corner' || t.type == 't_junction')
+            && !t.isLeaking) {
+          any.add([r, c]);
+          if (t.isConnected) connected.add([r, c]);
+        }
       }
     }
+
+    final pool = connected.isNotEmpty ? connected : any;
+    if (pool.isEmpty) return;
+
+    final pick = pool[_rng.nextInt(pool.length)];
+    urbanGrid[pick[0]][pick[1]].isLeaking = true;
+    urbanTotalBursts++;
+    urbanActiveBursts++;
+    _calculateUrbanFlow();
   }
 
-  void connectUrbanHousehold() {
-    if (urbanPhaseComplete) return;
-    urbanHouseholdsConnected++;
-    urbanPipesLaid++;
-    urbanProgress = (urbanHouseholdsConnected / urbanTotalHouseholds).clamp(0.0, 1.0);
-    if (!urbanTimerRunning) urbanTimerRunning = true;
-    onUrbanUpdate?.call(urbanHouseholdsConnected, urbanProgress);
-    if (urbanHouseholdsConnected >= urbanTotalHouseholds) {
-      _completeUrbanPhase();
-    }
-  }
+  // connectUrbanHousehold removed — connection is now detected automatically
+  // by _calculateUrbanFlow() via BFS on every tile tap.
 
   void _completeUrbanPhase() {
     if (urbanPhaseComplete) return;
     urbanPhaseComplete = true;
     urbanTimerRunning = false;
-    urbanResult = urbanProgress >= 1.0 ? 'excellent'
-        : urbanProgress >= 0.6 ? 'good' : 'partial';
+    urbanTimeTaken = 90.0 - urbanTimeLeft; // seconds elapsed
+
+    // ── Supply-quality scoring (0‥100) ────────────────────────────────
+    // Component 1: household coverage (50 pts)
+    final coveragePts = (urbanHouseholdsConnected / 5.0 * 50).round();
+
+    // Component 2: average pressure of supplied houses (30 pts)
+    final pressurePts = (urbanAveragePressure / 100.0 * 30).round();
+
+    // Component 3: burst management (20 pts — lose 4 per unresolved burst)
+    final burstPenalty = (urbanActiveBursts * 4).clamp(0, 20);
+    final burstPts = 20 - burstPenalty;
+
+    urbanSupplyScore = (coveragePts + pressurePts + burstPts).clamp(0, 100);
+
+    // ── Result tier ───────────────────────────────────────────────────
+    if (urbanHouseholdsConnected == 5 &&
+        urbanActiveBursts == 0 &&
+        urbanAveragePressure >= 65) {
+      urbanResult = 'excellent';
+    } else if (urbanHouseholdsConnected >= 4 && urbanActiveBursts <= 1) {
+      urbanResult = 'good';
+    } else if (urbanHouseholdsConnected >= 3) {
+      urbanResult = 'partial';
+    } else if (urbanHouseholdsConnected >= 1) {
+      urbanResult = 'poor';
+    } else {
+      urbanResult = 'failed';
+    }
+
     onUrbanComplete?.call(urbanResult);
     pauseEngine();
   }
@@ -1582,14 +1767,16 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
   void _updateUrbanTimer(double dt) {
     if (currentPhase != 5 || !urbanTimerRunning || urbanPhaseComplete) return;
+
     urbanTimeLeft = (urbanTimeLeft - dt).clamp(0, 90.0);
     onUrbanTick?.call(urbanTimeLeft);
 
-    // Try spawning a leak every ~5 seconds
-    _urbanLeakAccumulator += dt;
-    if (_urbanLeakAccumulator >= 5.0 && urbanGrid.isNotEmpty) {
-      _urbanLeakAccumulator = 0.0;
-      _spawnUrbanLeak();
+    // Burst interval shrinks as more pipes are laid
+    _urbanBurstAccumulator += dt;
+    if (_urbanBurstAccumulator >= _dynamicBurstInterval &&
+        urbanGrid.isNotEmpty) {
+      _urbanBurstAccumulator = 0.0;
+      _spawnUrbanBurst();
     }
 
     if (urbanTimeLeft <= 0) _completeUrbanPhase();

@@ -80,10 +80,13 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   int cropsMature = 0;
 
   // Urban water supply phase state
-  int _urbanHouseholds = 0;
   double _urbanTimeLeft = 90.0;
   bool _showUrbanResult = false;
   String _urbanResult = '';
+  bool _urbanTimerStarted = false;  // drives pre-start overlay
+  int _urbanActiveBursts = 0;       // drives animated burst banner
+  int _urbanTotalBursts = 0;        // for result display
+  int _urbanBurstsFixed = 0;        // for result display
 
   // Industrial phase state
   int _industrialSystems = 0;
@@ -234,18 +237,33 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
 
     game.onUrbanUpdate = (households, progress) {
       safeSetState(() {
-        _urbanHouseholds = households;
+        // mirror live burst counts from game for the HUD
+        _urbanActiveBursts = game.urbanActiveBursts;
+        _urbanBurstsFixed  = game.urbanBurstsFixed;
+        _urbanTotalBursts  = game.urbanTotalBursts;
       });
     };
 
+    game.onUrbanTimerStart = () {
+      safeSetState(() => _urbanTimerStarted = true);
+    };
+
     game.onUrbanTick = (timeLeft) {
-      safeSetState(() => _urbanTimeLeft = timeLeft);
+      safeSetState(() {
+        _urbanTimeLeft     = timeLeft;
+        _urbanActiveBursts = game.urbanActiveBursts;
+        _urbanBurstsFixed  = game.urbanBurstsFixed;
+        _urbanTotalBursts  = game.urbanTotalBursts;
+      });
     };
 
     game.onUrbanComplete = (result) {
       safeSetState(() {
-        _urbanResult = result;
-        _showUrbanResult = true;
+        _urbanResult       = result;
+        _urbanActiveBursts = game.urbanActiveBursts;
+        _urbanBurstsFixed  = game.urbanBurstsFixed;
+        _urbanTotalBursts  = game.urbanTotalBursts;
+        _showUrbanResult   = true;
       });
     };
 
@@ -3250,185 +3268,484 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   }
 
   Widget _buildUrbanGameplay(Size size, bool isMobile) {
-    // Guard: grid not yet initialised (shouldn't happen, but avoids range errors)
     if (game.urbanGrid.isEmpty) {
       return const Center(child: CircularProgressIndicator(color: Colors.cyan));
     }
 
-    return Container(
-      padding: EdgeInsets.all(isMobile ? 16 : 24),
-      color: const Color(0xFF051428),
-      child: Column(
-        children: [
-          _buildUrbanHUD(isMobile),
-          const SizedBox(height: 16),
-          // ── Pipe-puzzle grid ───────────────────────────────────────────
-          Expanded(
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: GridView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 5,
-                  crossAxisSpacing: 4,
-                  mainAxisSpacing: 4,
+    return Stack(
+      children: [
+        // ── Main gameplay ────────────────────────────────────────────────
+        Container(
+          padding: EdgeInsets.all(isMobile ? 14 : 22),
+          color: const Color(0xFF051428),
+          child: Column(
+            children: [
+              _buildUrbanHUD(isMobile),
+              const SizedBox(height: 10),
+              // ── Progress bar ───────────────────────────────────────────
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: game.urbanProgress,
+                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  valueColor: AlwaysStoppedAnimation(
+                      game.urbanProgress == 1.0
+                          ? Colors.greenAccent
+                          : const Color(0xFF29B6F6)),
+                  minHeight: 4,
                 ),
-                itemCount: 25,
-                itemBuilder: (context, index) {
-                  final r = index ~/ 5;
-                  final c = index % 5;
-                  return _buildUrbanTile(r, c, isMobile);
-                },
+              ),
+              const SizedBox(height: 10),
+              // ── Pipe-puzzle grid ───────────────────────────────────────
+              Expanded(
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 6,
+                      crossAxisSpacing: 4,
+                      mainAxisSpacing: 4,
+                    ),
+                    itemCount: 36,
+                    itemBuilder: (context, index) {
+                      final r = index ~/ 6;
+                      final c = index % 6;
+                      return _buildUrbanTile(r, c, isMobile);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              _buildBurstBanner(isMobile),
+              const SizedBox(height: 6),
+              // ── Hint bar ───────────────────────────────────────────────
+              Container(
+                padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 12 : 16,
+                    vertical: isMobile ? 6 : 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.07)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.touch_app_rounded,
+                        color: Colors.cyan, size: 13),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        'Tap empty = place pipe  •  Tap pipe = rotate/change type  •  Tap 💥 = fix burst  •  🪨 = impassable',
+                        style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 9 : 10,
+                            color: Colors.white38,
+                            fontWeight: FontWeight.w500),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // ── PRE-START overlay (disappears after player taps BEGIN) ───────────
+        if (!_urbanTimerStarted)
+          Positioned.fill(
+            child: GestureDetector(
+              // Tapping outside the card does nothing — grid is accessible via BEGIN
+              behavior: HitTestBehavior.opaque,
+              onTap: () {}, // absorb stray taps on the dimmed area only
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.78),
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: isMobile ? 24 : 60,
+                        vertical: isMobile ? 16 : 24),
+                    child: Container(
+                      padding: EdgeInsets.all(isMobile ? 20 : 28),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            const Color(0xFF0A2040).withValues(alpha: 0.97),
+                            const Color(0xFF051428).withValues(alpha: 0.97),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: const Color(0xFF29B6F6)
+                                .withValues(alpha: 0.60),
+                            width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                              color: const Color(0xFF29B6F6)
+                                  .withValues(alpha: 0.28),
+                              blurRadius: 36,
+                              spreadRadius: 4),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('🔧',
+                              style: TextStyle(fontSize: 46)),
+                          const SizedBox(height: 8),
+                          Text('URBAN WATER SUPPLY\nAPPLICATION',
+                              style: GoogleFonts.exo2(
+                                  fontSize: isMobile ? 15 : 17,
+                                  color: const Color(0xFF29B6F6),
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.1,
+                                  height: 1.25),
+                              textAlign: TextAlign.center),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Route pipes from the reservoir to all 5 households.\n'
+                            '🪨 Rocky terrain blocks direct paths — think ahead.\n'
+                            '🟡 Amber dot = pipe placed but not yet connected.\n'
+                            'Burst pipes drop pressure — fix immediately!',
+                            style: GoogleFonts.exo2(
+                                fontSize: isMobile ? 11 : 12,
+                                color: Colors.white60,
+                                fontWeight: FontWeight.w500,
+                                height: 1.5),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+                          // Pipe type reference
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.04),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('TAP TO CYCLE PIPE TYPE:',
+                                    style: GoogleFonts.exo2(
+                                        fontSize: isMobile ? 8 : 9,
+                                        color: Colors.white38,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.8)),
+                                const SizedBox(height: 6),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _pipeTypeChip('—', 'Straight\n(H/V)', Colors.cyan, isMobile),
+                                    _pipeTypeChip('⌐', 'Corner\n(×4 rotate)', Colors.cyan, isMobile),
+                                    _pipeTypeChip('⊤', 'T-Junction\n(×4 rotate)', const Color(0xFF4FC3F7), isMobile),
+                                    _pipeTypeChip('✕', 'Remove', Colors.white38, isMobile),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          // Rule chips
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              _urbanRuleChip(
+                                  '⏱ 90s limit',
+                                  Colors.orangeAccent,
+                                  isMobile),
+                              _urbanRuleChip(
+                                  '🏠 5 households',
+                                  Colors.greenAccent,
+                                  isMobile),
+                              _urbanRuleChip(
+                                  '💥 Bursts spawn',
+                                  Colors.redAccent,
+                                  isMobile),
+                              _urbanRuleChip(
+                                  '💧 Maintain pressure',
+                                  const Color(0xFF29B6F6),
+                                  isMobile),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          // BEGIN button — starts timer and dismisses overlay
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                game.activateUrbanTimer();
+                                // _urbanTimerStarted will be set via onUrbanTimerStart callback
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor:
+                                    const Color(0xFF29B6F6),
+                                padding: EdgeInsets.symmetric(
+                                    vertical: isMobile ? 13 : 16),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(12)),
+                                elevation: 6,
+                                shadowColor: const Color(0xFF29B6F6)
+                                    .withValues(alpha: 0.45),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.play_arrow_rounded,
+                                      color: Colors.black, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text('BEGIN APPLICATION',
+                                      style: GoogleFonts.exo2(
+                                          fontSize:
+                                              isMobile ? 14 : 16,
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.black,
+                                          letterSpacing: 0.8)),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Timer starts the moment you press BEGIN',
+                            style: GoogleFonts.exo2(
+                                fontSize: isMobile ? 9 : 10,
+                                color: Colors.white30,
+                                fontWeight: FontWeight.w500),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          _buildLeakWarning(isMobile),
-          const SizedBox(height: 6),
-          // Hint bar
-          Container(
-            padding: EdgeInsets.symmetric(
-                horizontal: isMobile ? 12 : 16, vertical: isMobile ? 6 : 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(8),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: 0.08)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.touch_app_rounded,
-                    color: Colors.cyan, size: 14),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    'Tap empty cells to place pipes • Tap pipes to rotate • Tap leaks to fix them',
-                    style: GoogleFonts.exo2(
-                        fontSize: isMobile ? 9 : 10,
-                        color: Colors.white54,
-                        fontWeight: FontWeight.w500),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ],
-            ),
+      ],
+    );
+  }
+
+  Widget _pipeTypeChip(String symbol, String label, Color color, bool isMobile) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: isMobile ? 26 : 30,
+          height: isMobile ? 26 : 30,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
           ),
-        ],
+          child: Center(
+            child: Text(symbol,
+                style: TextStyle(
+                    fontSize: isMobile ? 14 : 16, color: color)),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(label,
+            style: GoogleFonts.exo2(
+                fontSize: isMobile ? 7 : 8,
+                color: Colors.white38,
+                fontWeight: FontWeight.w600),
+            textAlign: TextAlign.center),
+      ],
+    );
+  }
+
+  Widget _urbanRuleChip(String label, Color color, bool isMobile) {
+    return Container(
+      padding:
+          EdgeInsets.symmetric(horizontal: isMobile ? 8 : 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
       ),
+      child: Text(label,
+          style: GoogleFonts.exo2(
+              fontSize: isMobile ? 9 : 10,
+              color: color,
+              fontWeight: FontWeight.w700)),
     );
   }
 
   Widget _buildUrbanTile(int r, int c, bool isMobile) {
     final tile = game.urbanGrid[r][c];
-    final tileColor =
-        tile.isConnected ? Colors.cyan : Colors.white.withValues(alpha: 0.25);
-    final borderColor = tile.isLeaking
-        ? Colors.red
-        : tileColor.withValues(alpha: 0.35);
+    final isObstacle = tile.type == 'obstacle';
+
+    // Pressure-driven colour for active pipes
+    final pressureFrac = (tile.pressure / 100.0).clamp(0.0, 1.0);
+    final pipeColor = tile.isConnected
+        ? Color.lerp(Colors.cyan.shade200, Colors.cyan, pressureFrac)!
+        : Colors.white.withValues(alpha: 0.30);
+
+    // Border / bg by state
+    Color borderColor;
+    Color bgColor;
+    if (isObstacle) {
+      borderColor = const Color(0xFF5D4037).withValues(alpha: 0.80);
+      bgColor     = const Color(0xFF3E2723).withValues(alpha: 0.85);
+    } else if (tile.isLeaking) {
+      borderColor = Colors.red;
+      bgColor     = Colors.red.withValues(alpha: 0.16);
+    } else if (tile.isConnected) {
+      borderColor = pipeColor.withValues(alpha: 0.55);
+      bgColor     = Colors.cyan.withValues(alpha: 0.07);
+    } else if (tile.type != 'empty') {
+      // Pipe placed but NOT connected — highlight as mis-rotated
+      borderColor = Colors.amber.withValues(alpha: 0.50);
+      bgColor     = Colors.amber.withValues(alpha: 0.05);
+    } else {
+      borderColor = Colors.white.withValues(alpha: 0.09);
+      bgColor     = Colors.white.withValues(alpha: 0.02);
+    }
 
     return GestureDetector(
-      onTap: () => setState(() => game.handleUrbanTileTap(r, c)),
+      onTap: isObstacle ? null : () => setState(() => game.handleUrbanTileTap(r, c)),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 160),
         decoration: BoxDecoration(
-          color: tile.isConnected
-              ? Colors.cyan.withValues(alpha: 0.08)
-              : Colors.white.withValues(alpha: 0.04),
-          border: Border.all(color: borderColor, width: tile.isLeaking ? 2 : 1),
+          color: bgColor,
+          border: Border.all(
+              color: borderColor,
+              width: tile.isLeaking ? 2.0 : 1.0),
           borderRadius: BorderRadius.circular(4),
-          boxShadow: tile.isConnected
-              ? [
-                  BoxShadow(
-                      color: Colors.cyan.withValues(alpha: 0.20),
-                      blurRadius: 6)
-                ]
+          boxShadow: tile.isConnected && !tile.isLeaking && !isObstacle
+              ? [BoxShadow(
+                  color: Colors.cyan.withValues(alpha: 0.14 * pressureFrac),
+                  blurRadius: 5)]
               : [],
         ),
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // ── Tile icon ──────────────────────────────────────────────
-            if (tile.type == 'reservoir')
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.water_damage,
-                      color: Colors.cyan, size: isMobile ? 22 : 28),
-                  Text('SRC',
-                      style: GoogleFonts.exo2(
-                          fontSize: 7,
-                          color: Colors.cyan,
-                          fontWeight: FontWeight.w700)),
-                ],
-              )
+            // ── Tile content ─────────────────────────────────────────────
+            if (isObstacle)
+              Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                const Text('🪨', style: TextStyle(fontSize: 14)),
+              ])
+            else if (tile.type == 'reservoir')
+              Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.water_damage,
+                    color: Colors.cyan, size: isMobile ? 18 : 22),
+                Text('SRC',
+                    style: GoogleFonts.exo2(
+                        fontSize: 6,
+                        color: Colors.cyan,
+                        fontWeight: FontWeight.w800)),
+              ])
             else if (tile.type == 'house')
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    tile.isConnected && tile.pressure > 30
-                        ? Icons.home
-                        : Icons.home_outlined,
-                    color: tile.isConnected && tile.pressure > 30
-                        ? Colors.greenAccent
-                        : Colors.white38,
-                    size: isMobile ? 20 : 26,
-                  ),
-                  if (tile.isConnected && tile.pressure > 30)
-                    Text('${tile.pressure.toInt()}%',
-                        style: GoogleFonts.exo2(
-                            fontSize: 7,
-                            color: Colors.greenAccent,
-                            fontWeight: FontWeight.w700)),
-                ],
-              )
+              Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(
+                  tile.isConnected && tile.pressure > 30
+                      ? Icons.home
+                      : Icons.home_outlined,
+                  color: tile.isConnected && tile.pressure > 30
+                      ? Colors.greenAccent
+                      : Colors.white30,
+                  size: isMobile ? 17 : 21,
+                ),
+                Text(
+                  tile.isConnected && tile.pressure > 30
+                      ? '${tile.pressure.toInt()}%'
+                      : 'OFF',
+                  style: GoogleFonts.exo2(
+                      fontSize: 6,
+                      color: tile.isConnected && tile.pressure > 30
+                          ? (tile.pressure >= 65
+                              ? Colors.greenAccent
+                              : Colors.orange)
+                          : Colors.white24,
+                      fontWeight: FontWeight.w800),
+                ),
+              ])
             else if (tile.type == 'straight')
               Transform.rotate(
                 angle: tile.rotation * 1.5708,
                 child: Icon(Icons.horizontal_rule_rounded,
-                    color: tile.isConnected ? Colors.cyan : Colors.white30,
-                    size: isMobile ? 22 : 28),
+                    color: pipeColor, size: isMobile ? 20 : 24),
               )
             else if (tile.type == 'corner')
               Transform.rotate(
                 angle: tile.rotation * 1.5708,
                 child: Icon(Icons.turn_right_rounded,
-                    color: tile.isConnected ? Colors.cyan : Colors.white30,
-                    size: isMobile ? 22 : 28),
+                    color: pipeColor, size: isMobile ? 20 : 24),
+              )
+            else if (tile.type == 't_junction')
+              Transform.rotate(
+                angle: tile.rotation * 1.5708,
+                child: Icon(Icons.device_hub_rounded,
+                    color: pipeColor, size: isMobile ? 20 : 24),
               )
             else
-              // Empty cell — show faint + placeholder
               Icon(Icons.add_rounded,
-                  color: Colors.white.withValues(alpha: 0.10),
-                  size: isMobile ? 16 : 20),
+                  color: Colors.white.withValues(alpha: 0.07),
+                  size: isMobile ? 12 : 15),
 
-            // ── Leak overlay ────────────────────────────────────────────
-            if (tile.isLeaking)
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Icon(Icons.water_rounded,
-                      color: Colors.blueAccent.withValues(alpha: 0.85),
-                      size: isMobile ? 20 : 26),
-                ),
-              ),
-
-            // ── Pressure badge (pipes only) ────────────────────────────
-            if (tile.isConnected &&
-                tile.pressure > 0 &&
+            // ── Mis-rotation hint: amber dot top-right ───────────────────
+            if (!tile.isConnected &&
+                !isObstacle &&
+                tile.type != 'empty' &&
                 tile.type != 'house' &&
                 tile.type != 'reservoir')
               Positioned(
-                bottom: 2,
-                right: 3,
+                top: 2, right: 2,
+                child: Container(
+                  width: 5, height: 5,
+                  decoration: const BoxDecoration(
+                    color: Colors.amber,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+
+            // ── Burst overlay ────────────────────────────────────────────
+            if (tile.isLeaking)
+              Positioned.fill(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0.3, end: 1.0),
+                    duration: const Duration(milliseconds: 500),
+                    builder: (ctx, v, _) => Opacity(
+                      opacity: v,
+                      child: Container(
+                        color: Colors.red.withValues(alpha: 0.20),
+                        child: Center(
+                          child: Text('💥',
+                              style: TextStyle(
+                                  fontSize: isMobile ? 15 : 18)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // ── Pressure badge (connected pipes only) ────────────────────
+            if (tile.isConnected &&
+                tile.pressure > 0 &&
+                tile.type != 'house' &&
+                tile.type != 'reservoir' &&
+                !tile.isLeaking)
+              Positioned(
+                bottom: 1, right: 2,
                 child: Text('${tile.pressure.toInt()}',
                     style: GoogleFonts.exo2(
-                        fontSize: 6,
-                        color: Colors.cyan.withValues(alpha: 0.70),
+                        fontSize: 5,
+                        color: pipeColor.withValues(alpha: 0.75),
                         fontWeight: FontWeight.w700)),
               ),
           ],
@@ -3438,26 +3755,71 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   }
 
   Widget _buildUrbanHUD(bool isMobile) {
+    final timerWarn = _urbanTimeLeft < 20 && _urbanTimerStarted;
+
     return Container(
       padding: EdgeInsets.symmetric(
-          horizontal: isMobile ? 12 : 16, vertical: isMobile ? 8 : 10),
+          horizontal: isMobile ? 10 : 14, vertical: isMobile ? 7 : 9),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
+        color: Colors.black.withValues(alpha: 0.60),
         borderRadius: BorderRadius.circular(12),
-        border:
-            Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.35)),
+        border: Border.all(
+            color: const Color(0xFF29B6F6).withValues(alpha: 0.35),
+            width: 1.5),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // Households
           _statItem('🏠 Connected',
               '${game.urbanHouseholdsConnected}/5', Colors.greenAccent, isMobile),
-          _statItem('⏱ Time',
-              '${_urbanTimeLeft.toInt()}s',
-              _urbanTimeLeft < 20 ? Colors.red : Colors.orangeAccent,
-              isMobile),
-          _statItem('💧 Efficiency',
-              '${(game.urbanProgress * 100).toInt()}%', Colors.cyan, isMobile),
+          // Vertical divider
+          Container(width: 1, height: 28, color: Colors.white12),
+          // Timer — shows "READY" before first tap
+          _urbanTimerStarted
+              ? _statItem(
+                  '⏱ Time',
+                  '${_urbanTimeLeft.toInt()}s',
+                  timerWarn ? Colors.red : Colors.orangeAccent,
+                  isMobile)
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('⏱ Time',
+                        style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 9 : 10,
+                            color: Colors.white38,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text('READY',
+                        style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 12 : 14,
+                            color: const Color(0xFF29B6F6),
+                            fontWeight: FontWeight.w900)),
+                  ],
+                ),
+          Container(width: 1, height: 28, color: Colors.white12),
+          // Active bursts — red when any exist
+          _statItem(
+            '💥 Bursts',
+            _urbanActiveBursts > 0 ? '$_urbanActiveBursts ACTIVE' : 'Clear',
+            _urbanActiveBursts > 0 ? Colors.redAccent : Colors.white38,
+            isMobile,
+          ),
+          Container(width: 1, height: 28, color: Colors.white12),
+          // Pressure efficiency
+          _statItem(
+            '💧 Pressure',
+            game.urbanAveragePressure > 0
+                ? '${game.urbanAveragePressure.toInt()}%'
+                : '—',
+            game.urbanAveragePressure >= 65
+                ? Colors.cyan
+                : game.urbanAveragePressure >= 40
+                    ? Colors.orangeAccent
+                    : Colors.white38,
+            isMobile,
+          ),
         ],
       ),
     );
@@ -3483,147 +3845,422 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     );
   }
 
-  Widget _buildLeakWarning(bool isMobile) {
-    bool hasLeak = false;
-    for (final row in game.urbanGrid) {
-      for (final t in row) {
-        if (t.isLeaking) hasLeak = true;
-      }
-    }
-
-    return AnimatedOpacity(
-      opacity: hasLeak ? 1.0 : 0.0,
+  Widget _buildBurstBanner(bool isMobile) {
+    final count = _urbanActiveBursts;
+    return AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
-      child: Container(
-        padding: EdgeInsets.symmetric(
-            horizontal: isMobile ? 12 : 16, vertical: isMobile ? 6 : 8),
-        decoration: BoxDecoration(
-          color: Colors.red.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.red.withValues(alpha: 0.5)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.warning_amber_rounded,
-                color: Colors.redAccent, size: 16),
-            const SizedBox(width: 6),
-            Text(
-              '⚠️  PIPE LEAK DETECTED!  PRESSURE DROPPING!',
-              style: GoogleFonts.exo2(
-                  color: Colors.redAccent,
-                  fontWeight: FontWeight.w800,
-                  fontSize: isMobile ? 11 : 13,
-                  letterSpacing: 0.5),
-            ),
-          ],
-        ),
-      ),
+      child: count > 0
+          ? TweenAnimationBuilder<double>(
+              key: ValueKey(count),
+              tween: Tween(begin: 0.6, end: 1.0),
+              duration: const Duration(milliseconds: 500),
+              builder: (ctx, v, _) => Opacity(
+                opacity: v,
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: isMobile ? 12 : 16,
+                      vertical: isMobile ? 6 : 8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(8),
+                    border:
+                        Border.all(color: Colors.red.withValues(alpha: 0.55)),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.red.withValues(alpha: 0.25),
+                          blurRadius: 10),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded,
+                          color: Colors.redAccent, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        count == 1
+                            ? '💥  1 PIPE BURST — TAP IT TO FIX!  PRESSURE DROPPING!'
+                            : '💥  $count PIPE BURSTS — FIX THEM NOW!  PRESSURE DROPPING!',
+                        style: GoogleFonts.exo2(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.w800,
+                            fontSize: isMobile ? 10 : 12,
+                            letterSpacing: 0.4),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          : const SizedBox(height: 0),
     );
   }
+
+
 
   // _buildHouseholdCard removed — urban phase now uses the 5×5 pipe-puzzle grid
   // (see _buildUrbanGameplay / _buildUrbanTile above)
 
   Widget _buildUrbanResultOverlay(bool isMobile) {
-    final isExcellent = _urbanResult == 'excellent';
-    final isGood = _urbanResult == 'good';
-    final resultColor = isExcellent ? const Color(0xFF29B6F6)
-        : isGood ? Colors.amber : Colors.orange;
-    final resultEmoji = isExcellent ? '🌊' : isGood ? '💧' : '🚰';
-    final resultLabel = isExcellent ? 'FULL COVERAGE!'
-        : isGood ? 'GOOD COVERAGE' : 'PARTIAL COVERAGE';
+    // ── Tier data ──────────────────────────────────────────────────────────
+    const tiers = {
+      'excellent': (
+        emoji: '🌊', label: 'PERFECT SUPPLY!',
+        color: Color(0xFF29B6F6),
+        msg: 'Outstanding! All 5 households receive clean water at full '
+            'pressure — zero burst damage. Your network is city-grade!'
+      ),
+      'good': (
+        emoji: '💧', label: 'GOOD SUPPLY',
+        color: Color(0xFF4FC3F7),
+        msg: 'Well done! Most households are connected with healthy pressure. '
+            'A couple of bursts reduced efficiency slightly.'
+      ),
+      'partial': (
+        emoji: '🚰', label: 'PARTIAL SUPPLY',
+        color: Color(0xFFFFA000),
+        msg: 'Some households got water, but the network was incomplete. '
+            'More pipe connections and faster burst repairs would help.'
+      ),
+      'poor': (
+        emoji: '⚠️', label: 'POOR SUPPLY',
+        color: Color(0xFFFF7043),
+        msg: 'Very few households received water. Burst damage and missing '
+            'pipes left most of the network without flow.'
+      ),
+      'failed': (
+        emoji: '🔴', label: 'SUPPLY FAILED',
+        color: Color(0xFFEF5350),
+        msg: 'No households were connected in time. Practice routing pipes '
+            'from the reservoir and patch bursts the moment they appear!'
+      ),
+    };
+
+    final tier = tiers[_urbanResult] ?? tiers['failed']!;
+    final timeUp = game.urbanTimeLeft <= 0;
+    final timeTaken = game.urbanTimeTaken.toInt().clamp(0, 90);
+    final score = game.urbanSupplyScore;
+
+    // Score colour
+    final Color scoreColor = score >= 85
+        ? Colors.greenAccent
+        : score >= 60
+            ? Colors.amber
+            : score >= 35
+                ? Colors.orange
+                : Colors.redAccent;
 
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topCenter, end: Alignment.bottomCenter,
-          colors: [const Color(0xFF051428), resultColor.withValues(alpha: 0.12), const Color(0xFF051428)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF051428),
+            (tier.color).withValues(alpha: 0.10),
+            const Color(0xFF051428),
+          ],
         ),
       ),
       child: SafeArea(
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
           padding: EdgeInsets.all(isMobile ? 20 : 32),
-          child: Column(children: [
-            SizedBox(height: isMobile ? 24 : 40),
-            Text(resultEmoji, style: TextStyle(fontSize: isMobile ? 72 : 90)),
-            SizedBox(height: isMobile ? 12 : 16),
-            Text(resultLabel, style: GoogleFonts.exo2(
-              fontSize: isMobile ? 28 : 34, color: resultColor,
-              fontWeight: FontWeight.w900, letterSpacing: 1.2), textAlign: TextAlign.center),
-            SizedBox(height: isMobile ? 8 : 12),
-            Text('$_urbanHouseholds of ${game.urbanTotalHouseholds} households now have clean water access!',
-              style: GoogleFonts.exo2(fontSize: isMobile ? 13 : 14, color: Colors.white54),
-              textAlign: TextAlign.center),
-            SizedBox(height: isMobile ? 20 : 28),
-            // Stats
-            Container(
-              padding: EdgeInsets.all(isMobile ? 16 : 20),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: resultColor.withValues(alpha: 0.25))),
-              child: Column(children: [
-                _appResultRow('🏠 Households Connected', '$_urbanHouseholds / ${game.urbanTotalHouseholds}', resultColor, isMobile),
-                _appResultRow('💧 Water Delivered', '${game.purifiedWaterAmount}L', const Color(0xFF29B6F6), isMobile),
-                _appResultRow('🌍 Health Impact', isExcellent ? 'Excellent' : isGood ? 'Good' : 'Moderate', resultColor, isMobile),
-              ]),
-            ),
-            SizedBox(height: isMobile ? 16 : 22),
-            // Educational tip
-            Container(
-              padding: EdgeInsets.all(isMobile ? 14 : 18),
-              decoration: BoxDecoration(
-                color: const Color(0xFF29B6F6).withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.25))),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Container(padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(color: const Color(0xFF29B6F6).withValues(alpha: 0.15), shape: BoxShape.circle),
-                    child: const Icon(Icons.lightbulb_rounded, color: Color(0xFF29B6F6), size: 16)),
-                  const SizedBox(width: 8),
-                  Text('DID YOU KNOW?', style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 10 : 11, color: const Color(0xFF29B6F6),
-                    fontWeight: FontWeight.w800, letterSpacing: 1.2)),
-                ]),
-                const SizedBox(height: 10),
-                Text(
-                  '🚰 Access to clean water reduces waterborne diseases by up to 80%. '
-                  'Urban water supply systems are essential infrastructure — when every household '
-                  'is connected, entire communities thrive with better health, education, and productivity.',
-                  style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
-                    color: Colors.white.withValues(alpha: 0.82), fontWeight: FontWeight.w500, height: 1.5)),
-              ]),
-            ),
-            SizedBox(height: isMobile ? 24 : 32),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => setState(() {
-                  _showUrbanResult = false;
-                  currentPhase = 8;
-                }),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: resultColor,
-                  padding: EdgeInsets.symmetric(vertical: isMobile ? 14 : 18),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Text('VIEW MISSION RESULTS', style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 14 : 16, fontWeight: FontWeight.w900,
-                    color: Colors.black, letterSpacing: 0.8)),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.arrow_forward_rounded, color: Colors.black, size: 18),
-                ]),
+          child: Column(
+            children: [
+              SizedBox(height: isMobile ? 16 : 28),
+
+              // ── Heading ────────────────────────────────────────────────
+              Text(tier.emoji, style: TextStyle(fontSize: isMobile ? 64 : 80)),
+              SizedBox(height: isMobile ? 10 : 14),
+              Text(tier.label,
+                  style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 26 : 32,
+                      color: tier.color,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: (timeUp ? Colors.amber : tier.color)
+                      .withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                      color: (timeUp ? Colors.amber : tier.color)
+                          .withValues(alpha: 0.45)),
+                ),
+                child: Text(
+                  timeUp
+                      ? '⏰  Time expired after ${timeTaken}s'
+                      : '✅  Completed in ${timeTaken}s',
+                  style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 10 : 11,
+                      color: timeUp ? Colors.amber : tier.color,
+                      fontWeight: FontWeight.w700),
+                ),
               ),
-            ),
-          ]),
+
+              SizedBox(height: isMobile ? 16 : 22),
+
+              // ── Supply quality score ring ──────────────────────────────
+              Container(
+                padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 16 : 22,
+                    vertical: isMobile ? 12 : 16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: scoreColor.withValues(alpha: 0.35), width: 1.5),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Big score
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('$score',
+                            style: GoogleFonts.exo2(
+                                fontSize: isMobile ? 52 : 64,
+                                color: scoreColor,
+                                fontWeight: FontWeight.w900,
+                                height: 1.0)),
+                        Text('SUPPLY QUALITY SCORE  /100',
+                            style: GoogleFonts.exo2(
+                                fontSize: isMobile ? 9 : 10,
+                                color: Colors.white38,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.0)),
+                      ],
+                    ),
+                    SizedBox(width: isMobile ? 20 : 28),
+                    // Score breakdown bars
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _scoreBar('Coverage',
+                              (game.urbanHouseholdsConnected / 5.0),
+                              Colors.greenAccent, isMobile),
+                          const SizedBox(height: 6),
+                          _scoreBar('Avg Pressure',
+                              (game.urbanAveragePressure / 100.0).clamp(0, 1),
+                              Colors.cyan, isMobile),
+                          const SizedBox(height: 6),
+                          _scoreBar(
+                              'Burst Control',
+                              ((20 -
+                                          (game.urbanActiveBursts * 4)
+                                              .clamp(0, 20)) /
+                                      20.0)
+                                  .clamp(0, 1),
+                              Colors.orangeAccent,
+                              isMobile),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              SizedBox(height: isMobile ? 14 : 18),
+
+              // ── Stats grid ─────────────────────────────────────────────
+              Container(
+                padding: EdgeInsets.all(isMobile ? 14 : 18),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                child: Column(
+                  children: [
+                    _urbanResultRow(
+                        '🏠 Households Supplied',
+                        '${game.urbanHouseholdsConnected} / 5',
+                        tier.color,
+                        isMobile),
+                    _urbanResultRow(
+                        '💧 Average Pressure',
+                        game.urbanAveragePressure > 0
+                            ? '${game.urbanAveragePressure.toInt()} psi'
+                            : '— psi',
+                        game.urbanAveragePressure >= 65
+                            ? Colors.cyan
+                            : Colors.orange,
+                        isMobile),
+                    _urbanResultRow(
+                        '💥 Pipe Bursts Total',
+                        '$_urbanTotalBursts burst${_urbanTotalBursts == 1 ? '' : 's'}',
+                        _urbanTotalBursts == 0 ? Colors.greenAccent : Colors.redAccent,
+                        isMobile),
+                    _urbanResultRow(
+                        '🔧 Bursts Repaired',
+                        '$_urbanBurstsFixed / $_urbanTotalBursts',
+                        _urbanBurstsFixed == _urbanTotalBursts && _urbanTotalBursts > 0
+                            ? Colors.greenAccent
+                            : Colors.orangeAccent,
+                        isMobile),
+                    _urbanResultRow(
+                        '🔴 Unresolved Bursts',
+                        '${game.urbanActiveBursts}',
+                        game.urbanActiveBursts == 0
+                            ? Colors.greenAccent
+                            : Colors.redAccent,
+                        isMobile),
+                    _urbanResultRow(
+                        '⏱ Time Taken',
+                        timeUp ? 'Time expired' : '${timeTaken}s / 90s',
+                        timeUp ? Colors.amber : Colors.white70,
+                        isMobile),
+                  ],
+                ),
+              ),
+
+              SizedBox(height: isMobile ? 14 : 18),
+
+              // ── Result message / tip ───────────────────────────────────
+              Container(
+                padding: EdgeInsets.all(isMobile ? 14 : 18),
+                decoration: BoxDecoration(
+                  color: (tier.color).withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: (tier.color).withValues(alpha: 0.25)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                            color: (tier.color).withValues(alpha: 0.15),
+                            shape: BoxShape.circle),
+                        child: Icon(Icons.lightbulb_rounded,
+                            color: tier.color,
+                            size: isMobile ? 15 : 17)),
+                      const SizedBox(width: 8),
+                      Text('NETWORK ASSESSMENT',
+                          style: GoogleFonts.exo2(
+                              fontSize: isMobile ? 10 : 11,
+                              color: tier.color,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.1)),
+                    ]),
+                    const SizedBox(height: 10),
+                    Text(tier.msg,
+                        style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 12 : 13,
+                            color: Colors.white.withValues(alpha: 0.82),
+                            fontWeight: FontWeight.w500,
+                            height: 1.55)),
+                    const SizedBox(height: 8),
+                    Text(
+                      '💡 Real urban networks lose 30–40 % of water to burst mains. '
+                      'Quick response to pipe bursts and correct routing keep pressure high for every household.',
+                      style: GoogleFonts.exo2(
+                          fontSize: isMobile ? 10 : 11,
+                          color: Colors.white38,
+                          fontWeight: FontWeight.w500,
+                          height: 1.45),
+                    ),
+                  ],
+                ),
+              ),
+
+              SizedBox(height: isMobile ? 24 : 32),
+
+              // ── CTA ───────────────────────────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => setState(() {
+                    _showUrbanResult = false;
+                    currentPhase = 8;
+                  }),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: tier.color,
+                    padding: EdgeInsets.symmetric(
+                        vertical: isMobile ? 14 : 18),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('VIEW MISSION RESULTS',
+                          style: GoogleFonts.exo2(
+                              fontSize: isMobile ? 14 : 16,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.black,
+                              letterSpacing: 0.8)),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.arrow_forward_rounded,
+                          color: Colors.black, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+
+              SizedBox(height: isMobile ? 12 : 16),
+            ],
+          ),
         ),
       ),
     );
   }
 
+  // ── Result overlay helpers ─────────────────────────────────────────────
+
+  Widget _scoreBar(String label, double fraction, Color color, bool isMobile) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: GoogleFonts.exo2(
+                fontSize: isMobile ? 8 : 9,
+                color: Colors.white38,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 2),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: LinearProgressIndicator(
+            value: fraction.clamp(0.0, 1.0),
+            backgroundColor: Colors.white.withValues(alpha: 0.08),
+            valueColor: AlwaysStoppedAnimation(color),
+            minHeight: isMobile ? 5 : 6,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _urbanResultRow(
+      String label, String value, Color color, bool isMobile) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 11 : 12,
+                  color: Colors.white60,
+                  fontWeight: FontWeight.w500)),
+          Text(value,
+              style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 12 : 13,
+                  color: color,
+                  fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
+  }
   // ─────────────────────────────────────────────────────────────────────────
   // INDUSTRIAL PHASE (Phase 6)
   // ─────────────────────────────────────────────────────────────────────────
