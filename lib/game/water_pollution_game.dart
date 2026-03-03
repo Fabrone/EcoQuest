@@ -12,6 +12,19 @@ import 'package:flutter/services.dart';
 import 'package:flame/components.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// ── Urban pipe-network tile ────────────────────────────────────────────────
+class UrbanTile {
+  /// 'reservoir' | 'house' | 'straight' | 'corner' | 'empty'
+  String type;
+  /// 0‥3 (multiples of 90°)
+  int rotation;
+  bool isConnected = false;
+  bool isLeaking   = false;
+  double pressure  = 0.0;
+
+  UrbanTile({required this.type, this.rotation = 0, this.isLeaking = false});
+}
+
 class WaterPollutionGame extends FlameGame with KeyboardEvents {
   final int bacteriaCultures;
 
@@ -155,7 +168,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
   // Urban water supply phase state
   int urbanHouseholdsConnected = 0;
-  int urbanTotalHouseholds = 6;
+  int urbanTotalHouseholds = 5;   // grid houses (was 6 for tap-card UI)
   int urbanPipesLaid = 0;
   double urbanProgress = 0.0;
   bool urbanPhaseComplete = false;
@@ -165,6 +178,11 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   Function(double timeLeft)? onUrbanTick;
   double urbanTimeLeft = 90.0;
   bool urbanTimerRunning = false;
+
+  // Urban pipe-puzzle grid
+  List<List<UrbanTile>> urbanGrid = [];
+  final Random _rng = Random();
+  double _urbanLeakAccumulator = 0.0; // seconds since last leak-spawn check
 
   // Industrial phase state
   int industrialSystemsUpgraded = 0;
@@ -1323,23 +1341,141 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   }
 
   void startUrbanPhase() {
-    currentPhase = 5; // Urban supply
+    currentPhase = 5;
     urbanHouseholdsConnected = 0;
     urbanPipesLaid = 0;
     urbanProgress = 0.0;
     urbanPhaseComplete = false;
     urbanResult = '';
     urbanTimeLeft = 90.0;
-    urbanTimerRunning = false;
-    _setupUrbanPhase();
-  }
+    urbanTimerRunning = true;
+    _urbanLeakAccumulator = 0.0;
 
-  void _setupUrbanPhase() async {
+    // Clean up previous phase components
     removeAll(children.whereType<WaterTileComponent>());
     removeAll(children.whereType<EnhancedRiverComponent>());
     removeAll(children.whereType<FurrowRenderComponent>());
-    await Future.delayed(const Duration(milliseconds: 100));
+
+    // ── Initialise 5×5 pipe-puzzle grid ──────────────────────────────────
+    urbanGrid = List.generate(
+        5, (r) => List.generate(5, (c) => UrbanTile(type: 'empty')));
+
+    // Fixed reservoir at top-left
+    urbanGrid[0][0] = UrbanTile(type: 'reservoir', rotation: 0);
+
+    // Randomly place 5 households — prefer cells farther from reservoir
+    int placed = 0;
+    while (placed < 5) {
+      int r = _rng.nextInt(5);
+      int c = _rng.nextInt(5);
+      if (urbanGrid[r][c].type == 'empty' && (r + c > 2)) {
+        urbanGrid[r][c] = UrbanTile(type: 'house');
+        placed++;
+      }
+    }
+
+    _calculateUrbanFlow();
     resumeEngine();
+  }
+
+  // ── Tile-tap handler ────────────────────────────────────────────────────
+  void handleUrbanTileTap(int r, int c) {
+    if (urbanPhaseComplete) return;
+
+    final tile = urbanGrid[r][c];
+
+    if (tile.isLeaking) {
+      // Fix the leak
+      tile.isLeaking = false;
+    } else if (tile.type == 'empty') {
+      // Place a straight pipe
+      tile.type = 'straight';
+      tile.rotation = 0;
+    } else if (tile.type == 'straight' || tile.type == 'corner') {
+      tile.rotation = (tile.rotation + 1) % 4;
+      // Cycle straight → corner → empty
+      if (tile.rotation == 0 && tile.type == 'straight') {
+        tile.type = 'corner';
+      } else if (tile.rotation == 0 && tile.type == 'corner') {
+        tile.type = 'empty';
+      }
+    }
+
+    _calculateUrbanFlow();
+  }
+
+  // ── BFS pressure/flow calculation ──────────────────────────────────────
+  void _calculateUrbanFlow() {
+    // Reset every tile
+    for (var row in urbanGrid) {
+      for (var tile in row) {
+        tile.isConnected = false;
+        tile.pressure    = 0.0;
+      }
+    }
+
+    // BFS from reservoir [0,0]
+    final queue = <List<int>>[[0, 0]];
+    urbanGrid[0][0].isConnected = true;
+    urbanGrid[0][0].pressure    = 100.0;
+
+    while (queue.isNotEmpty) {
+      final pos = queue.removeAt(0);
+      final r = pos[0], c = pos[1];
+      final currentP = urbanGrid[r][c].pressure;
+
+      final neighbors = <List<int>>[
+        [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]
+      ];
+
+      for (final n in neighbors) {
+        final nr = n[0], nc = n[1];
+        if (nr < 0 || nr >= 5 || nc < 0 || nc >= 5) continue;
+
+        final next = urbanGrid[nr][nc];
+        if (!next.isConnected && next.type != 'empty') {
+          // Leaking pipes drop pressure significantly
+          final drop = next.isLeaking ? 25.0 : 5.0;
+          next.pressure = (currentP - drop).clamp(0.0, 100.0);
+
+          if (next.pressure > 10) {
+            next.isConnected = true;
+            queue.add([nr, nc]);
+          }
+        }
+      }
+    }
+
+    // Tally connected households with sufficient pressure (>30)
+    int connectedHouses = 0;
+    for (var row in urbanGrid) {
+      for (var tile in row) {
+        if (tile.type == 'house' && tile.isConnected && tile.pressure > 30) {
+          connectedHouses++;
+        }
+      }
+    }
+
+    urbanHouseholdsConnected = connectedHouses;
+    urbanProgress = (connectedHouses / 5.0).clamp(0.0, 1.0);
+    onUrbanUpdate?.call(urbanHouseholdsConnected, urbanProgress);
+
+    if (connectedHouses == 5) {
+      _completeUrbanPhase();
+    }
+  }
+
+  // ── Random leak spawner ─────────────────────────────────────────────────
+  void _spawnUrbanLeak() {
+    if (_rng.nextDouble() < 0.10) {
+      final r = _rng.nextInt(5);
+      final c = _rng.nextInt(5);
+      final tile = urbanGrid[r][c];
+      if (tile.type == 'straight' || tile.type == 'corner') {
+        tile.isLeaking = true;
+        _calculateUrbanFlow();
+      }
+    }
   }
 
   void connectUrbanHousehold() {
@@ -1448,6 +1584,14 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     if (currentPhase != 5 || !urbanTimerRunning || urbanPhaseComplete) return;
     urbanTimeLeft = (urbanTimeLeft - dt).clamp(0, 90.0);
     onUrbanTick?.call(urbanTimeLeft);
+
+    // Try spawning a leak every ~5 seconds
+    _urbanLeakAccumulator += dt;
+    if (_urbanLeakAccumulator >= 5.0 && urbanGrid.isNotEmpty) {
+      _urbanLeakAccumulator = 0.0;
+      _spawnUrbanLeak();
+    }
+
     if (urbanTimeLeft <= 0) _completeUrbanPhase();
   }
 

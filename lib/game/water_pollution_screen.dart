@@ -81,7 +81,6 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
 
   // Urban water supply phase state
   int _urbanHouseholds = 0;
-  double _urbanProgress = 0.0;
   double _urbanTimeLeft = 90.0;
   bool _showUrbanResult = false;
   String _urbanResult = '';
@@ -236,7 +235,6 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     game.onUrbanUpdate = (households, progress) {
       safeSetState(() {
         _urbanHouseholds = households;
-        _urbanProgress = progress;
       });
     };
 
@@ -3246,164 +3244,286 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
     if (_showUrbanResult) return _buildUrbanResultOverlay(isMobile);
+
+    // The pipe-puzzle grid is a pure Flutter overlay — no Flame canvas needed.
     return _buildUrbanGameplay(size, isMobile);
   }
 
   Widget _buildUrbanGameplay(Size size, bool isMobile) {
-    final tl = _urbanTimeLeft.toInt().clamp(0, 999);
-    final timerStr = '${(tl ~/ 60).toString().padLeft(2, '0')}:${(tl % 60).toString().padLeft(2, '0')}';
-    final timerWarn = _urbanTimeLeft < 20;
+    // Guard: grid not yet initialised (shouldn't happen, but avoids range errors)
+    if (game.urbanGrid.isEmpty) {
+      return const Center(child: CircularProgressIndicator(color: Colors.cyan));
+    }
 
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF0A1E35), Color(0xFF051428)],
-        ),
-      ),
-      child: SafeArea(
-        child: Column(children: [
-          // HUD
-          Container(
-            margin: EdgeInsets.all(isMobile ? 10 : 14),
-            padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 16, vertical: isMobile ? 10 : 12),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.4), width: 1.5),
-            ),
-            child: Row(children: [
-              Container(width: 7, height: 7, decoration: BoxDecoration(
-                color: const Color(0xFF29B6F6), shape: BoxShape.circle,
-                boxShadow: [BoxShadow(color: const Color(0xFF29B6F6), blurRadius: 5)])),
-              const SizedBox(width: 8),
-              Text('PHASE 4  ·  URBAN WATER SUPPLY',
-                style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
-                  color: const Color(0xFF29B6F6), fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: timerWarn ? Colors.red.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.07),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: timerWarn ? Colors.red : Colors.white24)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.timer, color: timerWarn ? Colors.red : Colors.white54, size: 13),
-                  const SizedBox(width: 4),
-                  Text(timerStr, style: GoogleFonts.exo2(
-                    fontSize: isMobile ? 13 : 15, color: timerWarn ? Colors.red : Colors.white,
-                    fontWeight: FontWeight.w900)),
-                ]),
-              ),
-            ]),
-          ),
-          // Progress
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
-            child: Column(children: [
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                Text('Households Connected', style: GoogleFonts.exo2(
-                  fontSize: isMobile ? 12 : 13, color: Colors.white60, fontWeight: FontWeight.w600)),
-                Text('$_urbanHouseholds / ${game.urbanTotalHouseholds}',
-                  style: GoogleFonts.exo2(fontSize: isMobile ? 14 : 16,
-                    color: const Color(0xFF29B6F6), fontWeight: FontWeight.w900)),
-              ]),
-              const SizedBox(height: 6),
-              ClipRRect(borderRadius: BorderRadius.circular(6),
-                child: LinearProgressIndicator(
-                  value: _urbanProgress,
-                  backgroundColor: Colors.white.withValues(alpha: 0.08),
-                  valueColor: const AlwaysStoppedAnimation(Color(0xFF29B6F6)),
-                  minHeight: 8)),
-            ]),
-          ),
-          SizedBox(height: isMobile ? 12 : 20),
-          // Instruction
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
-            child: Container(
-              padding: EdgeInsets.all(isMobile ? 10 : 14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF29B6F6).withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.25))),
-              child: Row(children: [
-                const Icon(Icons.info_outline, color: Color(0xFF29B6F6), size: 18),
-                const SizedBox(width: 8),
-                Flexible(child: Text(
-                  'Tap each household to connect it to the clean water pipeline.',
-                  style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12, color: Colors.white60))),
-              ]),
-            ),
-          ),
-          SizedBox(height: isMobile ? 16 : 24),
-          // Household grid
+      padding: EdgeInsets.all(isMobile ? 16 : 24),
+      color: const Color(0xFF051428),
+      child: Column(
+        children: [
+          _buildUrbanHUD(isMobile),
+          const SizedBox(height: 16),
+          // ── Pipe-puzzle grid ───────────────────────────────────────────
           Expanded(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 20),
+            child: AspectRatio(
+              aspectRatio: 1,
               child: GridView.builder(
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12,
-                  childAspectRatio: 0.85),
-                itemCount: game.urbanTotalHouseholds,
-                itemBuilder: (ctx, i) => _buildHouseholdCard(i, isMobile),
+                  crossAxisCount: 5,
+                  crossAxisSpacing: 4,
+                  mainAxisSpacing: 4,
+                ),
+                itemCount: 25,
+                itemBuilder: (context, index) {
+                  final r = index ~/ 5;
+                  final c = index % 5;
+                  return _buildUrbanTile(r, c, isMobile);
+                },
               ),
             ),
           ),
-          SizedBox(height: isMobile ? 10 : 16),
-        ]),
-      ),
-    );
-  }
-
-  final List<bool> _householdsConnected = List.generate(6, (_) => false);
-
-  Widget _buildHouseholdCard(int index, bool isMobile) {
-    final connected = _householdsConnected[index];
-    return GestureDetector(
-      onTap: connected ? null : () {
-        setState(() => _householdsConnected[index] = true);
-        game.connectUrbanHousehold();
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeOutBack,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft, end: Alignment.bottomRight,
-            colors: connected
-                ? [const Color(0xFF29B6F6).withValues(alpha: 0.3), const Color(0xFF0288D1).withValues(alpha: 0.2)]
-                : [Colors.white.withValues(alpha: 0.06), Colors.white.withValues(alpha: 0.03)]),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: connected ? const Color(0xFF29B6F6) : Colors.white24, width: 1.5),
-          boxShadow: connected ? [BoxShadow(
-            color: const Color(0xFF29B6F6).withValues(alpha: 0.25), blurRadius: 12)] : [],
-        ),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text(connected ? '🏠' : '🏚', style: TextStyle(fontSize: isMobile ? 32 : 40)),
+          const SizedBox(height: 8),
+          _buildLeakWarning(isMobile),
           const SizedBox(height: 6),
-          Text('House ${index + 1}', style: GoogleFonts.exo2(
-            fontSize: isMobile ? 10 : 11, color: Colors.white70, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
+          // Hint bar
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            padding: EdgeInsets.symmetric(
+                horizontal: isMobile ? 12 : 16, vertical: isMobile ? 6 : 8),
             decoration: BoxDecoration(
-              color: connected
-                  ? const Color(0xFF29B6F6).withValues(alpha: 0.2)
-                  : Colors.white.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(8)),
-            child: Text(connected ? '💧 Connected' : 'Tap to connect',
-              style: GoogleFonts.exo2(fontSize: isMobile ? 8 : 9,
-                color: connected ? const Color(0xFF29B6F6) : Colors.white38,
-                fontWeight: FontWeight.w700)),
+              color: Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(8),
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.touch_app_rounded,
+                    color: Colors.cyan, size: 14),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Tap empty cells to place pipes • Tap pipes to rotate • Tap leaks to fix them',
+                    style: GoogleFonts.exo2(
+                        fontSize: isMobile ? 9 : 10,
+                        color: Colors.white54,
+                        fontWeight: FontWeight.w500),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ]),
+        ],
       ),
     );
   }
+
+  Widget _buildUrbanTile(int r, int c, bool isMobile) {
+    final tile = game.urbanGrid[r][c];
+    final tileColor =
+        tile.isConnected ? Colors.cyan : Colors.white.withValues(alpha: 0.25);
+    final borderColor = tile.isLeaking
+        ? Colors.red
+        : tileColor.withValues(alpha: 0.35);
+
+    return GestureDetector(
+      onTap: () => setState(() => game.handleUrbanTileTap(r, c)),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: tile.isConnected
+              ? Colors.cyan.withValues(alpha: 0.08)
+              : Colors.white.withValues(alpha: 0.04),
+          border: Border.all(color: borderColor, width: tile.isLeaking ? 2 : 1),
+          borderRadius: BorderRadius.circular(4),
+          boxShadow: tile.isConnected
+              ? [
+                  BoxShadow(
+                      color: Colors.cyan.withValues(alpha: 0.20),
+                      blurRadius: 6)
+                ]
+              : [],
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // ── Tile icon ──────────────────────────────────────────────
+            if (tile.type == 'reservoir')
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.water_damage,
+                      color: Colors.cyan, size: isMobile ? 22 : 28),
+                  Text('SRC',
+                      style: GoogleFonts.exo2(
+                          fontSize: 7,
+                          color: Colors.cyan,
+                          fontWeight: FontWeight.w700)),
+                ],
+              )
+            else if (tile.type == 'house')
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    tile.isConnected && tile.pressure > 30
+                        ? Icons.home
+                        : Icons.home_outlined,
+                    color: tile.isConnected && tile.pressure > 30
+                        ? Colors.greenAccent
+                        : Colors.white38,
+                    size: isMobile ? 20 : 26,
+                  ),
+                  if (tile.isConnected && tile.pressure > 30)
+                    Text('${tile.pressure.toInt()}%',
+                        style: GoogleFonts.exo2(
+                            fontSize: 7,
+                            color: Colors.greenAccent,
+                            fontWeight: FontWeight.w700)),
+                ],
+              )
+            else if (tile.type == 'straight')
+              Transform.rotate(
+                angle: tile.rotation * 1.5708,
+                child: Icon(Icons.horizontal_rule_rounded,
+                    color: tile.isConnected ? Colors.cyan : Colors.white30,
+                    size: isMobile ? 22 : 28),
+              )
+            else if (tile.type == 'corner')
+              Transform.rotate(
+                angle: tile.rotation * 1.5708,
+                child: Icon(Icons.turn_right_rounded,
+                    color: tile.isConnected ? Colors.cyan : Colors.white30,
+                    size: isMobile ? 22 : 28),
+              )
+            else
+              // Empty cell — show faint + placeholder
+              Icon(Icons.add_rounded,
+                  color: Colors.white.withValues(alpha: 0.10),
+                  size: isMobile ? 16 : 20),
+
+            // ── Leak overlay ────────────────────────────────────────────
+            if (tile.isLeaking)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Icon(Icons.water_rounded,
+                      color: Colors.blueAccent.withValues(alpha: 0.85),
+                      size: isMobile ? 20 : 26),
+                ),
+              ),
+
+            // ── Pressure badge (pipes only) ────────────────────────────
+            if (tile.isConnected &&
+                tile.pressure > 0 &&
+                tile.type != 'house' &&
+                tile.type != 'reservoir')
+              Positioned(
+                bottom: 2,
+                right: 3,
+                child: Text('${tile.pressure.toInt()}',
+                    style: GoogleFonts.exo2(
+                        fontSize: 6,
+                        color: Colors.cyan.withValues(alpha: 0.70),
+                        fontWeight: FontWeight.w700)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUrbanHUD(bool isMobile) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+          horizontal: isMobile ? 12 : 16, vertical: isMobile ? 8 : 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+        border:
+            Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _statItem('🏠 Connected',
+              '${game.urbanHouseholdsConnected}/5', Colors.greenAccent, isMobile),
+          _statItem('⏱ Time',
+              '${_urbanTimeLeft.toInt()}s',
+              _urbanTimeLeft < 20 ? Colors.red : Colors.orangeAccent,
+              isMobile),
+          _statItem('💧 Efficiency',
+              '${(game.urbanProgress * 100).toInt()}%', Colors.cyan, isMobile),
+        ],
+      ),
+    );
+  }
+
+  Widget _statItem(
+      String label, String value, Color color, bool isMobile) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label,
+            style: GoogleFonts.exo2(
+                fontSize: isMobile ? 9 : 10,
+                color: Colors.white54,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 2),
+        Text(value,
+            style: GoogleFonts.exo2(
+                fontSize: isMobile ? 14 : 16,
+                color: color,
+                fontWeight: FontWeight.w900)),
+      ],
+    );
+  }
+
+  Widget _buildLeakWarning(bool isMobile) {
+    bool hasLeak = false;
+    for (final row in game.urbanGrid) {
+      for (final t in row) {
+        if (t.isLeaking) hasLeak = true;
+      }
+    }
+
+    return AnimatedOpacity(
+      opacity: hasLeak ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 300),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+            horizontal: isMobile ? 12 : 16, vertical: isMobile ? 6 : 8),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.warning_amber_rounded,
+                color: Colors.redAccent, size: 16),
+            const SizedBox(width: 6),
+            Text(
+              '⚠️  PIPE LEAK DETECTED!  PRESSURE DROPPING!',
+              style: GoogleFonts.exo2(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.w800,
+                  fontSize: isMobile ? 11 : 13,
+                  letterSpacing: 0.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // _buildHouseholdCard removed — urban phase now uses the 5×5 pipe-puzzle grid
+  // (see _buildUrbanGameplay / _buildUrbanTile above)
 
   Widget _buildUrbanResultOverlay(bool isMobile) {
     final isExcellent = _urbanResult == 'excellent';
