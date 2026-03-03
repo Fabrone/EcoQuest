@@ -4735,141 +4735,166 @@ class ModernAgricultureBackground extends PositionComponent {
 typedef UnifiedAgricultureBackground = ModernAgricultureBackground;
 
 
-/// Stylised crop component — rendered on Flame canvas
+// ─────────────────────────────────────────────────────────────────────────────
+// CropComponent — Emoji-based realistic crop with 4 growth stages
+// Stages: 0=seed(dormant) 1=sprout 2=growing 3=mature
+// Each crop type has its own emoji progression and soil-moisture visual
+// ─────────────────────────────────────────────────────────────────────────────
 class CropComponent extends PositionComponent {
-  final String cropType; // 'vegetables' | 'maize' | 'rice'
-  int growthStage = 0;   // 0=seed, 1=sprout, 2=growing, 3=mature
+  final String cropType; // 'vegetables'|'maize'|'rice'|'wheat'|'sugarcane'|'tomatoes'
+  int growthStage = 0;
   double _animTime = 0.0;
+  double _pulsePhase = 0.0;
+  double _burstTimer = 0.0;
+  // Per-crop staggered offset so not all crops animate in sync
+  final double _phaseOffset;
 
   CropComponent({
     required this.cropType,
     required Vector2 position,
     required Vector2 size,
-  }) : super(position: position, size: size, priority: 20) {
+    double phaseOffset = 0.0,
+  })  : _phaseOffset = phaseOffset,
+        super(position: position, size: size, priority: 20) {
     anchor = Anchor.bottomCenter;
   }
+
+  /// Emoji sets per crop — indexed by growthStage (0-3)
+  static const Map<String, List<String>> _emojiStages = {
+    'vegetables': ['🌱', '🌿', '🥬', '🥦'],
+    'maize':      ['🌱', '🌿', '🌾', '🌽'],
+    'rice':       ['🌱', '🌿', '🌾', '🍚'],
+    'wheat':      ['🌱', '🌿', '🌾', '🌾'],
+    'sugarcane':  ['🌱', '🌿', '🎋', '🧃'],
+    'tomatoes':   ['🌱', '🌿', '🍅', '🍅'],
+  };
+
+  /// Soil moisture tint per stage (rendered as soil blob behind emoji)
+  static const Map<int, Color> _soilColors = {
+    0: Color(0xFF5D4037), // dry brown
+    1: Color(0xFF6D4C41), // slightly moist
+    2: Color(0xFF4E342E), // moist dark
+    3: Color(0xFF3E2723), // rich wet soil
+  };
+
+  /// Water-drop accent colour per crop type
+  static const Map<String, Color> _cropAccent = {
+    'vegetables': Color(0xFF69F0AE),
+    'maize':      Color(0xFFFFD54F),
+    'rice':       Color(0xFF4FC3F7),
+    'wheat':      Color(0xFFFFCC02),
+    'sugarcane':  Color(0xFF00E676),
+    'tomatoes':   Color(0xFFFF5252),
+  };
+
+  int _lastRenderedStage = -1;
 
   @override
   void update(double dt) {
     super.update(dt);
     _animTime += dt;
+    _pulsePhase += dt * 3.0;
+    if (_burstTimer > 0) _burstTimer = (_burstTimer - dt).clamp(0, 1);
+
+    // Detect stage advancement for burst effect
+    if (growthStage != _lastRenderedStage) {
+      if (growthStage > _lastRenderedStage) {
+        _burstTimer = 0.6;
+      }
+      _lastRenderedStage = growthStage;
+    }
   }
 
   @override
   void render(Canvas canvas) {
-    if (growthStage == 0) return; // Not sprouted yet
-    canvas.save();
     final cx = size.x / 2;
-    final base = size.y;
-    switch (cropType) {
-      case 'vegetables': _renderVegetable(canvas, cx, base); break;
-      case 'maize':      _renderMaize(canvas, cx, base); break;
-      case 'rice':       _renderRice(canvas, cx, base); break;
+
+    // ── 1. Soil blob ───────────────────────────────────────────────────────
+    final soilColor = _soilColors[growthStage] ?? const Color(0xFF5D4037);
+    final moistureFrac = growthStage / 3.0;
+    // Soil patch — ellipse at bottom
+    final soilPaint = Paint()
+      ..color = soilColor.withValues(alpha: 0.75 + moistureFrac * 0.2)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(cx, size.y - 3),
+        width: size.x * (0.7 + moistureFrac * 0.3),
+        height: 6 + moistureFrac * 4,
+      ),
+      soilPaint,
+    );
+
+    // ── 2. Stage 0 — dormant seed dot ─────────────────────────────────────
+    if (growthStage == 0) {
+      final seedPaint = Paint()..color = const Color(0xFF8D6E63).withValues(alpha: 0.6);
+      canvas.drawCircle(Offset(cx, size.y - 6), 3.5, seedPaint);
+      return;
     }
+
+    // ── 3. Sway animation ─────────────────────────────────────────────────
+    final sway = sin(_animTime * (1.0 + _phaseOffset * 0.5) + _phaseOffset) *
+        (growthStage == 1 ? 0.8 : growthStage == 2 ? 1.4 : 1.8);
+
+    // ── 4. Growth scale ───────────────────────────────────────────────────
+    double scale = growthStage == 1 ? 0.55
+        : growthStage == 2 ? 0.78
+        : 1.0;
+
+    // Burst pop when just advanced
+    if (_burstTimer > 0) {
+      final burst = sin(_burstTimer / 0.6 * pi);
+      scale += burst * 0.20;
+    }
+
+    // Subtle breathing pulse at maturity
+    if (growthStage == 3) {
+      scale += sin(_pulsePhase + _phaseOffset) * 0.04;
+    }
+
+    // ── 5. Water drop sparkle (micro drops above plant when irrigated) ────
+    if (growthStage >= 2) {
+      final accent = _cropAccent[cropType] ?? const Color(0xFF4FC3F7);
+      final dropPaint = Paint()..color = accent.withValues(alpha: 0.55);
+      for (int d = 0; d < 3; d++) {
+        final angle = _animTime * 1.2 + _phaseOffset + d * (2 * pi / 3);
+        final r = size.x * 0.38;
+        final dx = cx + cos(angle) * r;
+        final dy = (size.y * 0.25) + sin(angle * 0.7) * 4;
+        canvas.drawCircle(Offset(dx, dy), 1.8 - d * 0.3, dropPaint);
+      }
+    }
+
+    // ── 6. Emoji text painter ─────────────────────────────────────────────
+    final stages = _emojiStages[cropType] ?? _emojiStages['maize']!;
+    final emoji = stages[growthStage.clamp(0, 3)];
+
+    canvas.save();
+    canvas.translate(cx + sway, size.y * 0.12);
+    canvas.scale(scale, scale);
+
+    final tp = TextPainter(
+      text: TextSpan(
+        text: emoji,
+        style: TextStyle(fontSize: size.x * 0.95, height: 1.0),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+
     canvas.restore();
-  }
 
-  void _renderVegetable(Canvas canvas, double cx, double base) {
-    final stageFrac = growthStage / 3.0;
-    final h = size.y * 0.55 * stageFrac;
-    final sway = sin(_animTime * 1.2) * 1.5;
-
-    // Stem
-    final stemPaint = Paint()..color = const Color(0xFF388E3C)..strokeWidth = 2..style = PaintingStyle.stroke;
-    canvas.drawLine(Offset(cx, base), Offset(cx + sway, base - h), stemPaint);
-
-    // Leaves
-    if (growthStage >= 2) {
-      final leafPaint = Paint()..color = const Color(0xFF4CAF50);
-      for (int i = 0; i < 3; i++) {
-        final lh = base - h * (0.3 + i * 0.25);
-        final lw = size.x * 0.35 * stageFrac;
-        final side = i % 2 == 0 ? 1 : -1;
-        final leafPath = Path()
-          ..moveTo(cx + sway, lh)
-          ..quadraticBezierTo(cx + side * lw * 1.2, lh - 6, cx + side * lw, lh + 4)
-          ..quadraticBezierTo(cx + sway * 0.5, lh + 2, cx + sway, lh);
-        canvas.drawPath(leafPath, leafPaint);
-      }
-    }
-
-    // Head (lettuce/cabbage blob when mature)
+    // ── 7. Stage label (tiny, only stage 3) ───────────────────────────────
     if (growthStage == 3) {
+      final accent = _cropAccent[cropType] ?? const Color(0xFF69F0AE);
+      final glowPaint = Paint()
+        ..color = accent.withValues(alpha: 0.18 + sin(_pulsePhase) * 0.08)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0);
       canvas.drawCircle(
-        Offset(cx + sway, base - h - 5),
-        size.x * 0.3,
-        Paint()..color = const Color(0xFF66BB6A),
+        Offset(cx, size.y * 0.35),
+        size.x * 0.48,
+        glowPaint,
       );
-    }
-  }
-
-  void _renderMaize(Canvas canvas, double cx, double base) {
-    final stageFrac = growthStage / 3.0;
-    final h = size.y * 0.85 * stageFrac;
-    final sway = sin(_animTime * 0.8) * 2.0;
-
-    // Main stalk
-    final stalkPaint = Paint()..color = const Color(0xFF558B2F)..strokeWidth = 3..style = PaintingStyle.stroke;
-    canvas.drawLine(Offset(cx, base), Offset(cx + sway, base - h), stalkPaint);
-
-    // Long leaves
-    if (growthStage >= 2) {
-      final leafPaint = Paint()..color = const Color(0xFF8BC34A)..strokeWidth = 3..style = PaintingStyle.stroke;
-      for (int i = 1; i <= 3; i++) {
-        final lh = base - h * (i * 0.28);
-        final dir = i % 2 == 0 ? 1 : -1;
-        final lw = size.x * 0.5;
-        canvas.drawLine(Offset(cx + sway, lh), Offset(cx + sway + dir * lw, lh - 10), leafPaint);
-      }
-    }
-
-    // Cob when mature
-    if (growthStage == 3) {
-      final cobPaint = Paint()..color = const Color(0xFFFFB300);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(center: Offset(cx + sway + 8, base - h * 0.6), width: 7, height: 14),
-          const Radius.circular(3),
-        ),
-        cobPaint,
-      );
-      // Silk
-      canvas.drawLine(
-        Offset(cx + sway + 8, base - h * 0.6 - 7),
-        Offset(cx + sway + 12, base - h * 0.6 - 13),
-        Paint()..color = const Color(0xFFFFF9C4)..strokeWidth = 1.5,
-      );
-    }
-  }
-
-  void _renderRice(Canvas canvas, double cx, double base) {
-    final stageFrac = growthStage / 3.0;
-    final h = size.y * 0.65 * stageFrac;
-    final sway = sin(_animTime * 1.5 + cx * 0.1) * 2.5;
-
-    // Thin stalks (cluster of 3)
-    final stalkPaint = Paint()..color = const Color(0xFF9CCC65)..strokeWidth = 1.5..style = PaintingStyle.stroke;
-    for (int s = -1; s <= 1; s++) {
-      canvas.drawLine(
-        Offset(cx + s * 3, base),
-        Offset(cx + s * 2 + sway, base - h),
-        stalkPaint,
-      );
-    }
-
-    // Rice grains at top when growing / mature
-    if (growthStage >= 2) {
-      final grainColor = growthStage == 3 ? const Color(0xFFF9A825) : const Color(0xFFCDDC39);
-      final grainPaint = Paint()..color = grainColor;
-      for (int g = 0; g < 5; g++) {
-        final angle = -pi / 2 + (g - 2) * 0.28 + sway * 0.05;
-        final gx = cx + sway + cos(angle) * 5;
-        final gy = base - h + sin(angle) * 3;
-        canvas.drawOval(
-          Rect.fromCenter(center: Offset(gx, gy), width: 4, height: 6),
-          grainPaint,
-        );
-      }
     }
   }
 }

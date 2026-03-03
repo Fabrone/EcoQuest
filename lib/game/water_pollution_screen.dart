@@ -112,9 +112,10 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   bool    _showHarvestResult = false;
   String  _harvestResult  = '';
   String  _educationalTip = '';
-  double  _farmGreenProgress = 0.0;
-  int     _connectedChannels = 0;
-  double  _irrigationTimeLeft = 90.0;
+  double  _farmGreenProgress  = 0.0;
+  double  _rawWaterProgress    = 0.0;
+  int     _connectedChannels  = 0;
+  double  _irrigationTimeLeft = 30.0;
   
   @override
   void initState() {
@@ -220,9 +221,10 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
       });
     };
 
-    game.onFarmUpdate = (greenProgress, connected) {
+    game.onFarmUpdate = (greenProgress, connected, rawProgress) {
       safeSetState(() {
         _farmGreenProgress = greenProgress;
+        _rawWaterProgress  = rawProgress;
         _connectedChannels = connected;
       });
     };
@@ -2452,7 +2454,26 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     final isMobile = size.width < 600;
 
     // ── Show harvest result overlay ────────────────────────────────────────
-    if (_showHarvestResult) return _buildHarvestResultOverlay(isMobile);
+    if (_showHarvestResult) {
+      return Material(
+        type: MaterialType.transparency,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF040E04), Color(0xFF020802)],
+                ),
+              ),
+            ),
+            _buildHarvestResultOverlay(isMobile),
+          ],
+        ),
+      );
+    }
 
     // ── Step 1: Crop selection ─────────────────────────────────────────────
     if (!_cropSelected) return _buildCropSelectionScreen(size, isMobile);
@@ -2509,13 +2530,29 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 style: GoogleFonts.exo2(fontSize: isMobile ? 24 : 30,
                   color: Colors.white, fontWeight: FontWeight.w900)),
               SizedBox(height: isMobile ? 6 : 10),
-              Text('The crop you select will determine the irrigation method needed for a bountiful harvest.',
+              Text('Study the crop\'s traits carefully — the right irrigation method is yours to discover.',
                 style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
                   color: Colors.white54, fontWeight: FontWeight.w500),
                 textAlign: TextAlign.center),
+              SizedBox(height: isMobile ? 4 : 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.35)),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.psychology_rounded, color: Colors.amber, size: 13),
+                  const SizedBox(width: 5),
+                  Text('No irrigation hints — figure it out from the clues!',
+                    style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+                      color: Colors.amber, fontWeight: FontWeight.w600)),
+                ]),
+              ),
               SizedBox(height: isMobile ? 20 : 28),
               // Crop cards
-              ...['vegetables', 'maize', 'rice'].map((crop) =>
+              ..._cropData.keys.map((crop) =>
                   _buildCropCard(crop, isMobile)),
             ],
           ),
@@ -2578,12 +2615,15 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: (data['color'] as Color).withValues(alpha: 0.2),
+                      color: (data['color'] as Color).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: (data['color'] as Color).withValues(alpha: 0.25)),
                     ),
-                    child: Text('Ideal: ${data["ideal"] as String}',
-                      style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
-                        color: data['color'] as Color, fontWeight: FontWeight.w700)),
+                    child: Text(data['clue'] as String,
+                      style: GoogleFonts.exo2(fontSize: isMobile ? 9 : 10,
+                        color: (data['color'] as Color).withValues(alpha: 0.9),
+                        fontWeight: FontWeight.w600)),
                   ),
                 ],
               ),
@@ -2600,21 +2640,39 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   static const Map<String, Map<String, dynamic>> _cropData = {
     'vegetables': {
       'emoji': '🥦', 'name': 'Vegetables',
-      'desc': 'Shallow-rooted crops needing precise, gentle watering.',
-      'ideal': 'Drip Pipes',
+      'desc': 'Shallow-rooted leafy crops. Sensitive to excess moisture on leaves and uneven watering.',
+      'clue': '🔍 Root depth: shallow  •  Water sensitivity: high',
       'color': Color(0xFF69F0AE),
     },
     'maize': {
       'emoji': '🌽', 'name': 'Maize',
-      'desc': 'Deep-rooted row crop — tunnel furrows deliver water between rows.',
-      'ideal': 'Furrow (2–4 tunnels)',
+      'desc': 'Tall row crop with deep roots that grow between planted rows.',
+      'clue': '🔍 Root depth: deep  •  Grows in: rows  •  Water need: moderate',
       'color': Color(0xFFFFD54F),
     },
     'rice': {
       'emoji': '🌾', 'name': 'Rice',
-      'desc': 'Paddy crop — needs flooded fields with many furrows.',
-      'ideal': 'Flood Furrows (5+)',
+      'desc': 'Paddy grain that thrives when soil is continuously saturated.',
+      'clue': '🔍 Soil type: flooded paddy  •  Water need: very high',
       'color': Color(0xFF4FC3F7),
+    },
+    'wheat': {
+      'emoji': '🌾', 'name': 'Wheat',
+      'desc': 'Cereal grain with wide-spreading roots across broad open fields.',
+      'clue': '🔍 Root spread: wide  •  Water need: moderate  •  Hates: waterlogging',
+      'color': Color(0xFFFFCC02),
+    },
+    'sugarcane': {
+      'emoji': '🎋', 'name': 'Sugarcane',
+      'desc': 'Tall, water-intensive stalks planted in dense rows with deep root systems.',
+      'clue': '🔍 Root depth: very deep  •  Water need: high  •  Risk: root rot',
+      'color': Color(0xFF00E676),
+    },
+    'tomatoes': {
+      'emoji': '🍅', 'name': 'Tomatoes',
+      'desc': 'Fruiting plant highly prone to fungal disease when foliage gets wet.',
+      'clue': '🔍 Disease risk: foliar  •  Water need: steady  •  Root: moderate',
+      'color': Color(0xFFFF5252),
     },
   };
 
@@ -2657,9 +2715,9 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                         Text('Growing: ${cropInfo["name"]}',
                           style: GoogleFonts.exo2(fontSize: isMobile ? 14 : 16,
                             color: Colors.white, fontWeight: FontWeight.w800)),
-                        Text('Recommended: ${cropInfo["ideal"]}',
-                          style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12,
-                            color: cropInfo['color'] as Color,
+                        Text(cropInfo['clue'] as String,
+                          style: GoogleFonts.exo2(fontSize: isMobile ? 10 : 11,
+                            color: (cropInfo['color'] as Color).withValues(alpha: 0.85),
                             fontWeight: FontWeight.w600)),
                       ],
                     )),
@@ -2671,7 +2729,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 style: GoogleFonts.exo2(fontSize: isMobile ? 20 : 26,
                   color: Colors.white, fontWeight: FontWeight.w900)),
               SizedBox(height: isMobile ? 8 : 12),
-              Text('This is your choice — irrigation design affects the harvest!',
+              Text('Use the crop clues to pick the right method — and the right number of channels. Wrong choices mean a poor harvest!',
                 style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 13,
                   color: Colors.white54),
                 textAlign: TextAlign.center),
@@ -2763,7 +2821,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     final int tl = _irrigationTimeLeft.toInt().clamp(0, 999);
     final String timerStr =
         '${(tl ~/ 60).toString().padLeft(2, '0')}:${(tl % 60).toString().padLeft(2, '0')}';
-    final bool timerWarn = _irrigationTimeLeft < 20;
+    final bool timerWarn = _irrigationTimeLeft < 8;
 
     return Stack(
       children: [
@@ -2832,14 +2890,38 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                         isMobile: isMobile,
                       ),
                       SizedBox(width: isMobile ? 8 : 12),
-                      // Farm green progress
-                      _agHUDStat(
-                        icon: Icons.eco_rounded,
-                        value: '${(_farmGreenProgress * 100).toInt()}%',
-                        label: 'GROWTH',
-                        color: _agAccent,
-                        isMobile: isMobile,
-                      ),
+                      Builder(builder: (ctx) {
+                        final overPct = (_rawWaterProgress * 100).toInt();
+                        final isOver  = _rawWaterProgress > 1.0;
+                        return _agHUDStat(
+                          icon: isOver ? Icons.water_damage_rounded : Icons.eco_rounded,
+                          value: '$overPct%',
+                          label: isOver ? 'OVERWATER!' : 'GROWTH',
+                          color: isOver ? const Color(0xFFFF5252) : _agAccent,
+                          isMobile: isMobile,
+                        );
+                      }),
+                      SizedBox(width: isMobile ? 8 : 12),
+                      // Soil-stress indicator — gives engagement feedback without
+                      // revealing the correct irrigation recipe
+                      Builder(builder: (_) {
+                        final timeUsed = 1.0 - (_irrigationTimeLeft / 30.0).clamp(0.0, 1.0);
+                        final soilColor = timeUsed < 0.5
+                            ? const Color(0xFF69F0AE)
+                            : timeUsed < 0.8
+                                ? const Color(0xFFFFD54F)
+                                : const Color(0xFFFF7043);
+                        final soilLabel = timeUsed < 0.5 ? 'FRESH'
+                            : timeUsed < 0.8 ? 'DRY'
+                            : 'STRESSED';
+                        return _agHUDStat(
+                          icon: Icons.grass_rounded,
+                          value: soilLabel,
+                          label: 'SOIL',
+                          color: soilColor,
+                          isMobile: isMobile,
+                        );
+                      }),
                       SizedBox(width: isMobile ? 8 : 12),
                       // Timer
                       AnimatedContainer(
@@ -2996,9 +3078,12 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
     final isAvg    = _harvestResult == 'average';
     final resultColor = isGood ? const Color(0xFF4CAF50)
         : isAvg ? _agAmber : const Color(0xFFFF5252);
-    final resultEmoji = isGood ? '🌟' : isAvg ? '🌿' : '🥀';
+    // Show the actual mature crop emoji for bountiful/average, wilted for poor
+    final matureCropEmoji = _cropData[_selectedCrop ?? 'maize']?['emoji'] as String? ?? '🌾';
+    final resultEmoji = isGood ? matureCropEmoji : isAvg ? '🌿' : '🥀';
     final resultLabel = isGood ? 'BOUNTIFUL HARVEST!'
         : isAvg ? 'AVERAGE HARVEST' : 'POOR HARVEST';
+    final cropName = _cropData[_selectedCrop ?? 'maize']?['name'] as String? ?? 'Crop';
 
     return Container(
       decoration: BoxDecoration(
@@ -3019,7 +3104,12 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
             children: [
               SizedBox(height: isMobile ? 20 : 36),
               Text(resultEmoji, style: TextStyle(fontSize: isMobile ? 64 : 80)),
-              SizedBox(height: isMobile ? 12 : 16),
+              SizedBox(height: isMobile ? 4 : 6),
+              Text(cropName.toUpperCase(),
+                style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+                  color: resultColor.withValues(alpha: 0.7), fontWeight: FontWeight.w700,
+                  letterSpacing: 2.0)),
+              SizedBox(height: isMobile ? 8 : 10),
               Text(resultLabel,
                 style: GoogleFonts.exo2(fontSize: isMobile ? 26 : 32,
                   color: resultColor, fontWeight: FontWeight.w900,
@@ -3037,6 +3127,18 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                   _harvestStatChip(
                     '$_connectedChannels',
                     'Channels', const Color(0xFF29B6F6), isMobile),
+                  SizedBox(width: isMobile ? 8 : 12),
+                  _harvestStatChip(
+                    '${game.harvestYield} kg',
+                    'Yield', isGood ? const Color(0xFF69F0AE) : isAvg ? _agAmber : Colors.redAccent, isMobile),
+                  if (_rawWaterProgress > 1.0) ...[
+                    SizedBox(width: isMobile ? 8 : 12),
+                    _harvestStatChip(
+                      '${(_rawWaterProgress * 100).toInt()}%',
+                      'Water Used',
+                      const Color(0xFFFF5252),
+                      isMobile),
+                  ],
                 ],
               ),
               SizedBox(height: isMobile ? 20 : 28),
@@ -4903,7 +5005,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
         final cropHarvest = game.harvestYield;
         final harvestLabel = game.harvestResult == 'bountiful' ? '🌟 Bountiful'
             : game.harvestResult == 'average' ? '🌿 Average' : '🥀 Poor';
-        final cropEmoji = cropType == 'vegetables' ? '🥦' : cropType == 'maize' ? '🌽' : cropType == 'rice' ? '🌾' : '🌱';
+        final cropEmoji = _cropData[cropType]?['emoji'] as String? ?? '🌱';
         appEmoji = cropEmoji;
         appTitle = 'Agricultural Harvest';
         appColor = const Color(0xFF4CAF50);

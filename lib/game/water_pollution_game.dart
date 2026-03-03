@@ -151,18 +151,19 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
   // Phase 4 — new crop & irrigation system
   String? selectedCrop;       // 'vegetables' | 'maize' | 'rice'
   String? irrigationMethod;   // 'furrow' | 'pipe'
-  double farmGreenProgress = 0.0; // 0.0 brown → 1.0 full green
+  double farmGreenProgress = 0.0; // 0.0 brown → 1.0 full green (clamped)
+  double rawWaterProgress  = 0.0; // unclamped — >1.0 means overwatered
   int connectedChannels = 0;  // furrows or pipes connected to river
   bool phase4Complete = false;
   double phase4Timer = 0.0;   // countdown after crops grow
-  static const double phase4Duration = 90.0; // seconds to irrigate
+  static const double phase4Duration = 30.0; // seconds to irrigate
   double irrigationTimeLeft = phase4Duration;
   bool irrigationTimerRunning = false;
   // Harvest result
   String harvestResult = '';  // 'bountiful' | 'average' | 'poor'
   String educationalTip = '';
   // Callbacks
-  Function(double greenProgress, int connected)? onFarmUpdate;
+  Function(double greenProgress, int connected, double rawProgress)? onFarmUpdate;
   Function(String result, String tip)? onHarvestComplete;
   Function(double timeLeft)? onIrrigationTick;
   // Pipe network (parallel to furrow network)
@@ -1808,6 +1809,7 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     selectedCrop = null;
     irrigationMethod = null;
     farmGreenProgress = 0.0;
+    rawWaterProgress  = 0.0;
     connectedChannels = 0;
     phase4Complete = false;
     phase4Timer = 0.0;
@@ -2256,19 +2258,16 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     }
     _spawnCropsIfNeeded();
     _updateFarmGreenProgress();
-    onFarmUpdate?.call(farmGreenProgress, connectedChannels);
+    onFarmUpdate?.call(farmGreenProgress, connectedChannels, rawWaterProgress);
   }
 
   void _updateFarmGreenProgress() {
-    // Progress increases with each connected channel
-    // Maximum channels for full green depends on crop
     final maxChannels = _maxChannelsForCrop();
-    farmGreenProgress = (connectedChannels / maxChannels).clamp(0.0, 1.0);
-    // Update background
+    rawWaterProgress  = connectedChannels / maxChannels; // can exceed 1.0
+    farmGreenProgress = rawWaterProgress.clamp(0.0, 1.0);
     children.whereType<ModernAgricultureBackground>().forEach((bg) {
       bg.greenProgress = farmGreenProgress;
     });
-    // Update crop growth stages
     children.whereType<CropComponent>().forEach((crop) {
       crop.growthStage = (farmGreenProgress * 3).floor().clamp(0, 3);
     });
@@ -2276,9 +2275,12 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
 
   int _maxChannelsForCrop() {
     switch (selectedCrop) {
-      case 'rice':        return 5; // Many channels
-      case 'maize':       return 3; // Few channels
-      case 'vegetables':  return 2; // Drip — pipes count more
+      case 'rice':        return 5; // Flood irrigation — many channels
+      case 'maize':       return 3; // Tunnel furrows — moderate
+      case 'vegetables':  return 2; // Drip pipes — precise, few
+      case 'wheat':       return 4; // Moderate flood/furrow
+      case 'sugarcane':   return 3; // Furrow between rows
+      case 'tomatoes':    return 2; // Drip — like vegetables
       default:            return 3;
     }
   }
@@ -2288,17 +2290,25 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     if (selectedCrop == null) return;
 
     final farmRect = _getFarmRect();
-    // Determine grid density by crop type
-    final cols = selectedCrop == 'maize' ? 5 : selectedCrop == 'rice' ? 8 : 6;
-    final rows = selectedCrop == 'maize' ? 3 : selectedCrop == 'rice' ? 5 : 4;
+    // Grid density varies per crop — reflects real-world planting density
+    final int cols;
+    final int rows;
+    switch (selectedCrop) {
+      case 'maize':     cols = 5; rows = 3; break;
+      case 'rice':      cols = 8; rows = 5; break;
+      case 'wheat':     cols = 9; rows = 5; break;
+      case 'sugarcane': cols = 4; rows = 3; break;
+      case 'tomatoes':  cols = 6; rows = 4; break;
+      default:          cols = 6; rows = 4; // vegetables
+    }
 
     // Margins so crops never touch the river edge or screen edge
     const double marginH = 24.0;
     const double marginV = 28.0;
     final usableW = farmRect.width  - marginH * 2;
     final usableH = farmRect.height - marginV * 2;
-    final colStep = usableW / (cols - 1);
-    final rowStep = usableH / (rows - 1);
+    final colStep = (cols > 1) ? usableW / (cols - 1) : usableW;
+    final rowStep = (rows > 1) ? usableH / (rows - 1) : usableH;
 
     // Collect all current channel points for exclusion check
     final List<Vector2> channelPts = [
@@ -2306,22 +2316,43 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
       ...pipePaths.expand((p) => p.points),
     ];
 
+    final rng = Random();
+    int idx = 0;
     for (int r = 0; r < rows; r++) {
       for (int c = 0; c < cols; c++) {
-        final baseX = farmRect.left + marginH + c * colStep;
-        final baseY = farmRect.top  + marginV + r * rowStep;
+        // Slight random jitter for a natural look
+        final jitterX = (rng.nextDouble() - 0.5) * 8.0;
+        final jitterY = (rng.nextDouble() - 0.5) * 6.0;
+        final baseX = farmRect.left + marginH + c * colStep + jitterX;
+        final baseY = farmRect.top  + marginV + r * rowStep + jitterY;
 
         // Skip if too close to any channel (within 20px)
         bool tooClose = channelPts.any((pt) =>
             (pt.x - baseX).abs() < 20 && (pt.y - baseY).abs() < 20);
         if (tooClose) continue;
 
+        // Size varies slightly per crop
+        final cropSize = _cropSizeFor(selectedCrop!);
+
         add(CropComponent(
           cropType: selectedCrop!,
           position: Vector2(baseX, baseY),
-          size: Vector2(28, 36),
+          size: cropSize,
+          phaseOffset: (idx * 0.47 + rng.nextDouble() * 0.3),
         ));
+        idx++;
       }
+    }
+  }
+
+  Vector2 _cropSizeFor(String crop) {
+    switch (crop) {
+      case 'maize':     return Vector2(32, 44);
+      case 'rice':      return Vector2(24, 32);
+      case 'wheat':     return Vector2(22, 30);
+      case 'sugarcane': return Vector2(30, 48);
+      case 'tomatoes':  return Vector2(28, 36);
+      default:          return Vector2(28, 36); // vegetables
     }
   }
 
@@ -2344,68 +2375,186 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     final method = irrigationMethod ?? 'furrow';
     final crop   = selectedCrop   ?? 'maize';
 
-    // Correct pairings:
-    //  vegetables → pipe (drip)
-    //  maize      → furrow (tunnel, few channels)
-    //  rice       → furrow (flood, many channels)
+    // ── Correct pairings (hidden from player — must be discovered through play):
+    //  vegetables → pipe (drip),  2+ connections
+    //  maize      → furrow,       2–5 channels
+    //  rice       → furrow,       4+ channels (flood)
+    //  wheat      → furrow,       3–6 channels
+    //  sugarcane  → furrow,       2–4 channels
+    //  tomatoes   → pipe (drip),  2+ connections
+    // Maximum correct channels per crop (exceeding this = overwatered)
+    final int maxCorrectChannels;
+    switch (crop) {
+      case 'vegetables': maxCorrectChannels = 3; break;
+      case 'maize':      maxCorrectChannels = 5; break;
+      case 'rice':       maxCorrectChannels = 8; break;
+      case 'wheat':      maxCorrectChannels = 6; break;
+      case 'sugarcane':  maxCorrectChannels = 4; break;
+      case 'tomatoes':   maxCorrectChannels = 3; break;
+      default:           maxCorrectChannels = 4;
+    }
+
+    // Sensitive crops suffer root rot / blight when overwatered
+    const overSensitiveCrops = ['vegetables', 'tomatoes', 'sugarcane'];
+    final isOverwatered    = connectedChannels > maxCorrectChannels;
+    final isSensitive      = overSensitiveCrops.contains(crop);
+    final overwaterPenalty = isOverwatered && isSensitive;
+
     bool methodCorrect;
     bool channelCountCorrect;
 
-    if (crop == 'vegetables') {
-      methodCorrect      = method == 'pipe';
-      channelCountCorrect = connectedChannels >= 2;
-    } else if (crop == 'maize') {
-      methodCorrect      = method == 'furrow';
-      channelCountCorrect = connectedChannels >= 2 && connectedChannels <= 5;
-    } else { // rice
-      methodCorrect      = method == 'furrow';
-      channelCountCorrect = connectedChannels >= 4;
+    switch (crop) {
+      case 'vegetables':
+        methodCorrect       = method == 'pipe';
+        channelCountCorrect = connectedChannels >= 2 && connectedChannels <= maxCorrectChannels;
+        break;
+      case 'maize':
+        methodCorrect       = method == 'furrow';
+        channelCountCorrect = connectedChannels >= 2 && connectedChannels <= maxCorrectChannels;
+        break;
+      case 'rice':
+        methodCorrect       = method == 'furrow';
+        channelCountCorrect = connectedChannels >= 4 && connectedChannels <= maxCorrectChannels;
+        break;
+      case 'wheat':
+        methodCorrect       = method == 'furrow';
+        channelCountCorrect = connectedChannels >= 3 && connectedChannels <= maxCorrectChannels;
+        break;
+      case 'sugarcane':
+        methodCorrect       = method == 'furrow';
+        channelCountCorrect = connectedChannels >= 2 && connectedChannels <= maxCorrectChannels;
+        break;
+      case 'tomatoes':
+        methodCorrect       = method == 'pipe';
+        channelCountCorrect = connectedChannels >= 2 && connectedChannels <= maxCorrectChannels;
+        break;
+      default:
+        methodCorrect       = method == 'furrow';
+        channelCountCorrect = connectedChannels >= 2 && connectedChannels <= maxCorrectChannels;
     }
 
-    if (methodCorrect && channelCountCorrect) {
-      harvestResult  = 'bountiful';
-      waterEfficiency = 90 + Random().nextInt(10);
-    } else if (methodCorrect || channelCountCorrect) {
-      harvestResult  = 'average';
-      waterEfficiency = 55 + Random().nextInt(20);
-    } else {
-      harvestResult  = 'poor';
+    // Soil-stress: faster irrigation preserves root-zone health
+    final timeUsedFraction = 1.0 - (irrigationTimeLeft / phase4Duration);
+    final soilStressBonus  = timeUsedFraction < 0.5 ? 'optimal'
+        : timeUsedFraction < 0.8 ? 'adequate'
+        : 'stressed';
+
+    if (overwaterPenalty) {
+      harvestResult   = methodCorrect ? 'average' : 'poor';
       waterEfficiency = 20 + Random().nextInt(20);
+    } else if (methodCorrect && channelCountCorrect) {
+      harvestResult   = soilStressBonus == 'stressed' ? 'average' : 'bountiful';
+      waterEfficiency = soilStressBonus == 'optimal'
+          ? 90 + Random().nextInt(10)
+          : 75 + Random().nextInt(15);
+    } else if (methodCorrect || channelCountCorrect) {
+      harvestResult   = 'average';
+      waterEfficiency = 50 + Random().nextInt(25);
+    } else {
+      harvestResult   = 'poor';
+      waterEfficiency = 15 + Random().nextInt(20);
     }
 
-    educationalTip = _buildEducationalTip(crop, method, methodCorrect, channelCountCorrect);
 
-    // Calculate harvest yield
+    educationalTip = _buildEducationalTip(
+        crop, method, methodCorrect, channelCountCorrect, soilStressBonus, overwaterPenalty);
+
+    // Calculate harvest yield (kg)
     harvestYield = harvestResult == 'bountiful' ? 80 + Random().nextInt(40)
-        : harvestResult == 'average' ? 30 + Random().nextInt(30)
-        : 5 + Random().nextInt(15);
+        : harvestResult == 'average'   ? 30 + Random().nextInt(30)
+        : 5  + Random().nextInt(15);
 
-    // Final crop growth flash
+    // Final crop growth flash — all crops burst to mature emoji
     children.whereType<CropComponent>().forEach((c) => c.growthStage = 3);
     children.whereType<ModernAgricultureBackground>().forEach((bg) => bg.greenProgress = 1.0);
 
     onHarvestComplete?.call(harvestResult, educationalTip);
-    // Phase 4 completion is now user-triggered via the Continue button
     pauseEngine();
   }
 
-  String _buildEducationalTip(String crop, String method, bool methodOk, bool countOk) {
-    if (crop == 'vegetables') {
-      if (methodOk && countOk)  return '💧 Drip irrigation delivers water directly to vegetable roots, cutting water use by up to 50% and boosting yields significantly!';
-      if (!methodOk && method == 'furrow') return '🌿 Vegetables have shallow roots. Furrow irrigation wastes water through run-off. Drip pipes deliver water precisely where needed.';
-      return '🌿 Try connecting more drip pipes to ensure every plant gets water.';
+  String _buildEducationalTip(String crop, String method, bool methodOk,
+      bool countOk, String soilStress, bool overwatered) {
+    if (overwatered) {
+      switch (crop) {
+        case 'vegetables':
+          return 'Too many pipes flooded the soil! Vegetables have shallow roots that drown easily. Keep to 2-3 drip connections for precise moisture.';
+        case 'tomatoes':
+          return 'Excess water triggered root rot and blight on your tomatoes. Just 2-3 drip pipes keeps foliage dry and roots healthy.';
+        case 'sugarcane':
+          return 'Overwatering caused root rot in your sugarcane. Despite deep roots, more than 4 furrows waterlog the soil and kill the crop.';
+        default:
+          return 'Too much water harmed this crop. Excess irrigation leaches nutrients and drowns roots even in water-loving plants.';
+      }
     }
-    if (crop == 'maize') {
-      if (methodOk && countOk)  return '🌽 Tunnel furrows channel water efficiently between maize rows, keeping roots moist without waterlogging the soil!';
-      if (!methodOk && method == 'pipe') return '🌽 Maize grows in rows and benefits from furrow (tunnel) irrigation — water flows between rows reaching all roots evenly.';
-      if (countOk && !methodOk) return '🌽 Good channel count, but maize prefers furrow irrigation over pipes for even root distribution.';
-      return '🌽 Maize needs 2–5 furrow channels to get water to all rows. Try adding more connected furrows.';
+    // Time-stress suffix
+    final stressSuffix = soilStress == 'stressed'
+        ? ' ⚠️ Crops also showed stress signs from delayed irrigation — quicker action boosts yields!'
+        : '';
+
+    switch (crop) {
+      case 'vegetables':
+        if (methodOk && countOk) {
+          return '💧 Drip irrigation delivers water directly to vegetable roots, cutting water use by up to 50% and boosting yields significantly!$stressSuffix';
+        }
+        if (!methodOk && method == 'furrow') {
+          return '🌿 Vegetables have shallow roots. Furrow irrigation wastes water through runoff. Drip pipes deliver water precisely where needed.';
+        }
+        return '🌿 Try connecting more drip pipes to ensure every plant gets water. Vegetables are sensitive to uneven moisture.';
+
+      case 'maize':
+        if (methodOk && countOk) {
+          return '🌽 Tunnel furrows channel water efficiently between maize rows, keeping roots moist without waterlogging the soil!$stressSuffix';
+        }
+        if (!methodOk && method == 'pipe') {
+          return '🌽 Maize grows in deep rows and benefits from furrow (tunnel) irrigation — water flows between rows reaching all roots evenly.';
+        }
+        if (countOk && !methodOk) {
+          return '🌽 Good channel count! But maize prefers furrow irrigation over pipes for even root-zone distribution.';
+        }
+        return '🌽 Maize needs 2–5 furrow channels to reach all rows. Try adding more connected furrows.';
+
+      case 'rice':
+        if (methodOk && countOk) {
+          return '🌾 Flood irrigation through many furrows recreates the waterlogged paddy conditions rice needs to thrive and prevents weeds!$stressSuffix';
+        }
+        if (!methodOk && method == 'pipe') {
+          return '🌾 Rice needs flooded fields to grow well. Drip pipes cannot saturate the soil enough — dig many furrows to achieve proper flooding.';
+        }
+        if (methodOk && !countOk) {
+          return '🌾 Rice paddies need a lot of water. Dig more furrows (at least 4–5) so the whole field floods evenly.';
+        }
+        return '🌾 Rice thrives in flooded soil — use furrow irrigation and dig many channels to achieve proper flooding.';
+
+      case 'wheat':
+        if (methodOk && countOk) {
+          return '🌾 Wheat thrives with moderate furrow irrigation — 3–6 channels spread moisture evenly across the root zone without waterlogging.$stressSuffix';
+        }
+        if (!methodOk) {
+          return '🌾 Wheat roots spread wide and need even soil moisture. Furrow irrigation across rows is far more effective than drip pipes for cereal crops.';
+        }
+        return '🌾 Wheat needs 3–6 connected furrows. Too few leaves dry patches; too many can waterlog the grain heads.';
+
+      case 'sugarcane':
+        if (methodOk && countOk) {
+          return '🎋 Sugarcane is water-intensive but hates waterlogging — 2–4 furrows between stalks delivers the deep, consistent moisture its long roots need.$stressSuffix';
+        }
+        if (!methodOk) {
+          return '🎋 Sugarcane stalks grow tall and need water deep in the soil. Furrow irrigation between rows reaches those deep roots better than surface drip.';
+        }
+        return '🎋 Sugarcane needs 2–4 furrows — more than that risks root rot in this deep-soil crop.';
+
+      case 'tomatoes':
+        if (methodOk && countOk) {
+          return '🍅 Drip irrigation is perfect for tomatoes — it keeps foliage dry (preventing blight) while delivering steady moisture directly to the roots.$stressSuffix';
+        }
+        if (!methodOk) {
+          return '🍅 Tomatoes are prone to fungal disease when foliage gets wet. Drip pipes keep water at the roots, away from leaves — far better than furrow methods.';
+        }
+        return '🍅 Connect more drip pipes so every tomato plant gets steady moisture. Inconsistent watering causes blossom-end rot!';
+
+      default:
+        return '💧 Matching the right irrigation method to the right crop is the key to a bountiful, water-efficient harvest!';
     }
-    // rice
-    if (methodOk && countOk)    return '🌾 Flood irrigation through many furrows recreates the waterlogged paddy conditions rice needs to thrive and prevents weeds!';
-    if (!methodOk && method == 'pipe') return '🌾 Rice needs flooded fields to grow well. Drip pipes cannot saturate the soil enough — dig many furrows for flood irrigation.';
-    if (methodOk && !countOk)   return '🌾 Rice paddies need a lot of water. Dig more furrows (at least 4–5) so the whole field floods evenly.';
-    return '🌾 Rice thrives in flooded soil — use furrow irrigation and dig many channels to achieve proper flooding.';
   }
 
   void _detectFurrowInterconnections(FurrowPath newFurrow) {
