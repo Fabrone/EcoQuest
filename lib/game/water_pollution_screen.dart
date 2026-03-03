@@ -2294,6 +2294,72 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                   
                   SizedBox(height: 6),
                   
+                  // Aquatic life status banner — mirrors what's appearing in the river
+                  if (pollutionLevel <= 65) ...[
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 600),
+                      curve: Curves.easeInOut,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isMobile ? 10 : 12,
+                        vertical: isMobile ? 5 : 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: pollutionLevel <= 10
+                            ? Colors.blue.shade900.withValues(alpha: 0.85)
+                            : pollutionLevel <= 30
+                                ? Colors.teal.shade900.withValues(alpha: 0.85)
+                                : Colors.cyan.shade900.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: pollutionLevel <= 10
+                              ? Colors.blue.shade300.withValues(alpha: 0.7)
+                              : pollutionLevel <= 30
+                                  ? Colors.teal.shade300.withValues(alpha: 0.7)
+                                  : Colors.cyan.shade400.withValues(alpha: 0.7),
+                          width: 1.2,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            pollutionLevel <= 10
+                                ? '🐬🐳'
+                                : pollutionLevel <= 20
+                                    ? '🐬🐟🐢'
+                                    : pollutionLevel <= 30
+                                        ? '🦀🐟🐢'
+                                        : pollutionLevel <= 45
+                                            ? '🐸🐟🐢'
+                                            : '🐠🐟',
+                            style: TextStyle(fontSize: isMobile ? 13 : 15),
+                          ),
+                          SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              pollutionLevel <= 10
+                                  ? 'River thriving! 🌊'
+                                  : pollutionLevel <= 20
+                                      ? 'Ecosystem recovering!'
+                                      : pollutionLevel <= 30
+                                          ? 'More life returning...'
+                                          : pollutionLevel <= 45
+                                              ? 'Aquatic life emerging!'
+                                              : 'Life returning to the river!',
+                              style: GoogleFonts.exo2(
+                                fontSize: isMobile ? 9 : 10,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                  ],
+
                   // Compact instruction
                   Text(
                     'Tap polluted water to apply bacteria',

@@ -1098,6 +1098,9 @@ class WaterTileComponent extends PositionComponent
   List<RiverRock> riverbedRocks = [];
   bool riverbedInitialized = false;
 
+  // ── Beneficial aquatic life (appears as water cleans) ─────────────────
+  List<BeneficialAquaticLife> beneficialLife = [];
+
   WaterTileComponent({
     required this.row,
     required this.col,
@@ -1200,13 +1203,23 @@ class WaterTileComponent extends PositionComponent
     treatmentZones.removeWhere((zone) => zone.isComplete);
     mixingParticles.removeWhere((particle) => particle.lifetime > particle.maxLifetime);
     
-    // Gradually remove microorganisms as water gets cleaner
-    if (cleanProgress > 0.7) {
-      final removalRate = (cleanProgress - 0.7) * 2; // Faster removal when cleaner
-      microorganisms.removeWhere((organism) => 
-        organism.lifetime > 2.0 && Random().nextDouble() < removalRate * dt
+    // ── Harmful organism removal: aggressive fade from 35% purity ─────────
+    if (cleanProgress >= 0.35) {
+      // At 35% most organisms start dying; fully gone well before 70%
+      final removalRate = ((cleanProgress - 0.35) / 0.35).clamp(0.0, 1.0) * 4.0;
+      microorganisms.removeWhere((organism) =>
+        organism.lifetime > 0.5 && Random().nextDouble() < removalRate * dt
+      );
+    } else if (cleanProgress > 0.15) {
+      // Slow gradual reduction in very early treatment
+      final removalRate = (cleanProgress - 0.15) * 0.5;
+      microorganisms.removeWhere((organism) =>
+        organism.lifetime > 3.0 && Random().nextDouble() < removalRate * dt
       );
     }
+
+    // ── Spawn / update beneficial aquatic life ────────────────────────────
+    _updateBeneficialLife(dt);
     
     // Gradually blend pollution across the river (mixing effect)
     if (treatmentZones.isNotEmpty) {
@@ -1221,6 +1234,10 @@ class WaterTileComponent extends PositionComponent
 
     canvas.save();
 
+    // Hard-clip everything to the river tile bounds — no animal or particle
+    // can ever render outside the river margins.
+    canvas.clipRect(size.toRect());
+
     Color baseWaterColor = _getWaterColorForProgress(cleanProgress);
 
     _drawUnifiedRiverSurface(canvas, baseWaterColor);
@@ -1232,6 +1249,13 @@ class WaterTileComponent extends PositionComponent
     final organismOpacity = (1.0 - cleanProgress) * 0.9;
     for (var organism in microorganisms) {
       organism.render(canvas, organismOpacity);
+    }
+
+    // DRAW BENEFICIAL AQUATIC LIFE (appears at 35%+ purity)
+    if (cleanProgress >= 0.35) {
+      for (var life in beneficialLife) {
+        life.render(canvas);
+      }
     }
     
     _drawTreatmentZones(canvas);
@@ -1248,6 +1272,91 @@ class WaterTileComponent extends PositionComponent
     // _drawProgressiveBorder(canvas);
 
     canvas.restore();
+  }
+
+  // ── Beneficial aquatic life management ──────────────────────────────────
+  void _updateBeneficialLife(double dt) {
+    if (cleanProgress < 0.35) return;
+
+    // Determine target population based on purity
+    final purity = cleanProgress;
+    int targetCount;
+    if (purity >= 0.90) {
+      targetCount = 12; // Thriving ecosystem
+    } else if (purity >= 0.70) {
+      targetCount = 8;
+    } else if (purity >= 0.55) {
+      targetCount = 5;
+    } else {
+      targetCount = 2; // First two animals at 35%
+    }
+
+    // Spawn new animals up to target
+    if (beneficialLife.length < targetCount) {
+      final shouldSpawn = Random().nextDouble() < 0.8 * dt; // ~once per 1.25 sec
+      if (shouldSpawn) {
+        beneficialLife.add(_spawnBeneficialLife(purity));
+      }
+    }
+
+    // Update existing animals
+    for (var life in beneficialLife) {
+      life.update(dt, size);
+    }
+
+    // Remove dead/exited animals
+    beneficialLife.removeWhere((life) => life.isDead);
+  }
+
+  BeneficialAquaticLife _spawnBeneficialLife(double purity) {
+    final random = Random();
+    List<AquaticSpecies> available;
+    if (purity >= 0.80) {
+      available = AquaticSpecies.values.toList();
+    } else if (purity >= 0.60) {
+      available = [
+        AquaticSpecies.clownfish,
+        AquaticSpecies.blueTang,
+        AquaticSpecies.turtle,
+        AquaticSpecies.frog,
+        AquaticSpecies.otter,
+      ];
+    } else if (purity >= 0.45) {
+      available = [
+        AquaticSpecies.clownfish,
+        AquaticSpecies.turtle,
+        AquaticSpecies.frog,
+      ];
+    } else {
+      available = [AquaticSpecies.clownfish, AquaticSpecies.blueTang];
+    }
+
+    final species = available[random.nextInt(available.length)];
+    final fromLeft = random.nextBool();
+
+    // Spawn exactly at the river edge so the animal is never seen outside.
+    // The 1.2-second fade-in means it materialises from the bank inward.
+    final startX = fromLeft ? 0.0 : size.x;
+
+    // Crabs crawl along the bottom 15%; surface species in the top 20%;
+    // all others swim in the middle 65% of the river depth.
+    double startY;
+    if (species == AquaticSpecies.crab) {
+      startY = size.y * (0.82 + random.nextDouble() * 0.05);
+    } else if (species == AquaticSpecies.frog ||
+               species == AquaticSpecies.otter) {
+      startY = size.y * (0.08 + random.nextDouble() * 0.12);
+    } else {
+      startY = size.y * (0.20 + random.nextDouble() * 0.55);
+    }
+
+    return BeneficialAquaticLife(
+      species: species,
+      position: Vector2(startX, startY),
+      movingRight: fromLeft,
+      tileSize: size,
+      purity: purity,
+    );
   }
 
   // NEW METHOD: Start treatment at specific tap point
@@ -3242,6 +3351,182 @@ class RiverRock {
     );
     
     canvas.restore();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BENEFICIAL AQUATIC LIFE SYSTEM
+// Appears progressively as water purity advances past 35%.
+// Uses emoji rendered via TextPainter for realistic iconographic appearance
+// without requiring any asset sprites.
+// ══════════════════════════════════════════════════════════════════════════════
+
+enum AquaticSpecies {
+  clownfish,   // 🐠 — appears at 35%+
+  blueTang,    // 🐟 — appears at 35%+
+  turtle,      // 🐢 — appears at 45%+
+  frog,        // 🐸 — appears at 60%+ (sits at water surface edge)
+  otter,       // 🦦 — appears at 60%+ (swims at surface)
+  salmon,      // 🐟 larger — appears at 70%+
+  crab,        // 🦀 — appears at 70%+ (crawls along riverbed)
+  dolphin,     // 🐬 — appears at 80%+
+  whale,       // 🐳 — appears at 90%+
+}
+
+class BeneficialAquaticLife {
+  final AquaticSpecies species;
+  Vector2 position;
+  bool movingRight;
+  final Vector2 tileSize;
+  final double purity;
+  bool isDead = false;
+
+  double _phase = 0.0;
+  double _wiggle = 0.0;
+  double _speed = 0.0;
+  double _opacity = 0.0;
+  double _lifetime = 0.0;
+  double _maxLifetime = 0.0;
+  double _size = 28.0;
+  late String _emoji;
+  late Color _glowColor;
+
+  // Surface-skimming species stay near the top of the water
+  bool _isSurface = false;
+  double _startY = 0.0;
+
+  BeneficialAquaticLife({
+    required this.species,
+    required this.position,
+    required this.movingRight,
+    required this.tileSize,
+    required this.purity,
+  }) {
+    _startY = position.y;
+    _phase = Random().nextDouble() * pi * 2;
+    _wiggle = Random().nextDouble() * pi * 2;
+    _maxLifetime = 12.0 + Random().nextDouble() * 10.0;
+
+    switch (species) {
+      case AquaticSpecies.clownfish:
+        _emoji = '🐠'; _size = 22; _speed = 35; _glowColor = Colors.orange;
+      case AquaticSpecies.blueTang:
+        _emoji = '🐟'; _size = 22; _speed = 40; _glowColor = Colors.blue.shade300;
+      case AquaticSpecies.turtle:
+        _emoji = '🐢'; _size = 28; _speed = 18; _glowColor = Colors.green.shade400;
+      case AquaticSpecies.frog:
+        _emoji = '🐸'; _size = 20; _speed = 15; _glowColor = Colors.lightGreen;
+        _isSurface = true;
+      case AquaticSpecies.otter:
+        _emoji = '🦦'; _size = 24; _speed = 30; _glowColor = Colors.brown.shade300;
+        _isSurface = true;
+      case AquaticSpecies.salmon:
+        _emoji = '🐟'; _size = 30; _speed = 50; _glowColor = Colors.pink.shade200;
+      case AquaticSpecies.crab:
+        _emoji = '🦀'; _size = 24; _speed = 10; _glowColor = Colors.red.shade300;
+      case AquaticSpecies.dolphin:
+        _emoji = '🐬'; _size = 36; _speed = 65; _glowColor = Colors.lightBlue;
+      case AquaticSpecies.whale:
+        _emoji = '🐳'; _size = 44; _speed = 30; _glowColor = Colors.blue.shade400;
+    }
+  }
+
+  void update(double dt, Vector2 bounds) {
+    _lifetime += dt;
+    _phase += dt * 1.5;
+    _wiggle += dt * 3.0;
+
+    // Fade in from river edge over first 1.2 seconds
+    if (_lifetime < 1.2) {
+      _opacity = (_lifetime / 1.2).clamp(0.0, 1.0);
+    } else if (_lifetime > _maxLifetime - 1.5) {
+      _opacity = ((_maxLifetime - _lifetime) / 1.5).clamp(0.0, 1.0);
+    } else {
+      _opacity = 1.0;
+    }
+
+    // Horizontal swim — always moves in the direction the animal faces
+    final dx = movingRight ? _speed * dt : -_speed * dt;
+    position.x += dx;
+
+    // Vertical undulation
+    if (_isSurface) {
+      // Surface species bob gently at the top 20% of the river
+      position.y = _startY + sin(_phase * 2) * 4;
+    } else if (species == AquaticSpecies.crab) {
+      // Crabs crawl along the riverbed bottom 15%
+      position.y = _startY + sin(_phase * 0.8) * 2;
+    } else {
+      // Underwater swimmers: natural sine-wave body undulation
+      final swimAmplitude = species == AquaticSpecies.turtle ? 4.0 : 8.0;
+      position.y = _startY + sin(_phase) * swimAmplitude;
+    }
+
+    // Kill when the animal has fully crossed to the opposite river edge
+    if (position.x < 0 || position.x > bounds.x) {
+      isDead = true;
+    }
+    if (_lifetime >= _maxLifetime) {
+      isDead = true;
+    }
+  }
+
+  void render(Canvas canvas) {
+    if (_opacity <= 0.01) return;
+
+    // ── Soft glow halo — drawn in world space, unaffected by flip ─────────
+    final glowPaint = Paint()
+      ..color = _glowColor.withValues(alpha: _opacity * 0.35)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, _size * 0.5);
+    canvas.drawCircle(Offset(position.x, position.y), _size * 0.7, glowPaint);
+
+    canvas.save();
+
+    // 1. Move to animal's centre in world space
+    canvas.translate(position.x, position.y);
+
+    // 2. Emoji aquatic glyphs (🐠🐟🐢🐸🦦🦀🐬🐳) all face LEFT in Unicode.
+    //    Mirror on X only when moving RIGHT so the head always leads.
+    if (movingRight) {
+      canvas.scale(-1.0, 1.0);
+    }
+
+    // 3. Subtle body-tilt wiggle relative to the facing direction
+    final wiggleAngle = sin(_wiggle) *
+        (species == AquaticSpecies.turtle || species == AquaticSpecies.crab
+            ? 0.04
+            : 0.10);
+    canvas.rotate(wiggleAngle);
+
+    // 4. Paint emoji centred on origin — opacity baked into TextStyle color
+    final opacityTp = TextPainter(
+      text: TextSpan(
+        text: _emoji,
+        style: TextStyle(
+          fontSize: _size,
+          color: Color.fromRGBO(255, 255, 255, _opacity),
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    opacityTp.paint(canvas, Offset(-opacityTp.width / 2, -opacityTp.height / 2));
+
+    canvas.restore();
+
+    // ── Entry ripple at spawn point when animal first fades in ────────────
+    if (_lifetime < 0.8) {
+      final rippleProgress = _lifetime / 0.8;
+      final rippleRadius = rippleProgress * _size * 1.2;
+      final rippleOpacity = (1.0 - rippleProgress) * 0.6 * _opacity;
+      canvas.drawCircle(
+        Offset(position.x, position.y),
+        rippleRadius,
+        Paint()
+          ..color = _glowColor.withValues(alpha: rippleOpacity)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5,
+      );
+    }
   }
 }
 

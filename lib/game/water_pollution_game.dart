@@ -1346,6 +1346,12 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
         : 1;
     bacteriaMultiplied = bacteriaRemaining + (zonesTreated * efficiencyBonus);
 
+    // Fish/aquatic life: mirrors the 35% threshold at which animals appear in-river.
+    // Count scales with purity so results screen reflects what the player actually saw.
+    fishCount = cleanedPercentage >= 0.35
+        ? (1 + ((cleanedPercentage - 0.35) / 0.065).floor()).clamp(1, 9)
+        : 0;
+
     // Celebration effect
     _playCompletionAnimation();
 
@@ -2373,10 +2379,6 @@ class WaterPollutionGame extends FlameGame with KeyboardEvents {
     harvestYield = harvestResult == 'bountiful' ? 80 + Random().nextInt(40)
         : harvestResult == 'average' ? 30 + Random().nextInt(30)
         : 5 + Random().nextInt(15);
-
-    // Fish if water was sufficiently purified (>70% clean)
-    final cleanPct = purifiedWaterAmount / 600.0;
-    fishCount = cleanPct >= 0.7 ? 3 + Random().nextInt(5) : 0;
 
     // Final crop growth flash
     children.whereType<CropComponent>().forEach((c) => c.growthStage = 3);
