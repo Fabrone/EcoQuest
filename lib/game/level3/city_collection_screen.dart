@@ -10,7 +10,7 @@ import 'dart:math' as math;
 //  ENUMS
 // ══════════════════════════════════════════════════════════════════════
 enum GamePhase { collection, sewerRepair, transitioning }
-enum WasteType  { plastic, organic, electronic, glass, general }
+enum WasteType  { plastic, organic, electronic, glass, general, metallic }
 enum VehicleKind { saloon, matatu, bus, suv, van, motorbike }
 enum LeakType { pipe, joint, crack }
 enum RepairTool { pliers, plumbingTape, wrench, sealant, none }
@@ -46,13 +46,15 @@ class _CityCollectionScreenState extends State<CityCollectionScreen> {
       body: GameWidget(
         game: _game,
         overlayBuilderMap: {
-          'hud':             (ctx, g) => CityHud(g as CityCollectionGame),
-          'controls':        (ctx, g) => CityControls(g as CityCollectionGame),
-          'phaseBanner':     (ctx, g) => CityPhaseBanner(g as CityCollectionGame),
-          'collisionFlash':  (ctx, g) => const CityCollisionFlash(),
-          'phaseTransition': (ctx, g) => CityPhaseTransition(g as CityCollectionGame),
-          'gameOver':        (ctx, g) => CityGameOver(g as CityCollectionGame),
-          'toolbox':         (ctx, g) => ToolboxOverlay(g as CityCollectionGame),
+          'hud':                   (ctx, g) => CityHud(g as CityCollectionGame),
+          'controls':              (ctx, g) => CityControls(g as CityCollectionGame),
+          'phaseBanner':           (ctx, g) => CityPhaseBanner(g as CityCollectionGame),
+          'collisionFlash':        (ctx, g) => const CityCollisionFlash(),
+          'phaseTransition':       (ctx, g) => CityPhaseTransition(g as CityCollectionGame),
+          'collectionResults':     (ctx, g) => CollectionResultsOverlay(g as CityCollectionGame),
+          'sewerResults':          (ctx, g) => SewerResultsOverlay(g as CityCollectionGame),
+          'gameOver':              (ctx, g) => CityGameOver(g as CityCollectionGame),
+          'toolbox':               (ctx, g) => ToolboxOverlay(g as CityCollectionGame),
         },
         initialActiveOverlays: const ['hud', 'controls'],
       ),
@@ -84,7 +86,7 @@ class CityCollectionGame extends FlameGame
 
   // timers
   double collectTime = 120.0;
-  double sewerTime   = 90.0;
+  double sewerTime   = 180.0;
 
   // score
   int wasteCollected      = 0;
@@ -93,9 +95,14 @@ class CityCollectionGame extends FlameGame
   int electronicCollected = 0;
   int glassCollected      = 0;
   int generalCollected    = 0;
+  int metallicCollected   = 0;
   int sewersFixed         = 0;
   static const int kTotalSewers = 6;
   int ecoPoints           = 0;
+  int collectionEcoPoints = 0;   // eco-points earned in collection phase alone
+  int sewerEcoPoints      = 0;   // eco-points earned in sewer phase alone
+  int sewerCollisions     = 0;   // collisions during sewer phase
+  int collectionCollisions= 0;   // collisions during collection phase
   int collisionCount      = 0;
 
   // truck physics — tuned for controllability
@@ -204,13 +211,20 @@ class CityCollectionGame extends FlameGame
       _WasteConfig(WasteType.electronic, '📱', 'Old Phone'),
       _WasteConfig(WasteType.electronic, '🔋', 'Battery'),
       _WasteConfig(WasteType.electronic, '💡', 'Light Bulb'),
-      // glass
+      // glass — includes broken glass & broken bottle (drawn icons)
       _WasteConfig(WasteType.glass,      '🍶', 'Glass Bottle'),
       _WasteConfig(WasteType.glass,      '🪟', 'Broken Glass'),
+      _WasteConfig(WasteType.glass,      'BROKEN_BOTTLE',  'Broken Bottle'),
+      _WasteConfig(WasteType.glass,      'SHATTERED_GLASS','Shattered Glass'),
+      // metallic
+      _WasteConfig(WasteType.metallic,   '🥫', 'Tin Can'),
+      _WasteConfig(WasteType.metallic,   '🔩', 'Metal Bolt'),
+      _WasteConfig(WasteType.metallic,   '⚙️', 'Old Gear'),
+      _WasteConfig(WasteType.metallic,   '🔧', 'Broken Wrench'),
+      _WasteConfig(WasteType.metallic,   '🪣', 'Metal Bucket'),
       // general
       _WasteConfig(WasteType.general,    '🗑️', 'Garbage'),
       _WasteConfig(WasteType.general,    '📄', 'Paper'),
-      _WasteConfig(WasteType.general,    '🥫', 'Tin Can'),
     ];
 
     for (int i = 0; i < 80; i++) {
@@ -295,15 +309,37 @@ class CityCollectionGame extends FlameGame
     if (!gameStarted) return;
     if (phase == GamePhase.collection) {
       collectTime -= 1;
-      if (collectTime <= 0) { collectTime = 0; _beginTransition(); }
+      if (collectTime <= 0) {
+        collectTime = 0;
+        _showCollectionResults(timeExpired: true);
+      }
     } else if (phase == GamePhase.sewerRepair) {
       sewerTime -= 1;
       if (sewerTime <= 0 || sewersFixed >= kTotalSewers) {
         sewerTime = math.max(sewerTime, 0);
-        _endLevel();
+        _showSewerResults();
       }
     }
     notifyListeners();
+  }
+
+  // ── Collection phase ends → show results screen (player must tap Continue) ──
+  void _showCollectionResults({bool timeExpired = false}) {
+    phase = GamePhase.transitioning;
+    speed = 0;
+    pauseEngine();
+    collectionCollisions = collisionCount;
+    collectionEcoPoints  = wasteCollected * 10 - collisionCount * 5;
+    ecoPoints            = math.max(0, collectionEcoPoints);
+    overlays.add('collectionResults');
+    notifyListeners();
+  }
+
+  /// Called when the player taps "Continue to Sewer Repair" on the results screen.
+  void continueToSewerPhase() {
+    overlays.remove('collectionResults');
+    resumeEngine();
+    _beginTransition();
   }
 
   void _beginTransition() {
@@ -319,20 +355,51 @@ class CityCollectionGame extends FlameGame
     phase         = GamePhase.sewerRepair;
     transitioning = false;
     overlays.remove('phaseTransition');
+    // Reset collision count to track sewer-phase collisions separately
+    collisionCount = 0;
     for (int i = 0; i < sewers.length; i++) {
       sewers[i].isVisible      = true;
       sewers[i].worldY         = -(worldScroll + 500 + i * 550.0);
       sewers[i].repairProgress = 0;
       sewers[i].isRepaired     = false;
     }
+    // Respawn traffic for sewer phase
+    _respawnTrafficForSewerPhase();
     _showBanner();
     notifyListeners();
   }
 
+  void _respawnTrafficForSewerPhase() {
+    for (int i = 0; i < cars.length; i++) {
+      final c = cars[i];
+      c.crashed    = false;
+      c.crashTimer = 0;
+      c.worldY     = -(worldScroll + 400 + i * 280.0 + _rng.nextDouble() * 200);
+      c.worldX     = laneCenter(c.lane);
+    }
+  }
+
+  // ── Sewer phase ends → show sewer results screen ──
+  void _showSewerResults() {
+    phase = GamePhase.transitioning;
+    speed = 0;
+    pauseEngine();
+    sewerCollisions  = collisionCount;
+    sewerEcoPoints   = math.max(0, sewersFixed * 50 - collisionCount * 20);
+    ecoPoints        = math.max(0, collectionEcoPoints + sewerEcoPoints);
+    overlays.add('sewerResults');
+    notifyListeners();
+  }
+
+  /// Called when the player taps "View Full Summary" on the sewer results screen.
+  void continueToGrandFinale() {
+    overlays.remove('sewerResults');
+    _endLevel();
+  }
+
   void _endLevel() {
     phase = GamePhase.transitioning;
-    pauseEngine();
-    ecoPoints = math.max(0, wasteCollected * 10 + sewersFixed * 50 - collisionCount * 20);
+    ecoPoints = math.max(0, collectionEcoPoints + sewerEcoPoints);
     overlays.add('gameOver');
   }
 
@@ -452,13 +519,13 @@ class CityCollectionGame extends FlameGame
       if ((w.worldX - truckPos.x).abs() < 36 && (sy - truckPos.y).abs() < 36) {
         w.isCollected = true;
         wasteCollected++;
-        ecoPoints += 10;
         switch (w.type) {
           case WasteType.plastic:    plasticCollected++;    break;
           case WasteType.organic:    organicCollected++;    break;
           case WasteType.electronic: electronicCollected++; break;
           case WasteType.glass:      glassCollected++;      break;
           case WasteType.general:    generalCollected++;    break;
+          case WasteType.metallic:   metallicCollected++;   break;
         }
         notifyListeners();
       }
@@ -489,6 +556,16 @@ class CityCollectionGame extends FlameGame
       final inRange = (s.worldX - truckPos.x).abs() < 55 &&
                       (sy - truckPos.y).abs() < 55;
       final stopped = speed < 20;   // must be nearly stopped
+
+      // Reset the selected tool the first time the truck stops near each NEW sewer,
+      // so a previously-selected tool from the last sewer doesn't carry over and
+      // instantly fire "wrong tool" before the player can open the toolbox.
+      if (inRange && stopped && !s._truckWasHere) {
+        s._truckWasHere = true;
+        selectedTool = RepairTool.none;
+        notifyListeners();
+      }
+      if (!inRange) s._truckWasHere = false;
 
       if (inRange && stopped) {
         final correct = _correctToolFor(s.leakType);
@@ -545,7 +622,6 @@ class CityCollectionGame extends FlameGame
     crashActive    = true;
     crashTimer     = 1.8;
     collisionCount++;
-    ecoPoints      = math.max(0, ecoPoints - 25);
     if (phase == GamePhase.collection) {
       collectTime = math.max(0, collectTime - 8);
     } else {
@@ -1131,6 +1207,7 @@ class WasteToken extends Component {
       case WasteType.electronic: return const Color(0xFFF97316);
       case WasteType.glass:      return const Color(0xFF00BCD4);
       case WasteType.general:    return const Color(0xFF9E9E9E);
+      case WasteType.metallic:   return const Color(0xFFB0BEC5);
     }
   }
 
@@ -1166,16 +1243,112 @@ class WasteToken extends Component {
         Paint()..color = Colors.white.withValues(alpha: 0.2)
             ..style = PaintingStyle.stroke..strokeWidth = 1.5);
 
-    // Emoji drawn as text
-    final tp = TextPainter(
-      text: TextSpan(text: emoji, style: const TextStyle(fontSize: 14)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, Offset(worldX - tp.width / 2, sy - tp.height / 2));
+    // Custom drawn icons for glass items, otherwise use emoji
+    if (emoji == 'BROKEN_BOTTLE') {
+      _drawBrokenBottleIcon(canvas, worldX, sy);
+    } else if (emoji == 'SHATTERED_GLASS') {
+      _drawShatteredGlassIcon(canvas, worldX, sy);
+    } else {
+      // Emoji drawn as text
+      final tp = TextPainter(
+        text: TextSpan(text: emoji, style: const TextStyle(fontSize: 14)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(worldX - tp.width / 2, sy - tp.height / 2));
+    }
 
     // Small type indicator dot top-right
     canvas.drawCircle(Offset(worldX + _sz * 0.34, sy - _sz * 0.34), 3.5,
         Paint()..color = _col);
+  }
+
+  /// Draws a broken glass bottle icon (top-down view, cyan shards).
+  void _drawBrokenBottleIcon(Canvas canvas, double cx, double cy) {
+    final p = Paint()
+      ..color = const Color(0xFF80DEEA)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final pFill = Paint()..color = const Color(0x5500BCD4);
+    // Bottle body (broken lower half)
+    final body = Path()
+      ..moveTo(cx - 4, cy - 8)
+      ..lineTo(cx - 5, cy + 2)
+      ..lineTo(cx - 2, cy + 8)
+      ..lineTo(cx + 3, cy + 7)
+      ..lineTo(cx + 5, cy + 1)
+      ..lineTo(cx + 4, cy - 7)
+      ..close();
+    canvas.drawPath(body, pFill);
+    canvas.drawPath(body, p);
+    // Neck stump
+    canvas.drawLine(Offset(cx - 2, cy - 8), Offset(cx - 1, cy - 11), p);
+    canvas.drawLine(Offset(cx + 2, cy - 7), Offset(cx + 1, cy - 11), p);
+    // Crack lines
+    final cP = Paint()..color = const Color(0xBBE0F7FA)..strokeWidth = 1..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(cx, cy - 4), Offset(cx - 3, cy + 2), cP);
+    canvas.drawLine(Offset(cx, cy - 4), Offset(cx + 4, cy + 3), cP);
+    canvas.drawLine(Offset(cx + 4, cy + 3), Offset(cx + 2, cy + 7), cP);
+    // Glass shard fragments (small triangles scattered)
+    final shard = Paint()..color = const Color(0xAA80DEEA);
+    for (final off in [
+      Offset(cx - 7, cy + 5), Offset(cx + 7, cy + 4), Offset(cx - 5, cy - 2)
+    ]) {
+      final sh = Path()
+        ..moveTo(off.dx, off.dy - 3)
+        ..lineTo(off.dx - 2.5, off.dy + 3)
+        ..lineTo(off.dx + 2.5, off.dy + 2)
+        ..close();
+      canvas.drawPath(sh, shard);
+      canvas.drawPath(sh, Paint()..color = const Color(0x8800BCD4)
+          ..style = PaintingStyle.stroke..strokeWidth = 0.8);
+    }
+  }
+
+  /// Draws shattered glass pane (flat on road, star-burst crack pattern).
+  void _drawShatteredGlassIcon(Canvas canvas, double cx, double cy) {
+    final glassBase = Paint()..color = const Color(0x3300E5FF);
+    final glassEdge = Paint()..color = const Color(0xFF80DEEA)
+        ..strokeWidth = 1.2..style = PaintingStyle.stroke;
+    final crackP = Paint()..color = const Color(0xBBE0F7FA)
+        ..strokeWidth = 1..strokeCap = StrokeCap.round;
+
+    // Irregular glass pane outline
+    final pane = Path()
+      ..moveTo(cx - 9, cy - 7)
+      ..lineTo(cx + 5, cy - 9)
+      ..lineTo(cx + 9, cy - 2)
+      ..lineTo(cx + 7, cy + 8)
+      ..lineTo(cx - 4, cy + 9)
+      ..lineTo(cx - 9, cy + 3)
+      ..close();
+    canvas.drawPath(pane, glassBase);
+    canvas.drawPath(pane, glassEdge);
+
+    // Star-burst cracks radiating from impact point
+    final impact = Offset(cx + 1, cy);
+    final rays = [
+      Offset(cx - 8, cy - 5), Offset(cx + 4, cy - 8), Offset(cx + 8, cy + 2),
+      Offset(cx + 5, cy + 7), Offset(cx - 3, cy + 8), Offset(cx - 8, cy + 2),
+    ];
+    for (final ray in rays) {
+      canvas.drawLine(impact, ray, crackP);
+    }
+    // Secondary crack branches
+    canvas.drawLine(Offset(cx - 3, cy - 3), Offset(cx - 7, cy - 1), crackP);
+    canvas.drawLine(Offset(cx + 4, cy - 2), Offset(cx + 7, cy - 6), crackP);
+    canvas.drawLine(Offset(cx + 2, cy + 4), Offset(cx - 2, cy + 7), crackP);
+
+    // Small detached shards
+    final shardP = Paint()..color = const Color(0x8840C4FF);
+    for (final off in [Offset(cx - 11, cy - 4), Offset(cx + 10, cy + 4)]) {
+      final sh = Path()
+        ..moveTo(off.dx, off.dy - 2.5)
+        ..lineTo(off.dx - 2, off.dy + 3)
+        ..lineTo(off.dx + 3, off.dy + 1)
+        ..close();
+      canvas.drawPath(sh, shardP);
+    }
   }
 }
 
@@ -1235,6 +1408,8 @@ class TrafficCar extends Component {
   void update(double dt) {
     if (crashed) {
       crashTimer -= dt;
+      // Vehicle stays stopped and visible while crashed; respawn after timer
+      _curSpeed = 0;
       if (crashTimer <= 0) {
         crashed = false;
         // Respawn well ahead of truck after crash recovery
@@ -1373,7 +1548,6 @@ class TrafficCar extends Component {
 
   @override
   void render(Canvas canvas) {
-    if (crashed) return;  // don't render crashed cars (they respawn)
     final sy = game.toScreenY(worldY);
     if (sy < -80 || sy > game.size.y + 80) return;
 
@@ -1386,21 +1560,28 @@ class TrafficCar extends Component {
       Paint()..color = const Color(0x44000000),
     );
 
-    // Emoji rendered as large text — this IS the vehicle visual
-    final fontSize = spec.h * 0.72;
-    final tp = TextPainter(
-      text: TextSpan(text: spec.emoji,
-          style: TextStyle(fontSize: fontSize, height: 1.0)),
-      textDirection: TextDirection.ltr,
-    )..layout();
+    // If crashed: show hazard overlay and tint, but still draw the vehicle
+    if (crashed) {
+      // Draw top-down vehicle shape tinted red/orange for crash
+      _drawTopDownShape(canvas, spec, sy, crashed: true);
+      // Crash sparks / smoke effect
+      final sparkPaint = Paint()
+        ..color = const Color(0xCCFF6600)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+      canvas.drawCircle(Offset(worldX, sy), spec.w * 0.55, sparkPaint);
+      // Hazard X symbol
+      final xPaint = Paint()
+        ..color = Colors.red
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      final r = spec.w * 0.28;
+      canvas.drawLine(Offset(worldX - r, sy - r), Offset(worldX + r, sy + r), xPaint);
+      canvas.drawLine(Offset(worldX + r, sy - r), Offset(worldX - r, sy + r), xPaint);
+      return;
+    }
 
-    // Draw emoji centred at (worldX, sy), rotated so vehicle faces upward (direction of travel)
-    canvas.save();
-    canvas.translate(worldX, sy);
-    // Emojis naturally face right; rotate -90° so they face up (direction of travel)
-    canvas.rotate(-math.pi / 2);
-    tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
-    canvas.restore();
+    _drawTopDownShape(canvas, spec, sy, crashed: false);
 
     // Brake lights: red glow at rear (bottom = positive sy direction) when slowing
     if (_curSpeed < baseSpeed * 0.6) {
@@ -1410,6 +1591,161 @@ class TrafficCar extends Component {
       canvas.drawCircle(Offset(worldX - spec.w * 0.3, sy + spec.h * 0.38), 4, brakePaint);
       canvas.drawCircle(Offset(worldX + spec.w * 0.3, sy + spec.h * 0.38), 4, brakePaint);
     }
+  }
+
+  /// Draws a top-down (bird's-eye) vehicle shape facing upward (direction of travel).
+  /// The vehicle travels upward on screen (negative worldY direction).
+  void _drawTopDownShape(Canvas canvas, _VSpec spec, double sy, {required bool crashed}) {
+    final w = spec.w;
+    final h = spec.h;
+    final cx = worldX;
+
+    // Base body colour per vehicle kind
+    Color bodyColor;
+    Color roofColor;
+    Color glassColor;
+    switch (kind) {
+      case VehicleKind.saloon:
+        bodyColor = crashed ? const Color(0xFF8B0000) : const Color(0xFF1565C0);
+        roofColor = crashed ? const Color(0xFF5A0000) : const Color(0xFF0D47A1);
+        glassColor = const Color(0x884FC3F7);
+        break;
+      case VehicleKind.matatu:
+        bodyColor = crashed ? const Color(0xFF8B0000) : const Color(0xFFF9A825);
+        roofColor = crashed ? const Color(0xFF5A0000) : const Color(0xFFF57F17);
+        glassColor = const Color(0x88B3E5FC);
+        break;
+      case VehicleKind.bus:
+        bodyColor = crashed ? const Color(0xFF8B0000) : const Color(0xFF2E7D32);
+        roofColor = crashed ? const Color(0xFF5A0000) : const Color(0xFF1B5E20);
+        glassColor = const Color(0x8881D4FA);
+        break;
+      case VehicleKind.suv:
+        bodyColor = crashed ? const Color(0xFF8B0000) : const Color(0xFF4A148C);
+        roofColor = crashed ? const Color(0xFF5A0000) : const Color(0xFF311B92);
+        glassColor = const Color(0x88CE93D8);
+        break;
+      case VehicleKind.van:
+        bodyColor = crashed ? const Color(0xFF8B0000) : const Color(0xFF37474F);
+        roofColor = crashed ? const Color(0xFF5A0000) : const Color(0xFF263238);
+        glassColor = const Color(0x88B0BEC5);
+        break;
+      case VehicleKind.motorbike:
+        bodyColor = crashed ? const Color(0xFF8B0000) : const Color(0xFFBF360C);
+        roofColor = crashed ? const Color(0xFF5A0000) : const Color(0xFFE64A19);
+        glassColor = const Color(0x88FFCC80);
+        break;
+    }
+
+    canvas.save();
+    canvas.translate(cx, sy);
+
+    // Vehicle is moving UPWARD on screen. Top of the drawn rect = FRONT of car.
+    final rect = Rect.fromLTWH(-w / 2, -h / 2, w, h);
+
+    // ── Main body ──────────────────────────────────────────────────────
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(w * 0.2)),
+      Paint()..color = bodyColor,
+    );
+
+    if (kind == VehicleKind.motorbike) {
+      // Motorbike: simple oval body + rider circle
+      canvas.drawOval(Rect.fromLTWH(-w * 0.35, -h * 0.45, w * 0.7, h * 0.9),
+          Paint()..color = bodyColor);
+      // Rider helmet (top = front)
+      canvas.drawCircle(Offset(0, -h * 0.22), w * 0.28,
+          Paint()..color = roofColor);
+      // Handlebars
+      canvas.drawLine(
+        Offset(-w * 0.45, -h * 0.35), Offset(w * 0.45, -h * 0.35),
+        Paint()..color = const Color(0xFF888888)..strokeWidth = 2.5..strokeCap = StrokeCap.round,
+      );
+      // Wheels (front = top, rear = bottom)
+      final wp = Paint()..color = const Color(0xFF111111);
+      canvas.drawRRect(RRect.fromRectAndRadius(
+          Rect.fromLTWH(-w * 0.22, -h * 0.48, w * 0.44, h * 0.15), Radius.circular(3)), wp);
+      canvas.drawRRect(RRect.fromRectAndRadius(
+          Rect.fromLTWH(-w * 0.22, h * 0.33, w * 0.44, h * 0.15), Radius.circular(3)), wp);
+    } else {
+      // ── Roof panel (slightly smaller, centred) ───────────────────────
+      final roofInset = kind == VehicleKind.bus || kind == VehicleKind.van ? 0.12 : 0.18;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(-w * (0.5 - roofInset), -h * 0.32,
+              w * (1 - roofInset * 2), h * 0.55),
+          Radius.circular(w * 0.12),
+        ),
+        Paint()..color = roofColor,
+      );
+
+      // ── Windshield (front = TOP of sprite, top half of roof) ─────────
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(-w * 0.28, -h * 0.44, w * 0.56, h * 0.14),
+          const Radius.circular(3),
+        ),
+        Paint()..color = glassColor,
+      );
+      // Windshield glare
+      canvas.drawLine(
+        Offset(-w * 0.18, -h * 0.43), Offset(-w * 0.08, -h * 0.32),
+        Paint()..color = const Color(0x55FFFFFF)..strokeWidth = 1.8..strokeCap = StrokeCap.round,
+      );
+
+      // ── Rear window (bottom = back of car) ───────────────────────────
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(-w * 0.24, h * 0.29, w * 0.48, h * 0.10),
+          const Radius.circular(2),
+        ),
+        Paint()..color = glassColor,
+      );
+
+      // ── Headlights (FRONT = TOP) ─────────────────────────────────────
+      final hlPaint = Paint()
+        ..color = const Color(0xFFFFEE88)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+      canvas.drawCircle(Offset(-w * 0.3, -h * 0.46), w * 0.10, hlPaint);
+      canvas.drawCircle(Offset( w * 0.3, -h * 0.46), w * 0.10, hlPaint);
+
+      // ── Tail-lights (REAR = BOTTOM) ───────────────────────────────────
+      final tlPaint = Paint()..color = const Color(0xCCBB1111);
+      canvas.drawRect(Rect.fromLTWH(-w * 0.45, h * 0.40, w * 0.18, h * 0.06), tlPaint);
+      canvas.drawRect(Rect.fromLTWH( w * 0.27, h * 0.40, w * 0.18, h * 0.06), tlPaint);
+
+      // ── Wheels (4 corners) ────────────────────────────────────────────
+      final wp = Paint()..color = const Color(0xFF111111);
+      final wheelW = w * 0.18;
+      final wheelH = h * 0.14;
+      for (final wr in [
+        Rect.fromLTWH(-w * 0.52, -h * 0.44, wheelW, wheelH),  // front-left
+        Rect.fromLTWH( w * 0.34, -h * 0.44, wheelW, wheelH),  // front-right
+        Rect.fromLTWH(-w * 0.52,  h * 0.30, wheelW, wheelH),  // rear-left
+        Rect.fromLTWH( w * 0.34,  h * 0.30, wheelW, wheelH),  // rear-right
+      ]) {
+        canvas.drawRRect(RRect.fromRectAndRadius(wr, const Radius.circular(2)), wp);
+        // Rim highlight
+        canvas.drawRRect(RRect.fromRectAndRadius(wr.deflate(1.5),
+            const Radius.circular(1)),
+            Paint()..color = const Color(0xFF555555)..style = PaintingStyle.stroke..strokeWidth = 1);
+      }
+
+      // ── Bus / van extra detail: side windows ─────────────────────────
+      if (kind == VehicleKind.bus || kind == VehicleKind.matatu || kind == VehicleKind.van) {
+        final winPaint = Paint()..color = glassColor;
+        final numWins  = kind == VehicleKind.bus ? 3 : 2;
+        for (int i = 0; i < numWins; i++) {
+          final wy = -h * 0.18 + i * (h * 0.18);
+          canvas.drawRRect(RRect.fromRectAndRadius(
+              Rect.fromLTWH(-w * 0.46, wy, w * 0.12, h * 0.13), const Radius.circular(2)), winPaint);
+          canvas.drawRRect(RRect.fromRectAndRadius(
+              Rect.fromLTWH( w * 0.34, wy, w * 0.12, h * 0.13), const Radius.circular(2)), winPaint);
+        }
+      }
+    }
+
+    canvas.restore();
   }
 }
 
@@ -1435,6 +1771,9 @@ class SewerLeak extends Component {
   bool   showToolPrompt    = false;
   double repairProgress    = 0.0;
   double _pulse            = 0.0;
+  /// Tracks whether the truck has already arrived at this sewer in its
+  /// current stop, so we only auto-clear the selected tool once per visit.
+  bool   _truckWasHere     = false;
 
   SewerLeak({required this.worldY, required this.worldX,
     required this.id, required this.leakType, required this.game});
@@ -1759,6 +2098,7 @@ class CityHud extends StatelessWidget {
                   _TypeBadge('🍌', game.organicCollected,    const Color(0xFF4CAF50)),
                   _TypeBadge('📱', game.electronicCollected, const Color(0xFFF97316)),
                   _TypeBadge('🍶', game.glassCollected,      const Color(0xFF00BCD4)),
+                  _TypeBadge('🔩', game.metallicCollected,   const Color(0xFFB0BEC5)),
                   _TypeBadge('🗑️', game.generalCollected,   const Color(0xFF9E9E9E)),
                 ]),
               ],
@@ -2392,7 +2732,307 @@ class CityCollisionFlash extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-//  PHASE TRANSITION SCREEN
+//  COLLECTION RESULTS OVERLAY — shown after collection phase ends
+//  Player must tap "Continue" to proceed to sewer repair.
+// ══════════════════════════════════════════════════════════════════════
+class CollectionResultsOverlay extends StatelessWidget {
+  final CityCollectionGame game;
+  final bool timeExpired;
+  const CollectionResultsOverlay(this.game, {this.timeExpired = false, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final g = game;
+    final total = g.wasteCollected;
+    final pts   = g.collectionEcoPoints;
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.94),
+      child: SafeArea(child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: timeExpired
+                    ? [const Color(0xFF7B1FA2), const Color(0xFF4A148C)]
+                    : [const Color(0xFF1B5E20), const Color(0xFF388E3C)],
+              ),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 16)],
+            ),
+            child: Column(children: [
+              Icon(timeExpired ? Icons.timer_off_rounded : Icons.check_circle_rounded,
+                  color: Colors.white, size: 52),
+              const SizedBox(height: 8),
+              Text(
+                timeExpired ? '⏰  Time\'s Up!' : '✅  Collection Complete!',
+                style: const TextStyle(color: Colors.white, fontSize: 22,
+                    fontWeight: FontWeight.bold, letterSpacing: 1),
+              ),
+              const SizedBox(height: 4),
+              Text('Phase 1 — Waste Collection Results',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            ]),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Total waste & points
+          _ResultCard(children: [
+            _BigStat('🗑️', '$total', 'Total Items Collected',       Colors.greenAccent),
+            _BigStat('⭐', '${math.max(0, pts)}', 'Collection Eco-Points', Colors.amber),
+            _BigStat('💥', '${g.collectionCollisions}', 'Collisions',     Colors.redAccent),
+          ]),
+
+          const SizedBox(height: 12),
+
+          // Per-category breakdown
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D1B2A),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Waste Breakdown by Category',
+                    style: TextStyle(color: Colors.white70, fontSize: 12,
+                        fontWeight: FontWeight.bold, letterSpacing: 1)),
+                const SizedBox(height: 12),
+                _WasteRow('🧴', 'Plastic',       g.plasticCollected,    const Color(0xFF2196F3)),
+                _WasteRow('🍌', 'Organic',       g.organicCollected,    const Color(0xFF4CAF50)),
+                _WasteRow('📱', 'E-Waste',       g.electronicCollected, const Color(0xFFF97316)),
+                _WasteRow('🍶', 'Glass / Broken',g.glassCollected,      const Color(0xFF00BCD4)),
+                _WasteRow('🔩', 'Metallic',      g.metallicCollected,   const Color(0xFFB0BEC5)),
+                _WasteRow('🗑️', 'General',      g.generalCollected,    const Color(0xFF9E9E9E)),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Continue button
+          SizedBox(width: double.infinity, child: ElevatedButton.icon(
+            onPressed: () => game.continueToSewerPhase(),
+            icon: const Icon(Icons.plumbing_rounded),
+            label: const Text('Continue to Sewer Repair  →',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 8,
+            ),
+          )),
+          const SizedBox(height: 8),
+          const Text('🔩 Pipe = Wrench  |  🔗 Joint = Tape  |  💧 Crack = Sealant',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.w600)),
+        ]),
+      )),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SEWER RESULTS OVERLAY — shown after sewer repair phase ends
+// ══════════════════════════════════════════════════════════════════════
+class SewerResultsOverlay extends StatelessWidget {
+  final CityCollectionGame game;
+  const SewerResultsOverlay(this.game, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final g   = game;
+    final pct = (g.sewersFixed / CityCollectionGame.kTotalSewers * 100).round();
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.94),
+      child: SafeArea(child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                  colors: [Color(0xFF0D47A1), Color(0xFF1565C0)]),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 16)],
+            ),
+            child: Column(children: [
+              const Icon(Icons.plumbing_rounded, color: Colors.cyanAccent, size: 52),
+              const SizedBox(height: 8),
+              const Text('🔧  Sewer Repair Complete!',
+                  style: TextStyle(color: Colors.white, fontSize: 22,
+                      fontWeight: FontWeight.bold, letterSpacing: 1)),
+              const SizedBox(height: 4),
+              const Text('Phase 2 — Repair Results',
+                  style: TextStyle(color: Colors.white70, fontSize: 13)),
+            ]),
+          ),
+
+          const SizedBox(height: 16),
+
+          _ResultCard(children: [
+            _BigStat('🔧', '${g.sewersFixed}/${CityCollectionGame.kTotalSewers}',
+                'Sewers Repaired', Colors.cyanAccent),
+            _BigStat('📊', '$pct%',  'Completion Rate',          Colors.limeAccent),
+            _BigStat('⭐', '${math.max(0, g.sewerEcoPoints)}',
+                'Sewer Eco-Points', Colors.amber),
+            _BigStat('💥', '${g.sewerCollisions}', 'Collisions', Colors.redAccent),
+          ]),
+
+          const SizedBox(height: 12),
+
+          // Sewer breakdown
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D1B2A),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Sewer Repairs by Type',
+                  style: TextStyle(color: Colors.white70, fontSize: 12,
+                      fontWeight: FontWeight.bold, letterSpacing: 1)),
+              const SizedBox(height: 12),
+              for (final s in g.sewers)
+                _SewerRow(s),
+            ]),
+          ),
+
+          const SizedBox(height: 20),
+
+          SizedBox(width: double.infinity, child: ElevatedButton.icon(
+            onPressed: () => game.continueToGrandFinale(),
+            icon: const Icon(Icons.emoji_events_rounded),
+            label: const Text('View Full Summary  →',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF388E3C), foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 8,
+            ),
+          )),
+        ]),
+      )),
+    );
+  }
+}
+
+class _SewerRow extends StatelessWidget {
+  final SewerLeak sewer;
+  const _SewerRow(this.sewer);
+
+  @override
+  Widget build(BuildContext context) {
+    final name  = switch (sewer.leakType) {
+      LeakType.pipe  => '🔩 Pipe Leak',
+      LeakType.joint => '🔗 Joint Leak',
+      LeakType.crack => '💧 Crack Leak',
+    };
+    final color  = sewer.isRepaired ? Colors.greenAccent : Colors.redAccent;
+    final status = sewer.isRepaired ? '✅ Fixed' : '❌ Not Fixed';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(children: [
+        Text('Sewer ${sewer.id + 1}',
+            style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        const SizedBox(width: 8),
+        Expanded(child: Text(name,
+            style: const TextStyle(color: Colors.white, fontSize: 12))),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.5)),
+          ),
+          child: Text(status, style: TextStyle(color: color,
+              fontSize: 10, fontWeight: FontWeight.bold)),
+        ),
+      ]),
+    );
+  }
+}
+
+// ── Shared result card ──────────────────────────────────────────────────
+class _ResultCard extends StatelessWidget {
+  final List<Widget> children;
+  const _ResultCard({required this.children});
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+    decoration: BoxDecoration(
+      color: const Color(0xFF0D1B2A),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: Colors.white12),
+    ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: children,
+    ),
+  );
+}
+
+class _BigStat extends StatelessWidget {
+  final String emoji, value, label; final Color color;
+  const _BigStat(this.emoji, this.value, this.label, this.color);
+  @override
+  Widget build(BuildContext context) => Column(mainAxisSize: MainAxisSize.min, children: [
+    Text(emoji, style: const TextStyle(fontSize: 22)),
+    const SizedBox(height: 4),
+    Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 20)),
+    const SizedBox(height: 2),
+    Text(label, style: const TextStyle(color: Colors.white54, fontSize: 9),
+        textAlign: TextAlign.center),
+  ]);
+}
+
+class _WasteRow extends StatelessWidget {
+  final String emoji, label; final int count; final Color color;
+  const _WasteRow(this.emoji, this.label, this.count, this.color);
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(children: [
+      Text(emoji, style: const TextStyle(fontSize: 16)),
+      const SizedBox(width: 8),
+      Expanded(child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13))),
+      Container(
+        width: 120,
+        height: 8,
+        decoration: BoxDecoration(
+          color: Colors.white12,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: FractionallySizedBox(
+          alignment: Alignment.centerLeft,
+          widthFactor: count == 0 ? 0.0 : (count / 30.0).clamp(0.05, 1.0),
+          child: Container(
+            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4)),
+          ),
+        ),
+      ),
+      const SizedBox(width: 8),
+      SizedBox(width: 28, child: Text('$count',
+          style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13),
+          textAlign: TextAlign.right)),
+    ]),
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  BRIEF PHASE TRANSITION LOADER (auto counts down to sewer phase)
 // ══════════════════════════════════════════════════════════════════════
 class CityPhaseTransition extends StatelessWidget {
   final CityCollectionGame game;
@@ -2401,30 +3041,15 @@ class CityPhaseTransition extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     color: Colors.black.withValues(alpha: 0.92),
     child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 80),
-      const SizedBox(height: 14),
-      Text('${game.wasteCollected} Waste Items Collected!',
-          style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 10),
-      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        _MS('🧴', 'Plastic',    game.plasticCollected),
-        _MS('🍌', 'Organic',    game.organicCollected),
-        _MS('📱', 'E-Waste',    game.electronicCollected),
-        _MS('🍶', 'Glass',      game.glassCollected),
-        _MS('🗑️', 'General',  game.generalCollected),
-      ]),
-      const SizedBox(height: 28),
-      const Divider(color: Colors.white24, indent: 60, endIndent: 60),
-      const SizedBox(height: 22),
-      const Icon(Icons.plumbing_rounded, color: Color(0xFF2196F3), size: 56),
+      const Icon(Icons.plumbing_rounded, color: Color(0xFF2196F3), size: 64),
+      const SizedBox(height: 16),
+      const Text('Preparing Sewer Repair Phase…',
+          style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
       const SizedBox(height: 12),
-      const Text('Phase 2: Sewer Repair',
-          style: TextStyle(color: Color(0xFF2196F3), fontSize: 24, fontWeight: FontWeight.w800)),
-      const SizedBox(height: 8),
       const Text('Stop fully near glowing sewers beside buildings.\nSelect the right tool from your 🧰 toolbox!',
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.white70, fontSize: 13)),
-      const SizedBox(height: 6),
+      const SizedBox(height: 8),
       const Text('🔩 Pipe = Wrench  |  🔗 Joint = Tape  |  💧 Crack = Sealant',
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w600)),
@@ -2434,84 +3059,210 @@ class CityPhaseTransition extends StatelessWidget {
   );
 }
 
-class _MS extends StatelessWidget {
-  final String e, label; final int n;
-  const _MS(this.e, this.label, this.n);
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 10),
-    child: Column(children: [
-      Text(e, style: const TextStyle(fontSize: 20)),
-      Text('$n', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-      Text(label, style: const TextStyle(color: Colors.white54, fontSize: 9)),
-    ]));
-}
-
 // ══════════════════════════════════════════════════════════════════════
-//  GAME OVER / LEVEL COMPLETE
+//  GRAND FINALE — combined totals from both phases
 // ══════════════════════════════════════════════════════════════════════
 class CityGameOver extends StatelessWidget {
   final CityCollectionGame game;
   const CityGameOver(this.game, {super.key});
+
   @override
-  Widget build(BuildContext context) => Container(
-    color: Colors.black.withValues(alpha: 0.93),
-    child: Center(child: Container(
-      margin: const EdgeInsets.all(20), padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
-            colors: [Color(0xFF1A1A2E), Color(0xFF16213E)]),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white24, width: 1.5),
-        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 24, spreadRadius: 4)],
-      ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 68),
-        const SizedBox(height: 10),
-        const Text('LEVEL COMPLETE!',
-            style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold, letterSpacing: 2)),
-        const SizedBox(height: 4),
-        Text('City cleaned & sewers repaired!', style: TextStyle(color: Colors.green[300], fontSize: 14)),
-        const SizedBox(height: 18),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(14)),
-          child: Column(children: [
-            _ResultRow(Icons.delete_rounded,   'Waste Collected',
-                '${game.wasteCollected}', Colors.greenAccent),
-            _ResultRow(Icons.plumbing_rounded, 'Sewers Repaired',
-                '${game.sewersFixed}/${CityCollectionGame.kTotalSewers}', Colors.cyanAccent),
-            _ResultRow(Icons.warning_rounded,  'Collisions',
-                '${game.collisionCount}', Colors.orangeAccent),
-            _ResultRow(Icons.eco_rounded,      'Eco-Points',
-                '${game.ecoPoints}', Colors.limeAccent),
-            const Divider(color: Colors.white12, height: 20),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-              _MiniStat('🧴', 'Plastic',   game.plasticCollected),
-              _MiniStat('🍌', 'Organic',   game.organicCollected),
-              _MiniStat('📱', 'E-Waste',   game.electronicCollected),
-              _MiniStat('🍶', 'Glass',     game.glassCollected),
-              _MiniStat('🗑️', 'General',  game.generalCollected),
+  Widget build(BuildContext context) {
+    final g         = game;
+    final totalPts  = g.ecoPoints;
+    final colPts    = math.max(0, g.collectionEcoPoints);
+    final sewPts    = math.max(0, g.sewerEcoPoints);
+    final totalCol  = g.collectionCollisions + g.sewerCollisions;
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.95),
+      child: SafeArea(child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Column(children: [
+
+          // ── Trophy header ────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
+                colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFFFD700), width: 2),
+              boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 24, spreadRadius: 4)],
+            ),
+            child: Column(children: [
+              const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 64),
+              const SizedBox(height: 10),
+              const Text('🏙️  CITY MISSION COMPLETE!',
+                  style: TextStyle(color: Colors.white, fontSize: 22,
+                      fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+              const SizedBox(height: 4),
+              Text('City cleaned & sewers repaired!',
+                  style: TextStyle(color: Colors.green[300], fontSize: 13)),
             ]),
-          ]),
-        ),
-        const SizedBox(height: 22),
-        SizedBox(width: double.infinity, child: ElevatedButton.icon(
-          onPressed: () => Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const SortingFacilityScreen())),
-          icon: const Icon(Icons.arrow_forward_rounded),
-          label: const Text('PROCEED TO SORTING',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF4CAF50), foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            elevation: 8, shadowColor: const Color(0xFF4CAF50),
           ),
-        )),
-      ]),
-    )),
-  );
+
+          const SizedBox(height: 14),
+
+          // ── Grand total eco-points highlight ────────────────────────
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                  colors: [Color(0xFF1B5E20), Color(0xFF2E7D32)]),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.limeAccent.withValues(alpha: 0.5), width: 1.5),
+            ),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              const Icon(Icons.eco_rounded, color: Colors.limeAccent, size: 32),
+              const SizedBox(width: 12),
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('TOTAL ECO-POINTS',
+                    style: TextStyle(color: Colors.white60, fontSize: 11, letterSpacing: 1.5)),
+                Text('$totalPts pts',
+                    style: const TextStyle(color: Colors.limeAccent,
+                        fontSize: 32, fontWeight: FontWeight.bold)),
+              ]),
+            ]),
+          ),
+
+          const SizedBox(height: 12),
+
+          // ── Phase-by-phase points breakdown ─────────────────────────
+          Row(children: [
+            _PhaseCard(
+              icon: Icons.delete_rounded,
+              color: const Color(0xFF2E7D32),
+              title: 'Phase 1\nCollection',
+              stats: [
+                _PStat('🗑️', '${g.wasteCollected}', 'items'),
+                _PStat('💥', '${g.collectionCollisions}', 'crashes'),
+                _PStat('⭐', '$colPts', 'pts'),
+              ],
+            ),
+            const SizedBox(width: 10),
+            _PhaseCard(
+              icon: Icons.plumbing_rounded,
+              color: const Color(0xFF0D47A1),
+              title: 'Phase 2\nSewer Repair',
+              stats: [
+                _PStat('🔧', '${g.sewersFixed}/${CityCollectionGame.kTotalSewers}', 'sewers'),
+                _PStat('💥', '${g.sewerCollisions}', 'crashes'),
+                _PStat('⭐', '$sewPts', 'pts'),
+              ],
+            ),
+          ]),
+
+          const SizedBox(height: 12),
+
+          // ── Waste collection full breakdown ──────────────────────────
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D1B2A),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Waste Collected by Category',
+                  style: TextStyle(color: Colors.white70, fontSize: 12,
+                      fontWeight: FontWeight.bold, letterSpacing: 1)),
+              const SizedBox(height: 10),
+              _WasteRow('🧴', 'Plastic',        g.plasticCollected,    const Color(0xFF2196F3)),
+              _WasteRow('🍌', 'Organic',        g.organicCollected,    const Color(0xFF4CAF50)),
+              _WasteRow('📱', 'E-Waste',        g.electronicCollected, const Color(0xFFF97316)),
+              _WasteRow('🍶', 'Glass / Broken', g.glassCollected,      const Color(0xFF00BCD4)),
+              _WasteRow('🔩', 'Metallic',       g.metallicCollected,   const Color(0xFFB0BEC5)),
+              _WasteRow('🗑️', 'General',       g.generalCollected,    const Color(0xFF9E9E9E)),
+            ]),
+          ),
+
+          const SizedBox(height: 12),
+
+          // ── Overall stats row ─────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D1B2A),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(children: [
+              _ResultRow(Icons.delete_rounded,    'Total Waste Collected',
+                  '${g.wasteCollected}',                              Colors.greenAccent),
+              _ResultRow(Icons.plumbing_rounded,  'Sewers Repaired',
+                  '${g.sewersFixed}/${CityCollectionGame.kTotalSewers}', Colors.cyanAccent),
+              _ResultRow(Icons.warning_rounded,   'Total Collisions',
+                  '$totalCol',                                        Colors.orangeAccent),
+              _ResultRow(Icons.eco_rounded,       'Total Eco-Points',
+                  '$totalPts',                                        Colors.limeAccent),
+            ]),
+          ),
+
+          const SizedBox(height: 20),
+
+          // ── Proceed button ────────────────────────────────────────────
+          SizedBox(width: double.infinity, child: ElevatedButton.icon(
+            onPressed: () => Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const SortingFacilityScreen())),
+            icon: const Icon(Icons.arrow_forward_rounded),
+            label: const Text('PROCEED TO SORTING FACILITY',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 1)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4CAF50), foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 8, shadowColor: const Color(0xFF4CAF50),
+            ),
+          )),
+          const SizedBox(height: 8),
+        ]),
+      )),
+    );
+  }
+}
+
+class _PhaseCard extends StatelessWidget {
+  final IconData icon; final Color color;
+  final String title; final List<_PStat> stats;
+  const _PhaseCard({required this.icon, required this.color,
+      required this.title, required this.stats});
+  @override
+  Widget build(BuildContext context) => Expanded(child: Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+          colors: [color.withValues(alpha: 0.6), color.withValues(alpha: 0.3)],
+          begin: Alignment.topLeft, end: Alignment.bottomRight),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: color.withValues(alpha: 0.5)),
+    ),
+    child: Column(children: [
+      Icon(icon, color: Colors.white, size: 22),
+      const SizedBox(height: 4),
+      Text(title, style: const TextStyle(color: Colors.white, fontSize: 11,
+          fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+      const SizedBox(height: 8),
+      for (final s in stats) ...[
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(s.emoji, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 4),
+          Text(s.value, style: const TextStyle(color: Colors.white,
+              fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(width: 3),
+          Text(s.unit, style: const TextStyle(color: Colors.white54, fontSize: 9)),
+        ]),
+        const SizedBox(height: 2),
+      ],
+    ]),
+  ));
+}
+
+class _PStat {
+  final String emoji, value, unit;
+  const _PStat(this.emoji, this.value, this.unit);
 }
 
 class _ResultRow extends StatelessWidget {
@@ -2525,15 +3276,4 @@ class _ResultRow extends StatelessWidget {
       Expanded(child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 14))),
       Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 15)),
     ]));
-}
-
-class _MiniStat extends StatelessWidget {
-  final String emoji, label; final int val;
-  const _MiniStat(this.emoji, this.label, this.val);
-  @override
-  Widget build(BuildContext context) => Column(children: [
-    Text(emoji, style: const TextStyle(fontSize: 16)),
-    Text('$val', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-    Text(label, style: const TextStyle(color: Colors.white54, fontSize: 8)),
-  ]);
 }
