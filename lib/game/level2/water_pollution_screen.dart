@@ -1,8 +1,8 @@
 import 'dart:async' show Future, Timer;
 import 'dart:math';
+import 'package:ecoquest/game/level2/rowing_components.dart';
+import 'package:ecoquest/game/level2/water_pollution_game.dart';
 import 'package:ecoquest/game/level3/polluted_city_screen.dart';
-import 'package:ecoquest/game/water_pollution_game.dart';
-import 'package:ecoquest/game/rowing_components.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';

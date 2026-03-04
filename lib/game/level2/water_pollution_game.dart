@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:math';
-import 'package:ecoquest/game/water_components.dart';
-import 'package:ecoquest/game/rowing_components.dart';
+import 'package:ecoquest/game/level2/rowing_components.dart';
+import 'package:ecoquest/game/level2/water_components.dart';
 import 'package:flame/effects.dart';
 import 'package:flame/events.dart';
 import 'package:flame/game.dart';

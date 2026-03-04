@@ -1,5 +1,5 @@
+import 'package:ecoquest/game/level2/water_pollution_screen.dart';
 import 'package:ecoquest/game/level3/polluted_city_screen.dart';
-import 'package:ecoquest/game/water_pollution_screen.dart';
 import 'package:ecoquest/main.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';

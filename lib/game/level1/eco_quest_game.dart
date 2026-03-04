@@ -1,5 +1,5 @@
 import 'dart:math';
-import 'package:ecoquest/game/eco_components.dart';
+import 'package:ecoquest/game/level1/eco_components.dart';
 import 'package:ecoquest/main.dart';
 import 'package:flame/components.dart';
 import 'package:flame/effects.dart';

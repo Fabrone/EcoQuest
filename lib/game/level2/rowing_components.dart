@@ -1,9 +1,5 @@
-// rowing_components.dart
-// Enhanced Phase 1: Realistic rowing boat, river challenges, waste collection
-// Drop-in replacement / extension for water_components.dart Phase 1 elements
-
 import 'dart:math';
-import 'package:ecoquest/game/water_pollution_game.dart';
+import 'package:ecoquest/game/level2/water_pollution_game.dart';
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flame/effects.dart';
 import 'package:flutter/material.dart' hide Matrix4;
@@ -103,9 +99,6 @@ extension WasteTypeExt on WasteType {
 //  ROWING BOAT (replaces SpeedboatComponent for Phase 1)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A realistic 2D rowing boat seen from above/side-perspective.
-/// Player steers with on-screen joystick or keyboard.
-/// Rowing animation syncs with movement — alternating left/right paddle strokes.
 class RowingBoatComponent extends PositionComponent
     with HasGameReference<WaterPollutionGame>, KeyboardHandler {
   // ── Movement ──────────────────────────────────────────────────────────────
@@ -146,8 +139,6 @@ class RowingBoatComponent extends PositionComponent
 
   // ── Keyboard state ────────────────────────────────────────────────────────
   final Set<LogicalKeyboardKey> _heldKeys = {};
-  /// Tracks keys that fired a KeyDown this frame so we can apply an
-  /// immediate angular impulse before the continuous per-frame accumulation.
   final Set<LogicalKeyboardKey> _justPressedKeys = {};
 
   RowingBoatComponent({required super.position, required super.size}) {
@@ -210,15 +201,9 @@ class RowingBoatComponent extends PositionComponent
     }
     _justPressedKeys.clear();
 
-    // ── Direct boatAngle rotation while key is held ───────────────────────
-    // The boat turns at a fixed rate the instant and every frame a key is
-    // held, giving zero-lag keyboard / D-pad turning.
     if (leftHeld) boatAngle -= turnRate * dt;
     if (rightHeld) boatAngle += turnRate * dt;
 
-    // ── Apply physics ─────────────────────────────────────────────────────
-    // angularVelocity is now only used for drag-steering and impulse inertia.
-    // Keyboard turning writes directly to boatAngle above — no ramp needed.
     angularVelocity = angularVelocity.clamp(-maxAngularVelocity, maxAngularVelocity);
     angularVelocity *= pow(angularDrag, dt * 60).toDouble();
     boatAngle += angularVelocity * dt;
@@ -313,8 +298,7 @@ class RowingBoatComponent extends PositionComponent
 
   void takeDamage(double amount) {
     health = (health - amount).clamp(0, 100);
-    stunTimer = 0.3;  // was 0.8 — short stun so player can react and escape immediately
-    // Light knockback — preserves some momentum so the player can steer away
+    stunTimer = 0.3;
     velocity = velocity * 0.4 + velocity.normalized() * -40;
   }
 
@@ -598,9 +582,6 @@ class RowingBoatComponent extends PositionComponent
     return keysPressed.isNotEmpty;
   }
 
-  /// Called by the on-screen D-pad buttons (mobile) to simulate a key press.
-  /// Adds [key] to _heldKeys and records it in _justPressedKeys for the
-  /// instant-impulse on first press — identical to physical keyboard behaviour.
   void pressKey(LogicalKeyboardKey key) {
     _heldKeys.add(key);
     _justPressedKeys.add(key);
@@ -621,8 +602,6 @@ class RowingBoatComponent extends PositionComponent
     // Casting net counts as first player action — start timer
     game.notifyPlayerStarted();
 
-    // Scare nearby crocodiles when the net is cast — gives the player a
-    // defensive action to push crocs away without full collision damage.
     _scareCrocodilesNearby();
 
     // Notify HUD
@@ -1006,8 +985,6 @@ class CrocodileComponent extends PositionComponent
   double patrolAngle;
   static final _rng = Random();
 
-  /// HP damage dealt per successful snap — low so a single bite isn't catastrophic
-  /// Damage dealt per successful snap — reduced so a single croc hit is survivable.
   static const double damageToDeal = 3.0; // was 5 — softer hit
 
   CrocodileComponent({

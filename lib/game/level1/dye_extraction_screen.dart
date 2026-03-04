@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:ecoquest/game/eco_quest_game.dart';
-import 'package:ecoquest/game/water_pollution_screen.dart';
+import 'package:ecoquest/game/level1/dye_storage_service.dart';
+import 'package:ecoquest/game/level1/eco_quest_game.dart';
+import 'package:ecoquest/game/level2/water_pollution_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dye_storage_service.dart';
 
 class DyeExtractionScreen extends StatefulWidget {
   final EcoQuestGame game;

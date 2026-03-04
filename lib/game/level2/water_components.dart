@@ -1,5 +1,5 @@
 import 'dart:math';
-import 'package:ecoquest/game/water_pollution_game.dart';
+import 'package:ecoquest/game/level2/water_pollution_game.dart';
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flame/effects.dart';
 import 'package:flame/events.dart';

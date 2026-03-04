@@ -1,6 +1,7 @@
 import 'dart:math';
 //import 'package:ecoquest/authentication/login_screen.dart';
-import 'package:ecoquest/game/dye_extraction_screen.dart';
+import 'package:ecoquest/game/level1/dye_extraction_screen.dart';
+import 'package:ecoquest/game/level1/eco_quest_game.dart';
 import 'package:ecoquest/game/splash_screen.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -10,7 +11,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
-import 'game/eco_quest_game.dart';
 
 // Global Notifiers
 final ValueNotifier<int> scoreNotifier = ValueNotifier<int>(0);
