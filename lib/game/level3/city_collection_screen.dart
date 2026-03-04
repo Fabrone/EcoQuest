@@ -7,6 +7,55 @@ import 'dart:ui' as ui;
 import 'dart:math' as math;
 
 // ══════════════════════════════════════════════════════════════════════
+//  WASTE COLLECTION RESULT — carries collected waste data to next phase
+// ══════════════════════════════════════════════════════════════════════
+class WasteCollectionResult {
+  final int total;
+  final int plastic;
+  final int organic;
+  final int electronic;
+  final int glass;
+  final int metallic;
+  final int general;
+  final int ecoPoints;
+  final int collisions;
+  final int sewersFixed;
+  final int sewerEcoPoints;
+  final int totalEcoPoints;
+
+  const WasteCollectionResult({
+    required this.total,
+    required this.plastic,
+    required this.organic,
+    required this.electronic,
+    required this.glass,
+    required this.metallic,
+    required this.general,
+    required this.ecoPoints,
+    required this.collisions,
+    required this.sewersFixed,
+    required this.sewerEcoPoints,
+    required this.totalEcoPoints,
+  });
+
+  // ── Global holder ────────────────────────────────────────────────────
+  // Written by city_collection_screen when the level ends.
+  // Read by SortingFacilityScreen (and any later screen) via
+  // WasteCollectionResult.current — no constructor change needed there.
+  static WasteCollectionResult? current;
+
+  /// Convenience: map of waste-type label → count, for the sorting phase.
+  Map<String, int> get wasteBreakdown => {
+    'Plastic':    plastic,
+    'Organic':    organic,
+    'E-Waste':    electronic,
+    'Glass':      glass,
+    'Metallic':   metallic,
+    'General':    general,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════
 //  ENUMS
 // ══════════════════════════════════════════════════════════════════════
 enum GamePhase { collection, sewerRepair, transitioning }
@@ -86,7 +135,7 @@ class CityCollectionGame extends FlameGame
 
   // timers
   double collectTime = 120.0;
-  double sewerTime   = 180.0;
+  double sewerTime   = 210.0;   // +30 s added to sewer/pipe repair phase
 
   // score
   int wasteCollected      = 0;
@@ -245,18 +294,55 @@ class CityCollectionGame extends FlameGame
   }
 
   void _spawnTraffic() {
-    const spacing = 320.0;
-    const kinds   = VehicleKind.values;
+    // ── Per-lane speed personality ─────────────────────────────────────
+    // Lane 0 (left)  : medium        76–144 px/s  (2× previous 38–72)
+    // Lane 1 (right) : fast          156–256 px/s (2× previous 78–128)
+    //
+    // All base speeds are exactly 2× the previous values so traffic now
+    // moves noticeably faster than before, giving the player real gaps
+    // to exploit rather than having to stop behind slow vehicles.
+    //
+    // Vehicle count reduced to 3 per lane (6 total) for cleaner spacing.
+
+    const double lane0Min  = 76.0;    // 2× 38
+    const double lane0Max  = 144.0;   // 2× 72
+    const double lane1Min  = 156.0;   // 2× 78
+    const double lane1Max  = 256.0;   // 2× 128
+
+    // Kind bonus (also 2× previous values) — preserves personality spread
+    const Map<VehicleKind, double> kindBonus = {
+      VehicleKind.bus:       -28.0,   // 2× −14
+      VehicleKind.matatu:    -12.0,   // 2× −6
+      VehicleKind.van:        -4.0,   // 2× −2
+      VehicleKind.suv:         8.0,   // 2× +4
+      VehicleKind.saloon:     20.0,   // 2× +10
+      VehicleKind.motorbike:  36.0,   // 2× +18
+    };
+
+    // Spacing is tight so all 3 cars per lane are visible on-screen at game start.
+    // First car is only 80 px ahead of truck (worldY = −80), subsequent cars every
+    // 170 px — all inside the visible ~600 px of screen above the player.
+    const startOff = 80.0;    // first car just 80 px ahead of truck
+    const spacing  = 170.0;   // gap between successive cars in the same lane
+    const kinds    = VehicleKind.values;
 
     for (int lane = 0; lane < kLanes; lane++) {
-      for (int i = 0; i < 4; i++) {
-        final kind = kinds[(lane * 4 + i) % kinds.length];
+      final laneMin = lane == 0 ? lane0Min : lane1Min;
+      final laneMax = lane == 0 ? lane0Max : lane1Max;
+
+      for (int i = 0; i < 3; i++) {   // 3 cars per lane = 6 total
+        final kind  = kinds[(lane * 3 + i) % kinds.length];
+        final bonus = kindBonus[kind] ?? 0.0;
+
+        final rawSpeed = laneMin + _rng.nextDouble() * (laneMax - laneMin) + bonus;
+        final speed    = rawSpeed.clamp(laneMin * 0.85, laneMax * 1.10);
+
         final c = TrafficCar(
           lane:      lane,
-          worldY:    -(spacing * (i + 1) + lane * 60.0),
+          worldY:    -(startOff + spacing * i + lane * 45.0),
           worldX:    laneCenter(lane),
           kind:      kind,
-          baseSpeed: 55.0 + _rng.nextDouble() * 50,   // 55–105 px/s, slower than player max
+          baseSpeed: speed,
           game:      this,
         );
         add(c);
@@ -370,11 +456,13 @@ class CityCollectionGame extends FlameGame
   }
 
   void _respawnTrafficForSewerPhase() {
+    // Place all cars close to the truck so the player encounters traffic
+    // immediately in Phase 2, matching the same feel as Phase 1 start.
     for (int i = 0; i < cars.length; i++) {
       final c = cars[i];
       c.crashed    = false;
       c.crashTimer = 0;
-      c.worldY     = -(worldScroll + 400 + i * 280.0 + _rng.nextDouble() * 200);
+      c.worldY     = -(worldScroll + 80 + i * 170.0 + _rng.nextDouble() * 80);
       c.worldX     = laneCenter(c.lane);
     }
   }
@@ -385,7 +473,9 @@ class CityCollectionGame extends FlameGame
     speed = 0;
     pauseEngine();
     sewerCollisions  = collisionCount;
-    sewerEcoPoints   = math.max(0, sewersFixed * 50 - collisionCount * 20);
+    // Wrong-tool selections each penalise 8 pts on top of collision penalties
+    sewerEcoPoints   = math.max(0, sewersFixed * 50 - collisionCount * 20
+                                  - totalWrongAttempts * 8);
     ecoPoints        = math.max(0, collectionEcoPoints + sewerEcoPoints);
     overlays.add('sewerResults');
     notifyListeners();
@@ -400,8 +490,41 @@ class CityCollectionGame extends FlameGame
   void _endLevel() {
     phase = GamePhase.transitioning;
     ecoPoints = math.max(0, collectionEcoPoints + sewerEcoPoints);
+
+    // Publish to the global holder so SortingFacilityScreen can read it
+    // via WasteCollectionResult.current without needing a constructor param.
+    _collectionResult = WasteCollectionResult(
+      total:          wasteCollected,
+      plastic:        plasticCollected,
+      organic:        organicCollected,
+      electronic:     electronicCollected,
+      glass:          glassCollected,
+      metallic:       metallicCollected,
+      general:        generalCollected,
+      ecoPoints:      math.max(0, collectionEcoPoints),
+      collisions:     collectionCollisions,
+      sewersFixed:    sewersFixed,
+      sewerEcoPoints: math.max(0, sewerEcoPoints),
+      totalEcoPoints: ecoPoints,
+    );
+    // Also store in the static slot so SortingFacilityScreen can access it
+    // without any constructor parameter change.
+    WasteCollectionResult.current = _collectionResult;
+
     overlays.add('gameOver');
   }
+
+  /// The fully-built result ready to hand off to the sorting phase.
+  WasteCollectionResult? _collectionResult;
+  WasteCollectionResult get collectionResult =>
+      _collectionResult ?? WasteCollectionResult(
+        total: wasteCollected, plastic: plasticCollected,
+        organic: organicCollected, electronic: electronicCollected,
+        glass: glassCollected, metallic: metallicCollected,
+        general: generalCollected, ecoPoints: math.max(0, collectionEcoPoints),
+        collisions: collectionCollisions, sewersFixed: sewersFixed,
+        sewerEcoPoints: math.max(0, sewerEcoPoints), totalEcoPoints: ecoPoints,
+      );
 
   // input
   void setDrive(bool v)    { isDriving = v; if (v && !gameStarted) gameStarted = true; }
@@ -582,8 +705,15 @@ class CityCollectionGame extends FlameGame
           s.wrongTool = true;
           s.activelyRepairing = false;
           s.showToolPrompt = false;
+          // Count each unique wrong-tool selection once (not every frame)
+          if (s._lastWrongTool != selectedTool) {
+            s._lastWrongTool = selectedTool;
+            s.wrongAttempts++;
+            notifyListeners();
+          }
         } else {
-          // Correct tool — progress advances
+          // Correct tool — progress advances; reset wrong-tool tracking
+          s._lastWrongTool = null;
           s.showToolPrompt = false;
           s.repairProgress += dt * 0.45;
           if (s.repairProgress >= 1.0) {
@@ -602,6 +732,7 @@ class CityCollectionGame extends FlameGame
         s.activelyRepairing = false;
         s.wrongTool         = false;
         s.showToolPrompt    = false;
+        s._lastWrongTool    = null;   // allow recounting if player returns with wrong tool
       }
     }
   }
@@ -616,6 +747,16 @@ class CityCollectionGame extends FlameGame
 
   // keep private alias so _checkRepairs still works
   RepairTool _correctToolFor(LeakType t) => correctToolFor(t);
+
+  /// Total wrong-tool selections across all sewers (used for efficiency).
+  int get totalWrongAttempts =>
+      sewers.fold(0, (sum, s) => sum + s.wrongAttempts);
+
+  /// Repair efficiency 0–100 %.
+  /// Starts at 100 %; every distinct wrong-tool selection on any sewer
+  /// deducts 12 percentage points (minimum 0 %).
+  int get repairEfficiencyPct =>
+      math.max(0, 100 - totalWrongAttempts * 12);
 
   void _triggerCrash() {
     if (crashActive) return;
@@ -1771,6 +1912,11 @@ class SewerLeak extends Component {
   bool   showToolPrompt    = false;
   double repairProgress    = 0.0;
   double _pulse            = 0.0;
+  /// Counts how many distinct wrong-tool selections the player made on this sewer.
+  int    wrongAttempts     = 0;
+  /// Last wrong tool that was selected at this sewer — prevents counting the
+  /// same wrong-tool selection on every frame.
+  RepairTool? _lastWrongTool;
   /// Tracks whether the truck has already arrived at this sewer in its
   /// current stop, so we only auto-clear the selected tool once per visit.
   bool   _truckWasHere     = false;
@@ -1790,17 +1936,18 @@ class SewerLeak extends Component {
 
   String get _leakLabel {
     switch (leakType) {
-      case LeakType.pipe:   return 'Pipe\nLoose';
-      case LeakType.joint:  return 'Joint\nLeak';
-      case LeakType.crack:  return 'Crack\nLeak';
+      case LeakType.pipe:   return 'LOOSE';    // orange badge
+      case LeakType.joint:  return 'JOINT';    // cyan badge
+      case LeakType.crack:  return 'CRACK';    // yellow badge
     }
   }
 
   Color get _leakColor {
     switch (leakType) {
-      case LeakType.pipe:   return const Color(0xFF9C27B0);
-      case LeakType.joint:  return const Color(0xFF2196F3);
-      case LeakType.crack:  return const Color(0xFF4CAF50);
+      // Each type gets a vivid, high-contrast colour that is unmistakably different.
+      case LeakType.pipe:   return const Color(0xFFFF6D00);   // 🔥 bright orange  — "Loose"
+      case LeakType.joint:  return const Color(0xFF00E5FF);   // 💎 vivid cyan     — "Joint"
+      case LeakType.crack:  return const Color(0xFFFFD600);   // ⚡ bright yellow  — "Crack"
     }
   }
 
@@ -1862,21 +2009,52 @@ class SewerLeak extends Component {
     canvas.drawLine(Offset(cx, sy + 6), Offset(cx - 3, sy + 14 + math.sin(_pulse) * 3), drip);
     canvas.drawLine(Offset(cx + 5, sy + 8), Offset(cx + 3, sy + 16 + math.cos(_pulse) * 2), drip);
 
-    // Leak type indicator
+    // ── Leak-type badge — large emoji + coloured pill label ─────────────
+    // Badge sits above the pipe, always visible even from a distance.
+    const double badgeW = 58.0, badgeH = 20.0;
+    final badgeTop = sy - 62.0;
+
+    // Filled pill background
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx - badgeW / 2, badgeTop, badgeW, badgeH),
+          const Radius.circular(6)),
+      Paint()..color = _leakColor.withValues(alpha: 0.92),
+    );
+    // White outline
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx - badgeW / 2, badgeTop, badgeW, badgeH),
+          const Radius.circular(6)),
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+
+    // Large emoji (distinctive per type)
     final emoji = TextPainter(
-      text: TextSpan(text: _leakEmoji, style: const TextStyle(fontSize: 11)),
+      text: TextSpan(text: _leakEmoji, style: const TextStyle(fontSize: 15)),
       textDirection: TextDirection.ltr,
     )..layout();
-    emoji.paint(canvas, Offset(cx - emoji.width/2, sy - 24));
+    emoji.paint(canvas, Offset(cx - badgeW / 2 + 4, badgeTop + 2));
 
-    // Leak label
+    // Label text in dark colour on the vivid background for maximum contrast
     final label = TextPainter(
-      text: TextSpan(text: _leakLabel,
-          style: TextStyle(color: _leakColor, fontSize: 8, fontWeight: FontWeight.bold, height: 1.1)),
+      text: TextSpan(
+        text: _leakLabel,
+        style: const TextStyle(
+          color: Color(0xFF0D0D0D),   // near-black for contrast on bright bg
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+          height: 1.15,
+          letterSpacing: 0.3,
+        ),
+      ),
       textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-    )..layout(maxWidth: 40);
-    label.paint(canvas, Offset(cx - 20, sy - 44));
+      textAlign: TextAlign.left,
+    )..layout(maxWidth: badgeW - 26);
+    label.paint(canvas, Offset(cx - badgeW / 2 + 22, badgeTop + 3));
 
     // Repair progress bar (always shown when player is in range)
     final dist = ((game.truckPos.x - cx).abs() + (game.toScreenY(worldY) - game.truckPos.y).abs());
@@ -2883,6 +3061,8 @@ class SewerResultsOverlay extends StatelessWidget {
             _BigStat('🔧', '${g.sewersFixed}/${CityCollectionGame.kTotalSewers}',
                 'Sewers Repaired', Colors.cyanAccent),
             _BigStat('📊', '$pct%',  'Completion Rate',          Colors.limeAccent),
+            _BigStat('🎯', '${g.repairEfficiencyPct}%',
+                'Repair Efficiency', Colors.orangeAccent),
             _BigStat('⭐', '${math.max(0, g.sewerEcoPoints)}',
                 'Sewer Eco-Points', Colors.amber),
             _BigStat('💥', '${g.sewerCollisions}', 'Collisions', Colors.redAccent),
@@ -2950,6 +3130,20 @@ class _SewerRow extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(child: Text(name,
             style: const TextStyle(color: Colors.white, fontSize: 12))),
+        // Wrong attempts badge
+        if (sewer.wrongAttempts > 0)
+          Container(
+            margin: const EdgeInsets.only(right: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: Colors.deepOrange.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: Colors.deepOrange.withValues(alpha: 0.5)),
+            ),
+            child: Text('${sewer.wrongAttempts} wrong',
+                style: const TextStyle(color: Colors.deepOrangeAccent,
+                    fontSize: 9, fontWeight: FontWeight.bold)),
+          ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
@@ -3149,6 +3343,7 @@ class CityGameOver extends StatelessWidget {
               title: 'Phase 2\nSewer Repair',
               stats: [
                 _PStat('🔧', '${g.sewersFixed}/${CityCollectionGame.kTotalSewers}', 'sewers'),
+                _PStat('🎯', '${g.repairEfficiencyPct}%', 'efficiency'),
                 _PStat('💥', '${g.sewerCollisions}', 'crashes'),
                 _PStat('⭐', '$sewPts', 'pts'),
               ],
