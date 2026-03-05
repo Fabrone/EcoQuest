@@ -166,7 +166,7 @@ class CityCollectionGame extends FlameGame
 
   // ── Sewer-repair traffic: keeps the free lane busy while truck is stopped ──
   double _sewerLaneTimer   = 0.0;
-  static const double _sewerLaneInterval = 3.2;  // seconds between free-lane injections
+  static const double _sewerLaneInterval = 2.0;  // one passing car every ~2 s
 
   // truck physics — tuned for controllability
   double speed        = 0.0;
@@ -546,40 +546,55 @@ class CityCollectionGame extends FlameGame
     }
   }
 
-  /// During sewer repair, keeps the lane the truck is NOT in continuously busy
-  /// by recycling an off-screen car onto that lane from ahead of the truck.
-  /// This prevents the road from going eerily quiet while the player is stopped.
+  /// During sewer repair, keeps the free lane (the one the truck is NOT in)
+  /// continuously busy by recycling cars that have already passed (off-screen top)
+  /// back to a position behind the truck so they drive past again.
+  ///
+  /// Spawn formula:  worldY = behindOffset − worldScroll
+  ///   → toScreenY gives  truckPos.y + behindOffset  (below/behind the truck ✓)
   void _injectSewerLaneTraffic() {
     final midX      = (roadLeft + roadRight) / 2;
     final truckLane = truckPos.x < midX ? 0 : 1;
     final freeLane  = 1 - truckLane;
 
-    // Try to recycle a car that is already far off-screen (ahead or behind)
+    // Primary candidates: cars that already exited off the TOP (fully passed the truck).
     TrafficCar? candidate;
     double bestScore = -double.infinity;
     for (final c in cars) {
       if (c.crashed) continue;
       final sy = toScreenY(c.worldY);
-      // Prefer cars that are well off-screen in either direction
-      if (sy < -120 || sy > size.y + 120) {
-        final score = (sy < -120) ? ((-120 - sy)) : (sy - size.y - 120);
+      if (sy < -100) {                       // off-screen top = already passed
+        final score = -100.0 - sy;           // further above = higher priority
         if (score > bestScore) { bestScore = score; candidate = c; }
       }
     }
-
-    if (candidate != null) {
-      candidate.lane       = freeLane;
-      candidate.worldX     = laneCenter(freeLane);
-      // Spawn from ahead (above) so it drives past the stopped truck
-      candidate.worldY     = -(worldScroll + size.y * 0.55 + 80 + _rng.nextDouble() * 160);
-      candidate.crashed    = false;
-      candidate.crashTimer = 0;
-      // Normal lane speed — not an overtaker, just regular passing traffic
-      final baseSpd = freeLane == 0
-          ? 76.0 + _rng.nextDouble() * 68.0
-          : 156.0 + _rng.nextDouble() * 100.0;
-      candidate._setBaseSpeedOverride(baseSpd);
+    // Fallback: any car far off-screen bottom (hasn't entered yet)
+    if (candidate == null) {
+      for (final c in cars) {
+        if (c.crashed) continue;
+        final sy = toScreenY(c.worldY);
+        if (sy > size.y + 100) {
+          final score = sy - size.y - 100.0;
+          if (score > bestScore) { bestScore = score; candidate = c; }
+        }
+      }
     }
+
+    if (candidate == null) return;
+
+    candidate.lane       = freeLane;
+    candidate.worldX     = laneCenter(freeLane);
+    // Place BEHIND the truck (below on screen).
+    // worldY = offset − worldScroll  →  sy = truckPos.y + offset  (below truck ✓)
+    final behindOffset   = size.y * 0.92 + 50 + _rng.nextDouble() * 130;
+    candidate.worldY     = behindOffset - worldScroll;
+    candidate.crashed    = false;
+    candidate.crashTimer = 0;
+    // Normal lane cruising speed — not a fast overtaker
+    final baseSpd = freeLane == 0
+        ? 82.0 + _rng.nextDouble() * 55.0
+        : 158.0 + _rng.nextDouble() * 85.0;
+    candidate._setBaseSpeedOverride(baseSpd);
   }
 
   /// Helper used by restartCurrentPhase to reset all traffic positions.
@@ -787,7 +802,7 @@ class CityCollectionGame extends FlameGame
     }
 
     // ── Sewer-repair free-lane traffic: keep road busy while truck is stopped ──
-    if (gameStarted && !truckDestroyed && phase == GamePhase.sewerRepair && speed < 15) {
+    if (gameStarted && !truckDestroyed && phase == GamePhase.sewerRepair && speed < 25) {
       _sewerLaneTimer += dt;
       if (_sewerLaneTimer >= _sewerLaneInterval) {
         _sewerLaneTimer = 0;
@@ -1963,21 +1978,35 @@ class TrafficCar extends Component {
     // ── 8. Respawn when passed far behind (off bottom of screen) ──────
     final sy = game.toScreenY(worldY);
     if (sy > game.size.y + 200) {
-      // When truck is nearly stopped: ~40% chance to respawn as rear overtaker
       final truckStopped = game.speed < 25;
-      if (truckStopped && game._rng.nextDouble() < 0.4) {
-        // Rear spawn: place just behind the truck, in the adjacent lane
-        final midX        = (game.roadLeft + game.roadRight) / 2;
-        final truckLane   = game.truckPos.x < midX ? 0 : 1;
-        lane              = 1 - truckLane;          // opposite lane = overtaker
-        worldY            = -game.worldScroll + (game.size.y * 0.85) + 40
-                            + game._rng.nextDouble() * 80;
-        worldX            = game.laneCenter(lane);
-        _targetLaneX      = worldX;
-        _baseSpeed        = game.maxSpeed * 1.4 + game._rng.nextDouble() * 40;
-        _curSpeed         = _baseSpeed;
+      final sewerPhase   = game.phase == GamePhase.sewerRepair;
+
+      // During sewer repair keep the road continuously busy:
+      // always rear-spawn so cars enter from behind and pass the truck.
+      // Outside sewer phase: 40% chance for a rear overtaker when stopped.
+      final doRearSpawn = truckStopped && (sewerPhase || game._rng.nextDouble() < 0.4);
+
+      if (doRearSpawn) {
+        final midX      = (game.roadLeft + game.roadRight) / 2;
+        final truckLane = game.truckPos.x < midX ? 0 : 1;
+        // Randomly pick a lane; the existing lane-change AI will overtake
+        // if the truck happens to be in the same lane ahead.
+        lane = game._rng.nextBool() ? (1 - truckLane) : truckLane;
+        // Correct formula: offset − worldScroll  →  sy = truckPos.y + offset
+        final behindOffset = game.size.y * 0.88 + 40 + game._rng.nextDouble() * 160;
+        worldY       = behindOffset - game.worldScroll;
+        worldX       = game.laneCenter(lane);
+        _targetLaneX = worldX;
+        // Free-lane cars cruise at normal speed; blocked-lane cars faster so they overtake
+        final isFree = lane != truckLane;
+        _baseSpeed   = sewerPhase
+            ? (isFree
+                ? (lane == 0 ? 88.0 : 162.0) + game._rng.nextDouble() * 55
+                : game.maxSpeed * 1.3 + game._rng.nextDouble() * 40)
+            : game.maxSpeed * 1.4 + game._rng.nextDouble() * 40;
+        _curSpeed    = _baseSpeed;
       } else {
-        // Normal: teleport ahead of the truck
+        // Normal driving phase: teleport well ahead of the truck
         worldY        = -(game.worldScroll + 500 + game._rng.nextDouble() * 800);
         worldX        = game.laneCenter(lane);
         _targetLaneX  = worldX;
