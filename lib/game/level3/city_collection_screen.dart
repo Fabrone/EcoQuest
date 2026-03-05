@@ -103,6 +103,7 @@ class _CityCollectionScreenState extends State<CityCollectionScreen> {
           'collectionResults':     (ctx, g) => CollectionResultsOverlay(g as CityCollectionGame),
           'sewerResults':          (ctx, g) => SewerResultsOverlay(g as CityCollectionGame),
           'gameOver':              (ctx, g) => CityGameOver(g as CityCollectionGame),
+          'truckDestroyed':        (ctx, g) => TruckDestroyedOverlay(g as CityCollectionGame),
           'toolbox':               (ctx, g) => ToolboxOverlay(g as CityCollectionGame),
         },
         initialActiveOverlays: const ['hud', 'controls'],
@@ -146,13 +147,26 @@ class CityCollectionGame extends FlameGame
   int generalCollected    = 0;
   int metallicCollected   = 0;
   int sewersFixed         = 0;
-  static const int kTotalSewers = 6;
+  /// Total sewers pre-spawned along the route (not a cap — just the spawn count).
+  static const int kSewerSpawnCount = 18;
   int ecoPoints           = 0;
   int collectionEcoPoints = 0;   // eco-points earned in collection phase alone
   int sewerEcoPoints      = 0;   // eco-points earned in sewer phase alone
   int sewerCollisions     = 0;   // collisions during sewer phase
   int collectionCollisions= 0;   // collisions during collection phase
   int collisionCount      = 0;
+
+  // ── Truck damage system (100 % → 0 % over 4 collisions, −25 % each) ──
+  int    truckHealth    = 100;   // percentage: 100 / 75 / 50 / 25 / 0
+  bool   truckDestroyed = false;
+
+  // ── Rear-traffic spawn: injects overtaking cars when truck is slow ────
+  double _rearSpawnTimer   = 0.0;
+  static const double _rearSpawnInterval = 5.0;  // seconds between injections
+
+  // ── Sewer-repair traffic: keeps the free lane busy while truck is stopped ──
+  double _sewerLaneTimer   = 0.0;
+  static const double _sewerLaneInterval = 3.2;  // seconds between free-lane injections
 
   // truck physics — tuned for controllability
   double speed        = 0.0;
@@ -352,16 +366,17 @@ class CityCollectionGame extends FlameGame
   }
 
   void _spawnSewers() {
-    // Sewers are next to buildings, offset from road edge — not on road
-    for (int i = 0; i < kTotalSewers; i++) {
-      final onLeft = i.isEven;
-      // Place on sidewalk/building-edge side
-      final sx = onLeft
-          ? roadLeft - kSidewalkW * 0.6
-          : roadRight + kSidewalkW * 0.6;
-      final leakKind = LeakType.values[i % LeakType.values.length];
+    // Sewers are randomly distributed along the route — random side (left/right),
+    // random lateral offset within the sidewalk+road-edge zone, random leak type,
+    // and irregular longitudinal spacing.  No fixed alternation, no cap of 6.
+    for (int i = 0; i < kSewerSpawnCount; i++) {
+      final onLeft  = _rng.nextBool();
+      // Random X: anywhere from road edge to outer sidewalk boundary
+      final xOffset = kSidewalkW * (0.25 + _rng.nextDouble() * 0.65);
+      final sx      = onLeft ? roadLeft - xOffset : roadRight + xOffset;
+      final leakKind= LeakType.values[_rng.nextInt(LeakType.values.length)];
       final s = SewerLeak(
-        worldY:   -(1000.0 + i * 600),
+        worldY:   -(600.0 + i * (350 + _rng.nextDouble() * 350)),
         worldX:   sx,
         id:       i,
         leakType: leakKind,
@@ -401,8 +416,8 @@ class CityCollectionGame extends FlameGame
       }
     } else if (phase == GamePhase.sewerRepair) {
       sewerTime -= 1;
-      if (sewerTime <= 0 || sewersFixed >= kTotalSewers) {
-        sewerTime = math.max(sewerTime, 0);
+      if (sewerTime <= 0) {
+        sewerTime = 0;
         _showSewerResults();
       }
     }
@@ -443,11 +458,19 @@ class CityCollectionGame extends FlameGame
     overlays.remove('phaseTransition');
     // Reset collision count to track sewer-phase collisions separately
     collisionCount = 0;
+    // Reset truck health and damage for a fresh sewer phase
+    truckHealth    = 100;
+    truckDestroyed = false;
+    _rearSpawnTimer= 0;
     for (int i = 0; i < sewers.length; i++) {
+      final onLeft  = _rng.nextBool();
+      final xOffset = kSidewalkW * (0.25 + _rng.nextDouble() * 0.65);
+      sewers[i].worldX         = onLeft ? roadLeft - xOffset : roadRight + xOffset;
       sewers[i].isVisible      = true;
-      sewers[i].worldY         = -(worldScroll + 500 + i * 550.0);
+      sewers[i].worldY         = -(worldScroll + 500 + i * (400.0 + _rng.nextDouble() * 250));
       sewers[i].repairProgress = 0;
       sewers[i].isRepaired     = false;
+      sewers[i].wasEncountered = false;
     }
     // Respawn traffic for sewer phase
     _respawnTrafficForSewerPhase();
@@ -456,16 +479,147 @@ class CityCollectionGame extends FlameGame
   }
 
   void _respawnTrafficForSewerPhase() {
-    // Place all cars close to the truck so the player encounters traffic
-    // immediately in Phase 2, matching the same feel as Phase 1 start.
+    // Sewer phase: more vehicles, placed both ahead and around the truck
+    // for immediate encounters. 12 cars total (was 6).
+    const kinds = VehicleKind.values;
     for (int i = 0; i < cars.length; i++) {
       final c = cars[i];
       c.crashed    = false;
       c.crashTimer = 0;
-      c.worldY     = -(worldScroll + 80 + i * 170.0 + _rng.nextDouble() * 80);
+      // Alternate: half ahead, half spread further ahead for density
+      c.worldY     = -(worldScroll + 60 + i * 130.0 + _rng.nextDouble() * 60);
       c.worldX     = laneCenter(c.lane);
     }
+    // Add extra cars for sewer phase density if pool is small
+    if (cars.length < 10) {
+      for (int extra = 0; extra < 4; extra++) {
+        final lane  = extra % kLanes;
+        final kind  = kinds[(cars.length + extra) % kinds.length];
+        final spd   = (lane == 0 ? 110.0 : 200.0) + _rng.nextDouble() * 60;
+        final c = TrafficCar(
+          lane:      lane,
+          worldY:    -(worldScroll + 100 + extra * 160.0 + lane * 40),
+          worldX:    laneCenter(lane),
+          kind:      kind,
+          baseSpeed: spd,
+          game:      this,
+        );
+        add(c);
+        cars.add(c);
+      }
+    }
   }
+
+  /// Inject one fast overtaking car from BEHIND the truck on the adjacent lane.
+  /// Called periodically while the truck is slow or stationary.
+  void _injectRearOvertakingCar() {
+    // Find the lane opposite to where the truck currently is
+    final midX     = (roadLeft + roadRight) / 2;
+    final truckLane = truckPos.x < midX ? 0 : 1;
+    final overtakeLane = 1 - truckLane;
+
+    // Try to recycle a car that is already far behind/off-screen
+    TrafficCar? candidate;
+    double furthestBehind = -double.infinity;
+    for (final c in cars) {
+      if (c.crashed) continue;
+      final sy = toScreenY(c.worldY);
+      if (sy > size.y + 80) {   // already off bottom of screen
+        final behindDist = sy - size.y;
+        if (behindDist > furthestBehind) {
+          furthestBehind = behindDist;
+          candidate = c;
+        }
+      }
+    }
+
+    if (candidate != null) {
+      // Reuse this car — spawn it just behind the truck
+      candidate.lane       = overtakeLane;
+      candidate.worldX     = laneCenter(overtakeLane);
+      // worldY such that toScreenY gives a screen Y slightly below the truck
+      candidate.worldY     = -worldScroll + (size.y * 0.82) + 60 + _rng.nextDouble() * 80;
+      candidate.crashed    = false;
+      candidate.crashTimer = 0;
+      // Give it a speed comfortably above the truck's max so it will overtake
+      candidate._setBaseSpeedOverride(maxSpeed * 1.35 + _rng.nextDouble() * 40);
+    }
+  }
+
+  /// During sewer repair, keeps the lane the truck is NOT in continuously busy
+  /// by recycling an off-screen car onto that lane from ahead of the truck.
+  /// This prevents the road from going eerily quiet while the player is stopped.
+  void _injectSewerLaneTraffic() {
+    final midX      = (roadLeft + roadRight) / 2;
+    final truckLane = truckPos.x < midX ? 0 : 1;
+    final freeLane  = 1 - truckLane;
+
+    // Try to recycle a car that is already far off-screen (ahead or behind)
+    TrafficCar? candidate;
+    double bestScore = -double.infinity;
+    for (final c in cars) {
+      if (c.crashed) continue;
+      final sy = toScreenY(c.worldY);
+      // Prefer cars that are well off-screen in either direction
+      if (sy < -120 || sy > size.y + 120) {
+        final score = (sy < -120) ? ((-120 - sy)) : (sy - size.y - 120);
+        if (score > bestScore) { bestScore = score; candidate = c; }
+      }
+    }
+
+    if (candidate != null) {
+      candidate.lane       = freeLane;
+      candidate.worldX     = laneCenter(freeLane);
+      // Spawn from ahead (above) so it drives past the stopped truck
+      candidate.worldY     = -(worldScroll + size.y * 0.55 + 80 + _rng.nextDouble() * 160);
+      candidate.crashed    = false;
+      candidate.crashTimer = 0;
+      // Normal lane speed — not an overtaker, just regular passing traffic
+      final baseSpd = freeLane == 0
+          ? 76.0 + _rng.nextDouble() * 68.0
+          : 156.0 + _rng.nextDouble() * 100.0;
+      candidate._setBaseSpeedOverride(baseSpd);
+    }
+  }
+
+  /// Helper used by restartCurrentPhase to reset all traffic positions.
+  void _spawnTrafficAt(double scroll) {
+    const double lane0Min  = 76.0;
+    const double lane0Max  = 144.0;
+    const double lane1Min  = 156.0;
+    const double lane1Max  = 256.0;
+    const Map<VehicleKind, double> kindBonus = {
+      VehicleKind.bus:       -28.0,
+      VehicleKind.matatu:    -12.0,
+      VehicleKind.van:        -4.0,
+      VehicleKind.suv:         8.0,
+      VehicleKind.saloon:     20.0,
+      VehicleKind.motorbike:  36.0,
+    };
+    const startOff = 80.0;
+    const spacing  = 170.0;
+    const kinds    = VehicleKind.values;
+
+    int idx = 0;
+    for (int lane = 0; lane < kLanes && idx < cars.length; lane++) {
+      final laneMin = lane == 0 ? lane0Min : lane1Min;
+      final laneMax = lane == 0 ? lane0Max : lane1Max;
+      for (int i = 0; i < 3 && idx < cars.length; i++, idx++) {
+        final c    = cars[idx];
+        final kind = kinds[(lane * 3 + i) % kinds.length];
+        final bonus= kindBonus[kind] ?? 0.0;
+        final spd  = (laneMin + _rng.nextDouble() * (laneMax - laneMin) + bonus)
+                     .clamp(laneMin * 0.85, laneMax * 1.10);
+        c.lane       = lane;
+        c.worldX     = laneCenter(lane);
+        c.worldY     = -(startOff + spacing * i + lane * 45.0);
+        c.crashed    = false;
+        c.crashTimer = 0;
+        c._setBaseSpeedOverride(spd);
+      }
+    }
+  }
+
 
   // ── Sewer phase ends → show sewer results screen ──
   void _showSewerResults() {
@@ -620,6 +774,29 @@ class CityCollectionGame extends FlameGame
     _checkCarCrashes();
     if (phase == GamePhase.sewerRepair) _checkRepairs(dt);
 
+    // ── Rear-traffic injection: spawn overtaking cars while truck is slow ──
+    if (gameStarted && !truckDestroyed &&
+        phase != GamePhase.transitioning && speed < 30) {
+      _rearSpawnTimer += dt;
+      if (_rearSpawnTimer >= _rearSpawnInterval) {
+        _rearSpawnTimer = 0;
+        _injectRearOvertakingCar();
+      }
+    } else if (speed >= 30) {
+      _rearSpawnTimer = 0;
+    }
+
+    // ── Sewer-repair free-lane traffic: keep road busy while truck is stopped ──
+    if (gameStarted && !truckDestroyed && phase == GamePhase.sewerRepair && speed < 15) {
+      _sewerLaneTimer += dt;
+      if (_sewerLaneTimer >= _sewerLaneInterval) {
+        _sewerLaneTimer = 0;
+        _injectSewerLaneTraffic();
+      }
+    } else {
+      _sewerLaneTimer = 0;
+    }
+
     // recycle off-screen waste only during collection phase
     if (phase == GamePhase.collection) {
       for (var w in wastes) {
@@ -650,6 +827,9 @@ class CityCollectionGame extends FlameGame
           case WasteType.general:    generalCollected++;    break;
           case WasteType.metallic:   metallicCollected++;   break;
         }
+        // ── Live eco-points: recalculate immediately so HUD is not static ──
+        collectionEcoPoints = math.max(0, wasteCollected * 10 - collisionCount * 5);
+        ecoPoints           = collectionEcoPoints;
         notifyListeners();
       }
     }
@@ -676,6 +856,17 @@ class CityCollectionGame extends FlameGame
     for (var s in sewers) {
       if (!s.isVisible || s.isRepaired) continue;
       final sy = toScreenY(s.worldY);
+
+      // ── Mark as encountered when the truck drives into proximity ───────
+      if (!s.wasEncountered) {
+        if ((s.worldX - truckPos.x).abs() < 110 &&
+            (sy - truckPos.y).abs() < 120) {
+          s.wasEncountered = true;
+        }
+        // Also mark if the sewer has scrolled behind the truck
+        if (sy > truckPos.y + 80) s.wasEncountered = true;
+      }
+
       final inRange = (s.worldX - truckPos.x).abs() < 55 &&
                       (sy - truckPos.y).abs() < 55;
       final stopped = speed < 20;   // must be nearly stopped
@@ -720,10 +911,10 @@ class CityCollectionGame extends FlameGame
             s.isRepaired        = true;
             s.activelyRepairing = false;
             s.wrongTool         = false;
+            s.wasEncountered    = true;
             sewersFixed++;
             ecoPoints += 50;
             notifyListeners();
-            if (sewersFixed >= kTotalSewers) { _endLevel(); }
           }
         }
       } else {
@@ -758,20 +949,131 @@ class CityCollectionGame extends FlameGame
   int get repairEfficiencyPct =>
       math.max(0, 100 - totalWrongAttempts * 12);
 
+  // ── Sewer distance-coverage statistics ───────────────────────────────
+
+  /// Sewers the player actually encountered (drove into proximity of)
+  /// during the sewer phase — these form the "distance covered" pool.
+  int get totalSewersOnRoute =>
+      sewers.where((s) => s.wasEncountered || s.isRepaired).length;
+
+  /// Sewers the player encountered but failed to fully repair.
+  int get sewersMissed => math.max(0, totalSewersOnRoute - sewersFixed);
+
+  /// Comprehensive accuracy 0–100 %.
+  /// Base = sewers repaired ÷ total encountered.
+  /// Penalised by wrong-tool selections (−5 % each, max −40 %)
+  /// and sewer-phase collisions (−3 % each, max −15 %).
+  int get sewerAccuracyPct {
+    final total = totalSewersOnRoute;
+    if (total == 0) return 100;
+    final base            = (sewersFixed / total * 100).round();
+    final wrongPenalty    = math.min(40, totalWrongAttempts * 5);
+    final collisionPenalty= math.min(15, sewerCollisions * 3);
+    return math.max(0, base - wrongPenalty - collisionPenalty);
+  }
+
   void _triggerCrash() {
     if (crashActive) return;
     crashActive    = true;
     crashTimer     = 1.8;
     collisionCount++;
+
+    // ── Damage system: −25 % per collision, destroyed at 4 (0 %) ────────
+    truckHealth = math.max(0, truckHealth - 25);
+
+    // ── Recalculate live eco-points so HUD updates immediately ───────────
     if (phase == GamePhase.collection) {
-      collectTime = math.max(0, collectTime - 8);
-    } else {
-      sewerTime = math.max(0, sewerTime - 8);
+      collectionEcoPoints = math.max(0, wasteCollected * 10 - collisionCount * 5);
+      ecoPoints           = collectionEcoPoints;
+    } else if (phase == GamePhase.sewerRepair) {
+      sewerEcoPoints = math.max(0, sewersFixed * 50 - collisionCount * 20
+                                  - totalWrongAttempts * 8);
+      ecoPoints      = math.max(0, collectionEcoPoints + sewerEcoPoints);
     }
+
     overlays.add('collisionFlash');
+
+    // ── Truck destroyed → freeze game and show damage overlay ────────────
+    if (truckHealth <= 0 && !truckDestroyed) {
+      truckDestroyed = true;
+      speed          = 0;
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (!truckDestroyed) return;   // guard if already reset
+        pauseEngine();
+        overlays.remove('collisionFlash');
+        overlays.add('truckDestroyed');
+      });
+    }
+
     notifyListeners();
   }
-}
+
+  // ── Restart the current phase after truck-destroyed ───────────────────
+  void restartCurrentPhase() {
+    overlays.remove('truckDestroyed');
+    truckHealth    = 100;
+    truckDestroyed = false;
+    collisionCount = 0;
+    crashActive    = false;
+    crashTimer     = 0;
+    speed          = 0;
+
+    if (phase == GamePhase.collection || phase == GamePhase.transitioning) {
+      // Full collection phase restart
+      phase              = GamePhase.collection;
+      gameStarted        = false;
+      collectTime        = 120.0;
+      wasteCollected     = 0;
+      plasticCollected   = 0;
+      organicCollected   = 0;
+      electronicCollected= 0;
+      glassCollected     = 0;
+      generalCollected   = 0;
+      metallicCollected  = 0;
+      collectionCollisions = 0;
+      collectionEcoPoints  = 0;
+      ecoPoints            = 0;
+      worldScroll          = 0;
+      truckPos             = Vector2(size.x / 2, size.y * 0.75);
+      for (var w in wastes) { w.isCollected = false; }
+      _rearSpawnTimer = 0;
+      // Reset waste positions
+      for (int i = 0; i < wastes.length; i++) {
+        final lane = _rng.nextInt(kLanes);
+        wastes[i].worldX = laneCenter(lane) + (_rng.nextDouble() - 0.5) * 28;
+        wastes[i].worldY = -(400.0 + i * (150 + _rng.nextDouble() * 250));
+        wastes[i].isCollected = false;
+      }
+      // Reset traffic
+      _spawnTrafficAt(worldScroll);
+      resumeEngine();
+      _showBanner();
+    } else if (phase == GamePhase.sewerRepair) {
+      // Restart sewer phase
+      collisionCount     = 0;
+      sewerCollisions    = 0;
+      sewersFixed        = 0;
+      sewerTime          = 210.0;
+      sewerEcoPoints     = 0;
+      ecoPoints          = math.max(0, collectionEcoPoints);
+      _rearSpawnTimer    = 0;
+      _sewerLaneTimer    = 0;
+      for (var s in sewers) {
+        s.repairProgress  = 0;
+        s.isRepaired      = false;
+        s.wrongAttempts   = 0;
+        s._truckWasHere   = false;
+        s._lastWrongTool  = null;
+        s.wasEncountered  = false;
+      }
+      _respawnTrafficForSewerPhase();
+      resumeEngine();
+      _showBanner();
+    }
+    notifyListeners();
+  }
+
+}  // end CityCollectionGame
 
 // small data class for waste configuration
 class _WasteConfig {
@@ -1502,8 +1804,7 @@ class TrafficCar extends Component {
   double worldY;
   double worldX;   // smoothly interpolates to laneCenter(lane)
   final VehicleKind kind;
-  final double      baseSpeed;
-  final CityCollectionGame game;
+  final CityCollectionGame game;   // baseSpeed is now stored in _baseSpeed (mutable)
 
   double _curSpeed     = 0;
   double _targetLaneX  = 0;
@@ -1512,6 +1813,15 @@ class TrafficCar extends Component {
   bool   _changingLane = false;
   double _laneChangeT  = 0.0;   // 0→1 over lane change duration
   double _prevLaneX    = 0;
+  double _baseSpeed    = 0;     // mutable base speed (allows rear-inject override)
+
+  double get baseSpeed => _baseSpeed;
+
+  /// Override base speed (used by rear-inject and restart helpers).
+  void _setBaseSpeedOverride(double spd) {
+    _baseSpeed = spd;
+    _curSpeed  = spd;
+  }
 
   // Per-vehicle emoji & size spec
   static const Map<VehicleKind, _VSpec> _specs = {
@@ -1531,9 +1841,10 @@ class TrafficCar extends Component {
     required this.worldY,
     required this.worldX,
     required this.kind,
-    required this.baseSpeed,
+    required double baseSpeed,
     required this.game,
   }) {
+    _baseSpeed   = baseSpeed;
     _curSpeed    = baseSpeed;
     _targetLaneX = worldX;
     _prevLaneX   = worldX;
@@ -1547,6 +1858,9 @@ class TrafficCar extends Component {
 
   @override
   void update(double dt) {
+    // ── Freeze traffic until the player starts driving ─────────────────
+    if (!game.gameStarted) return;
+
     if (crashed) {
       crashTimer -= dt;
       // Vehicle stays stopped and visible while crashed; respawn after timer
@@ -1556,7 +1870,7 @@ class TrafficCar extends Component {
         // Respawn well ahead of truck after crash recovery
         worldY   = -(game.worldScroll + 600 + game._rng.nextDouble() * 400);
         worldX   = game.laneCenter(lane);
-        _curSpeed = baseSpeed;
+        _curSpeed = _baseSpeed;
       }
       return;
     }
@@ -1582,7 +1896,7 @@ class TrafficCar extends Component {
     final truckGap     = thisSy - truckSy;                 // pixels between us and truck on screen
 
     // ── 3. Determine desired speed (IDM-lite) ─────────────────────────
-    double desiredSpeed = baseSpeed;
+    double desiredSpeed = _baseSpeed;
 
     // Slow for leader car
     if (leader != null && leaderGap < _safeGap * 2.5) {
@@ -1616,8 +1930,8 @@ class TrafficCar extends Component {
     // ── 5. Lane change logic ──────────────────────────────────────────
     // Try to change lane if: blocked by slow leader or truck is in our lane ahead
     if (!_changingLane) {
-      final blocked = (leader != null && leaderGap < _safeGap * 1.5 && leader._curSpeed < baseSpeed * 0.6)
-                   || (truckAhead && truckGap < _safeGap * 2 && game.speed < baseSpeed * 0.5);
+      final blocked = (leader != null && leaderGap < _safeGap * 1.5 && leader._curSpeed < _baseSpeed * 0.6)
+                   || (truckAhead && truckGap < _safeGap * 2 && game.speed < _baseSpeed * 0.5);
       if (blocked) {
         _tryChangeLane();
       }
@@ -1649,11 +1963,26 @@ class TrafficCar extends Component {
     // ── 8. Respawn when passed far behind (off bottom of screen) ──────
     final sy = game.toScreenY(worldY);
     if (sy > game.size.y + 200) {
-      // Teleport ahead of the screen, far in front of truck
-      worldY    = -(game.worldScroll + 500 + game._rng.nextDouble() * 800);
-      worldX    = game.laneCenter(lane);
-      _targetLaneX = worldX;
-      _curSpeed = baseSpeed;
+      // When truck is nearly stopped: ~40% chance to respawn as rear overtaker
+      final truckStopped = game.speed < 25;
+      if (truckStopped && game._rng.nextDouble() < 0.4) {
+        // Rear spawn: place just behind the truck, in the adjacent lane
+        final midX        = (game.roadLeft + game.roadRight) / 2;
+        final truckLane   = game.truckPos.x < midX ? 0 : 1;
+        lane              = 1 - truckLane;          // opposite lane = overtaker
+        worldY            = -game.worldScroll + (game.size.y * 0.85) + 40
+                            + game._rng.nextDouble() * 80;
+        worldX            = game.laneCenter(lane);
+        _targetLaneX      = worldX;
+        _baseSpeed        = game.maxSpeed * 1.4 + game._rng.nextDouble() * 40;
+        _curSpeed         = _baseSpeed;
+      } else {
+        // Normal: teleport ahead of the truck
+        worldY        = -(game.worldScroll + 500 + game._rng.nextDouble() * 800);
+        worldX        = game.laneCenter(lane);
+        _targetLaneX  = worldX;
+        _curSpeed     = _baseSpeed;
+      }
       _changingLane = false;
     }
   }
@@ -1725,7 +2054,7 @@ class TrafficCar extends Component {
     _drawTopDownShape(canvas, spec, sy, crashed: false);
 
     // Brake lights: red glow at rear (bottom = positive sy direction) when slowing
-    if (_curSpeed < baseSpeed * 0.6) {
+    if (_curSpeed < _baseSpeed * 0.6) {
       final brakePaint = Paint()
         ..color = const Color(0xAAFF1111)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
@@ -1910,6 +2239,9 @@ class SewerLeak extends Component {
   bool   activelyRepairing = false;
   bool   wrongTool         = false;
   bool   showToolPrompt    = false;
+  /// True once the truck has driven into this sewer's proximity — counts it
+  /// towards the "total sewers on distance covered" statistic.
+  bool   wasEncountered    = false;
   double repairProgress    = 0.0;
   double _pulse            = 0.0;
   /// Counts how many distinct wrong-tool selections the player made on this sewer.
@@ -2242,13 +2574,16 @@ class CityHud extends StatelessWidget {
                   _HudTile(Icons.delete_rounded, '${game.wasteCollected}', 'WASTE', Colors.greenAccent)
                 else
                   _HudTile(Icons.plumbing_rounded,
-                      '${game.sewersFixed}/${CityCollectionGame.kTotalSewers}', 'SEWERS', Colors.cyanAccent),
+                      '${game.sewersFixed}/${game.totalSewersOnRoute}', 'SEWERS', Colors.cyanAccent),
                 const SizedBox(width: 6),
                 _HudTile(Icons.eco_rounded, '${game.ecoPoints}', 'ECO-PTS', Colors.limeAccent),
                 const SizedBox(width: 6),
                 _HudTile(Icons.speed_rounded, '$kmh', 'KM/H',
                     kmh > 80 ? Colors.orange : Colors.white70),
               ]),
+              // ── Truck Health bar ───────────────────────────────────────
+              const SizedBox(height: 5),
+              _TruckHealthBar(health: game.truckHealth),
               // Cargo fill bar
               if (isCol) ...[
                 const SizedBox(height: 6),
@@ -2362,6 +2697,58 @@ class _ToolIndicator extends StatelessWidget {
         Text(emoji, style: const TextStyle(fontSize: 14)),
         const SizedBox(width: 5),
         Text(name, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+      ]),
+    );
+  }
+}
+
+// ── Truck health bar ────────────────────────────────────────────────────
+class _TruckHealthBar extends StatelessWidget {
+  final int health;   // 0–100
+  const _TruckHealthBar({required this.health});
+
+  @override
+  Widget build(BuildContext context) {
+    final pct   = health / 100.0;
+    final Color barColor;
+    final String label;
+    if (health > 75) {
+      barColor = const Color(0xFF4CAF50);
+      label    = '🚛 Truck: 100%';
+    } else if (health > 50) {
+      barColor = const Color(0xFFFFEB3B);
+      label    = '🚛 Truck: $health%';
+    } else if (health > 25) {
+      barColor = const Color(0xFFFF9800);
+      label    = '⚠️ Truck: $health%';
+    } else if (health > 0) {
+      barColor = const Color(0xFFF44336);
+      label    = '🔴 Truck: $health%  — 1 crash left!';
+    } else {
+      barColor = const Color(0xFF880000);
+      label    = '💀 Truck Destroyed';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: barColor.withValues(alpha: 0.5)),
+      ),
+      child: Row(children: [
+        Text(label, style: TextStyle(
+            color: barColor, fontSize: 10, fontWeight: FontWeight.bold)),
+        const SizedBox(width: 8),
+        Expanded(child: ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: pct.clamp(0.0, 1.0),
+            minHeight: 7,
+            backgroundColor: Colors.white12,
+            valueColor: AlwaysStoppedAnimation(barColor),
+          ),
+        )),
       ]),
     );
   }
@@ -2885,6 +3272,190 @@ class CityPhaseBanner extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+//  TRUCK DESTROYED OVERLAY — shown after 4 collisions (0 % health)
+//  Applies to both collection and sewer phases.
+// ══════════════════════════════════════════════════════════════════════
+class TruckDestroyedOverlay extends StatelessWidget {
+  final CityCollectionGame game;
+  const TruckDestroyedOverlay(this.game, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final isCollection = game.phase == GamePhase.collection ||
+        (game.phase == GamePhase.transitioning && game.sewerCollisions == 0);
+    final phaseName  = isCollection ? 'Phase 1 — Waste Collection' : 'Phase 2 — Sewer Repair';
+    final phaseEmoji = isCollection ? '🗑️' : '🔧';
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.94),
+      child: SafeArea(child: Center(child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+
+          // ── Fire / destroyed header ──────────────────────────────────
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                  colors: [Color(0xFF7F0000), Color(0xFFB71C1C)]),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.red.withValues(alpha: 0.6), width: 2),
+              boxShadow: [BoxShadow(color: Colors.red.withValues(alpha: 0.35),
+                  blurRadius: 24, spreadRadius: 4)],
+            ),
+            child: Column(children: [
+              const Text('🔥', style: TextStyle(fontSize: 56)),
+              const SizedBox(height: 8),
+              const Text('TRUCK DESTROYED!',
+                  style: TextStyle(color: Colors.white, fontSize: 22,
+                      fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+              const SizedBox(height: 4),
+              Text(phaseName,
+                  style: TextStyle(color: Colors.red[200], fontSize: 13)),
+            ]),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ── Damage summary ───────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A0000),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+            ),
+            child: Column(children: [
+              const Text('DAMAGE REPORT',
+                  style: TextStyle(color: Colors.white54, fontSize: 11,
+                      letterSpacing: 2, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              // Health bar fully depleted
+              Row(children: [
+                const Text('🚛 Truck Health',
+                    style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const Spacer(),
+                const Text('0%',
+                    style: TextStyle(color: Colors.redAccent,
+                        fontWeight: FontWeight.bold, fontSize: 16)),
+              ]),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(5),
+                child: const LinearProgressIndicator(
+                  value: 0,
+                  minHeight: 10,
+                  backgroundColor: Color(0xFF880000),
+                  valueColor: AlwaysStoppedAnimation(Colors.transparent),
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Collision tally
+              Row(children: const [
+                Text('💥 Collisions in this phase',
+                    style: TextStyle(color: Colors.white70, fontSize: 13)),
+                Spacer(),
+              ]),
+              const SizedBox(height: 4),
+              Text('${game.collisionCount} / 4',
+                  style: const TextStyle(color: Colors.redAccent,
+                      fontWeight: FontWeight.bold, fontSize: 22)),
+              const SizedBox(height: 14),
+              // Damage breakdown bar
+              _DamageBar(label: 'Collision 1', pct: 0.75, color: const Color(0xFF4CAF50)),
+              const SizedBox(height: 4),
+              _DamageBar(label: 'Collision 2', pct: 0.50, color: const Color(0xFFFFEB3B)),
+              const SizedBox(height: 4),
+              _DamageBar(label: 'Collision 3', pct: 0.25, color: const Color(0xFFFF9800)),
+              const SizedBox(height: 4),
+              _DamageBar(label: 'Collision 4', pct: 0.0, color: Colors.red),
+            ]),
+          ),
+
+          const SizedBox(height: 14),
+
+          // ── Progress so far ──────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D1B2A),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(children: [
+              Text('$phaseEmoji  Progress Before Crash',
+                  style: const TextStyle(color: Colors.white70,
+                      fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              const SizedBox(height: 10),
+              if (isCollection) ...[
+                _ResultRow(Icons.delete_rounded, 'Waste Collected',
+                    '${game.wasteCollected}', Colors.greenAccent),
+                _ResultRow(Icons.eco_rounded, 'Eco-Points So Far',
+                    '${game.ecoPoints}', Colors.limeAccent),
+              ] else ...[
+                _ResultRow(Icons.plumbing_rounded, 'Sewers Repaired',
+                    '${game.sewersFixed}/${game.totalSewersOnRoute}', Colors.cyanAccent),
+                _ResultRow(Icons.eco_rounded, 'Eco-Points So Far',
+                    '${game.ecoPoints}', Colors.limeAccent),
+              ],
+            ]),
+          ),
+
+          const SizedBox(height: 20),
+
+          // ── Retry button ─────────────────────────────────────────────
+          SizedBox(width: double.infinity, child: ElevatedButton.icon(
+            onPressed: game.restartCurrentPhase,
+            icon: const Icon(Icons.replay_rounded, size: 22),
+            label: Text(
+              'RETRY $phaseEmoji  ${isCollection ? "COLLECTION" : "SEWER REPAIR"} PHASE',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 1),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD32F2F),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 10,
+              shadowColor: Colors.red,
+            ),
+          )),
+
+          const SizedBox(height: 8),
+          const Text('All progress in this phase will be reset.',
+              style: TextStyle(color: Colors.white38, fontSize: 11)),
+        ]),
+      ))),
+    );
+  }
+}
+
+class _DamageBar extends StatelessWidget {
+  final String label;
+  final double pct;
+  final Color  color;
+  const _DamageBar({required this.label, required this.pct, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+    SizedBox(width: 90, child: Text(label,
+        style: const TextStyle(color: Colors.white54, fontSize: 10))),
+    Expanded(child: ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: LinearProgressIndicator(
+        value: pct,
+        minHeight: 7,
+        backgroundColor: Colors.white12,
+        valueColor: AlwaysStoppedAnimation(pct == 0 ? Colors.red : color),
+      ),
+    )),
+    const SizedBox(width: 6),
+    Text('${(pct * 100).round()}%',
+        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+  ]);
+}
+
+// ══════════════════════════════════════════════════════════════════════
 //  COLLISION FLASH
 // ══════════════════════════════════════════════════════════════════════
 class CityCollisionFlash extends StatelessWidget {
@@ -2902,9 +3473,14 @@ class CityCollisionFlash extends StatelessWidget {
           color: Colors.red[900]!.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(14),
           boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 16, spreadRadius: 4)]),
-      child: const Text('💥  COLLISION!  −25 pts  −8s',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold,
-              fontSize: 20, letterSpacing: 1)),
+      child: const Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('💥  COLLISION!',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold,
+                fontSize: 22, letterSpacing: 1)),
+        SizedBox(height: 4),
+        Text('−25% Truck Health',
+            style: TextStyle(color: Color(0xFFFF8A80), fontSize: 14, fontWeight: FontWeight.w600)),
+      ]),
     )),
   ]));
 }
@@ -3027,7 +3603,6 @@ class SewerResultsOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final g   = game;
-    final pct = (g.sewersFixed / CityCollectionGame.kTotalSewers * 100).round();
 
     return Container(
       color: Colors.black.withValues(alpha: 0.94),
@@ -3057,18 +3632,50 @@ class SewerResultsOverlay extends StatelessWidget {
 
           const SizedBox(height: 16),
 
+          // ── Primary stats row ────────────────────────────────────────
           _ResultCard(children: [
-            _BigStat('🔧', '${g.sewersFixed}/${CityCollectionGame.kTotalSewers}',
-                'Sewers Repaired', Colors.cyanAccent),
-            _BigStat('📊', '$pct%',  'Completion Rate',          Colors.limeAccent),
-            _BigStat('🎯', '${g.repairEfficiencyPct}%',
-                'Repair Efficiency', Colors.orangeAccent),
-            _BigStat('⭐', '${math.max(0, g.sewerEcoPoints)}',
-                'Sewer Eco-Points', Colors.amber),
-            _BigStat('💥', '${g.sewerCollisions}', 'Collisions', Colors.redAccent),
+            _BigStat('🔧', '${g.sewersFixed}',
+                'Repaired', Colors.cyanAccent),
+            _BigStat('❌', '${g.sewersMissed}',
+                'Missed', Colors.redAccent),
+            _BigStat('📍', '${g.totalSewersOnRoute}',
+                'Encountered', Colors.white70),
           ]),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+
+          // ── Accuracy & efficiency row ─────────────────────────────────
+          _ResultCard(children: [
+            _BigStat('🎯', '${g.sewerAccuracyPct}%',
+                'Repair Accuracy', Colors.limeAccent),
+            _BigStat('🛠️', '${g.repairEfficiencyPct}%',
+                'Tool Efficiency', Colors.orangeAccent),
+            _BigStat('⭐', '${math.max(0, g.sewerEcoPoints)}',
+                'Sewer Eco-Points', Colors.amber),
+          ]),
+
+          const SizedBox(height: 10),
+
+          // ── Penalty summary ───────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A0A00),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.deepOrange.withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _BigStat('⚒️', '${g.totalWrongAttempts}',
+                    'Wrong Tools\n(−5% each)', Colors.deepOrangeAccent),
+                _BigStat('💥', '${g.sewerCollisions}',
+                    'Collisions\n(−3% each)', Colors.redAccent),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 10),
 
           // Sewer breakdown
           Container(
@@ -3083,7 +3690,7 @@ class SewerResultsOverlay extends StatelessWidget {
                   style: TextStyle(color: Colors.white70, fontSize: 12,
                       fontWeight: FontWeight.bold, letterSpacing: 1)),
               const SizedBox(height: 12),
-              for (final s in g.sewers)
+              for (final s in g.sewers.where((s) => s.wasEncountered || s.isRepaired))
                 _SewerRow(s),
             ]),
           ),
@@ -3342,8 +3949,10 @@ class CityGameOver extends StatelessWidget {
               color: const Color(0xFF0D47A1),
               title: 'Phase 2\nSewer Repair',
               stats: [
-                _PStat('🔧', '${g.sewersFixed}/${CityCollectionGame.kTotalSewers}', 'sewers'),
-                _PStat('🎯', '${g.repairEfficiencyPct}%', 'efficiency'),
+                _PStat('📍', '${g.totalSewersOnRoute}', 'encountered'),
+                _PStat('🔧', '${g.sewersFixed}', 'repaired'),
+                _PStat('❌', '${g.sewersMissed}', 'missed'),
+                _PStat('🎯', '${g.sewerAccuracyPct}%', 'accuracy'),
                 _PStat('💥', '${g.sewerCollisions}', 'crashes'),
                 _PStat('⭐', '$sewPts', 'pts'),
               ],
@@ -3388,7 +3997,7 @@ class CityGameOver extends StatelessWidget {
               _ResultRow(Icons.delete_rounded,    'Total Waste Collected',
                   '${g.wasteCollected}',                              Colors.greenAccent),
               _ResultRow(Icons.plumbing_rounded,  'Sewers Repaired',
-                  '${g.sewersFixed}/${CityCollectionGame.kTotalSewers}', Colors.cyanAccent),
+                  '${g.sewersFixed}/${g.totalSewersOnRoute}',       Colors.cyanAccent),
               _ResultRow(Icons.warning_rounded,   'Total Collisions',
                   '$totalCol',                                        Colors.orangeAccent),
               _ResultRow(Icons.eco_rounded,       'Total Eco-Points',
