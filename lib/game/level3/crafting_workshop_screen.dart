@@ -1,3 +1,4 @@
+import 'package:ecoquest/game/level3/level_complete_screen.dart';
 import 'package:ecoquest/game/level3/sorting_facility_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,6 +41,10 @@ class _CraftingWorkshopScreenState extends State<CraftingWorkshopScreen>
   late final int _hazardous;
   late final int _ecoPoints;
 
+  // ── Derived totals for LevelCompleteScreen ────────────────────────────────
+  late final int _totalItemsSorted;
+  late final int _categoriesUsed;
+
   late final List<_WasteCategory> _categories;
 
   // ── Palette ───────────────────────────────────────────────────────────────
@@ -59,6 +64,17 @@ class _CraftingWorkshopScreenState extends State<CraftingWorkshopScreen>
     _metallic  = r?.metallic  ?? 0;
     _hazardous = r?.hazardous ?? 0;
     _ecoPoints = r?.ecoPoints ?? 0;
+
+    // Pre-compute totals for LevelCompleteScreen (before catalogue mutates counts)
+    _totalItemsSorted = _plastic + _metal + _organic + _glass + _metallic + _hazardous;
+    final initialCounts = [
+      _plastic,
+      _organic,
+      _glass,
+      _metal + _metallic,   // metallic category
+      _hazardous,           // e-waste category
+    ];
+    _categoriesUsed = initialCounts.where((c) => c > 0).length;
 
     _buildCatalogue();
 
@@ -254,6 +270,7 @@ class _CraftingWorkshopScreenState extends State<CraftingWorkshopScreen>
       _crafted.add(key);
       _craftedCount++;
       _ecoCreativity += p.xp;
+      cat.count -= p.minItems; // deduct consumed items from the bin
     });
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       backgroundColor: cat.color,
@@ -271,8 +288,10 @@ class _CraftingWorkshopScreenState extends State<CraftingWorkshopScreen>
             Text('${p.name} crafted!',
                 style: const TextStyle(fontWeight: FontWeight.bold,
                     fontSize: 14, color: Colors.white)),
-            Text('+${p.xp} Eco-Creativity XP',
-                style: const TextStyle(fontSize: 12, color: Colors.white70)),
+            Text(
+              '+${p.xp} XP  ·  used ${p.minItems} ${cat.label}  ·  ${cat.count} remaining',
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
+            ),
           ],
         )),
       ]),
@@ -357,8 +376,19 @@ class _CraftingWorkshopScreenState extends State<CraftingWorkshopScreen>
         ecoCreativity: _ecoCreativity,
         ecoPoints:    _ecoPoints,
         onClose: () {
-          Navigator.of(context).pop(); // dialog
-          Navigator.of(context).pop(); // workshop
+          Navigator.of(context).pop(); // close dialog
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => LevelCompleteScreen(
+                ecoPoints:       _ecoPoints,
+                ecoCreativity:   _ecoCreativity,
+                craftedCount:    _craftedCount,
+                totalCategories: _categories.length,
+                categoriesUsed:  _categoriesUsed,
+                totalItemsSorted: _totalItemsSorted,
+              ),
+            ),
+          );
         },
       ),
     );
@@ -470,82 +500,128 @@ class _CategoryRail extends StatelessWidget {
   final bool mobile;
 
   const _CategoryRail({
-    required this.categories, required this.selectedIndex,
-    required this.onSelect, required this.mobile,
+    required this.categories,
+    required this.selectedIndex,
+    required this.onSelect,
+    required this.mobile,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: mobile ? 84 : 96,
+      // NO fixed height — the rail grows to exactly fit its content.
       color: const Color(0xFF0C1525),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: categories.length,
-        itemBuilder: (_, i) {
-          final cat  = categories[i];
-          final sel  = i == selectedIndex;
-          return GestureDetector(
-            onTap: () => onSelect(i),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.only(right: 9),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: sel
-                    ? cat.color.withValues(alpha: 0.15)
-                    : const Color(0xFF0E1C2E),
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                  color: sel ? cat.color : Colors.white.withValues(alpha: 0.08),
-                  width: sel ? 1.8 : 1,
-                ),
-                boxShadow: sel ? [BoxShadow(
-                    color: cat.color.withValues(alpha: 0.2),
-                    blurRadius: 10)] : [],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(cat.emoji,
-                        style: TextStyle(fontSize: mobile ? 20 : 24)),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(cat.label,
-                      style: TextStyle(
-                        color: sel ? cat.color : const Color(0xFF4A6A88),
-                        fontSize: 9,
-                        fontWeight: sel
-                            ? FontWeight.bold : FontWeight.normal,
-                      )),
-                  const SizedBox(height: 2),
-                  // Count badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 4, vertical: 1),
+      child: LayoutBuilder(
+        builder: (context, outer) {
+          // availW is the real rendered width reported by Flutter at layout time.
+          final availW  = outer.maxWidth;
+          final count   = categories.length;
+          // Padding on each side + gaps between tabs, all derived from availW.
+          final sidePad = availW * 0.025;          // ~2.5% each side
+          final gap     = availW * 0.012;           // ~1.2% between tabs
+          final tabW    = (availW - sidePad * 2 - gap * (count - 1)) / count;
+          // Vertical padding proportional to tab width so it scales on all screens.
+          final vPad    = tabW * 0.09;
+          final hPad    = tabW * 0.08;
+
+          return Padding(
+            padding: EdgeInsets.symmetric(
+                horizontal: sidePad, vertical: vPad * 0.6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: List.generate(count, (i) {
+                final cat = categories[i];
+                final sel = i == selectedIndex;
+
+                return GestureDetector(
+                  onTap: () => onSelect(i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: tabW,
+                    // NO height set — grows to fit children naturally.
+                    padding: EdgeInsets.symmetric(
+                        horizontal: hPad, vertical: vPad),
                     decoration: BoxDecoration(
-                      color: cat.count > 0
-                          ? cat.color.withValues(alpha: 0.18)
-                          : Colors.white.withValues(alpha: 0.04),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      cat.count > 0 ? '${cat.count}×' : '—',
-                      style: TextStyle(
-                        color: cat.count > 0
+                      color: sel
+                          ? cat.color.withValues(alpha: 0.15)
+                          : const Color(0xFF0E1C2E),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: sel
                             ? cat.color
-                            : const Color(0xFF2A4A66),
-                        fontSize: 8,
-                        fontWeight: FontWeight.w700,
+                            : Colors.white.withValues(alpha: 0.08),
+                        width: sel ? 1.8 : 1,
                       ),
+                      boxShadow: sel
+                          ? [BoxShadow(
+                              color: cat.color.withValues(alpha: 0.2),
+                              blurRadius: 10)]
+                          : [],
+                    ),
+                    child: Column(
+                      // min — column is exactly as tall as its children need.
+                      // No external height constraint = no overflow possible.
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Emoji: font scales with tab width, FittedBox clips if needed.
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            cat.emoji,
+                            style: TextStyle(
+                                fontSize: (tabW * 0.20).clamp(14.0, 26.0)),
+                          ),
+                        ),
+                        SizedBox(height: vPad * 0.3),
+                        // Label
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            cat.label,
+                            style: TextStyle(
+                              color: sel
+                                  ? cat.color
+                                  : const Color(0xFF4A6A88),
+                              fontSize: (tabW * 0.085).clamp(8.0, 12.0),
+                              fontWeight: sel
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: vPad * 0.25),
+                        // Count badge — intrinsic height, no fixed pixels.
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                              horizontal: tabW * 0.06, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: cat.count > 0
+                                ? cat.color.withValues(alpha: 0.18)
+                                : Colors.white.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              cat.count > 0 ? '${cat.count}×' : '—',
+                              style: TextStyle(
+                                color: cat.count > 0
+                                    ? cat.color
+                                    : const Color(0xFF2A4A66),
+                                fontSize: (tabW * 0.075).clamp(7.0, 10.0),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                );
+              }),
             ),
           );
         },
@@ -1225,10 +1301,10 @@ class _IconBtn extends StatelessWidget {
 class _WasteCategory {
   final String key, label, emoji, binNote;
   final Color  color, shade;
-  final int    count;
+  int          count;   // mutable — decremented as items are consumed by crafting
   final List<_Product> products;
 
-  const _WasteCategory({
+  _WasteCategory({
     required this.key,    required this.label,   required this.emoji,
     required this.binNote, required this.color,  required this.shade,
     required this.count,  required this.products,
