@@ -75,34 +75,20 @@ class WaterLevelCarryOver {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  SORTING RESULT — merged totals written here the moment sorting ends.
-//  CraftingWorkshopScreen reads SortingResult.current without needing any
-//  constructor parameters, following the same pattern as WasteCollectionResult.
+//  SORTING RESULT — merged totals written the moment sorting ends.
+//  CraftingWorkshopScreen reads SortingResult.current — no constructor params.
 // ══════════════════════════════════════════════════════════════════════════════
 
 class SortingResult {
-  final int plastic;
-  final int metal;
-  final int organic;
-  final int glass;
-  final int metallic;
-  final int hazardous;
-  final int ecoPoints;
-  final int accuracyPct;
+  final int plastic, metal, organic, glass, metallic, hazardous;
+  final int ecoPoints, accuracyPct;
 
   const SortingResult({
-    required this.plastic,
-    required this.metal,
-    required this.organic,
-    required this.glass,
-    required this.metallic,
-    required this.hazardous,
-    required this.ecoPoints,
-    required this.accuracyPct,
+    required this.plastic,  required this.metal,    required this.organic,
+    required this.glass,    required this.metallic, required this.hazardous,
+    required this.ecoPoints, required this.accuracyPct,
   });
 
-  /// Global holder — written by SortingFacilityScreen when sorting ends.
-  /// Read by CraftingWorkshopScreen via SortingResult.current.
   static SortingResult? current;
 }
 
@@ -163,6 +149,7 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
   // ── UI flags ──────────────────────────────────────────────────────────────
   bool _gameOver    = false;
   bool _showResults = false;
+  bool _timeUp      = false;  // true = timer expired, false = sorted all items
 
   // Merged recycling totals (city + water level)
   int _mergedPlastic   = 0;
@@ -191,6 +178,10 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
   // Item tap pop
   late AnimationController _popCtrl;
 
+  // Celebration burst (all sorted in time) & time-up shake
+  late AnimationController _celebrationCtrl;
+  late AnimationController _timeUpCtrl;
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
@@ -207,6 +198,8 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
     _resultsCtrl.dispose();
     _warningCtrl.dispose();
     _popCtrl.dispose();
+    _celebrationCtrl.dispose();
+    _timeUpCtrl.dispose();
     super.dispose();
   }
 
@@ -279,12 +272,14 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
   }
 
   void _initAnimations() {
-    _flashCtrl   = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
-    _feedbackCtrl= AnimationController(vsync: this, duration: const Duration(milliseconds: 1800));
-    _resultsCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 550));
-    _warningCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))
+    _flashCtrl        = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
+    _feedbackCtrl     = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800));
+    _resultsCtrl      = AnimationController(vsync: this, duration: const Duration(milliseconds: 550));
+    _warningCtrl      = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))
       ..repeat(reverse: true);
-    _popCtrl     = AnimationController(vsync: this, duration: const Duration(milliseconds: 220));
+    _popCtrl          = AnimationController(vsync: this, duration: const Duration(milliseconds: 220));
+    _celebrationCtrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800));
+    _timeUpCtrl       = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
   }
 
   // ── Timer ─────────────────────────────────────────────────────────────────
@@ -367,7 +362,11 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
 
   void _endSorting({required bool timeUp}) {
     if (_gameOver) return;
-    setState(() { _gameOver = true; _timerRunning = false; });
+    setState(() {
+      _gameOver    = true;
+      _timerRunning = false;
+      _timeUp      = timeUp;
+    });
 
     final cityResult = WasteCollectionResult.current;
     final cityPts    = cityResult?.totalEcoPoints ?? 0;
@@ -380,8 +379,7 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
     _mergedHazardous = widget.waterCarryOver.hazardous;
     _totalEcoPoints  = cityPts + widget.waterCarryOver.ecoPoints + (_sortedCorrectly * 12);
 
-    // Publish to global holder — CraftingWorkshopScreen reads this via
-    // SortingResult.current, so no constructor parameters are needed.
+    // Publish to global holder — CraftingWorkshopScreen reads SortingResult.current.
     SortingResult.current = SortingResult(
       plastic:     _mergedPlastic,
       metal:       _mergedMetal,
@@ -393,11 +391,45 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
       accuracyPct: (_accuracy * 100).round(),
     );
 
+    // Fire the appropriate animation, then show results immediately.
+    if (!timeUp) {
+      _celebrationCtrl.forward(from: 0);
+    } else {
+      _timeUpCtrl.repeat(reverse: true);
+    }
+
     Future.delayed(const Duration(milliseconds: 400), () {
       if (!mounted) return;
       setState(() => _showResults = true);
       _resultsCtrl.forward(from: 0);
     });
+  }
+
+  // ── Retry — re-initialises the same waste stack so the player tries again ─
+  void _retrySort() {
+    setState(() {
+      _gameOver    = false;
+      _showResults = false;
+      _timeUp      = false;
+      _timeLeft    = _timerMax.toDouble();
+      _timerRunning = false;
+      _selected    = null;
+      _sortedCorrectly   = 0;
+      _sortedIncorrectly = 0;
+      _plasticSorted  = 0;
+      _organicSorted  = 0;
+      _eWasteSorted   = 0;
+      _glassSorted    = 0;
+      _metallicSorted = 0;
+      _mergedPlastic  = 0; _mergedMetal   = 0; _mergedOrganic  = 0;
+      _mergedGlass    = 0; _mergedMetallic = 0; _mergedHazardous = 0;
+      _totalEcoPoints = 0;
+    });
+    _resultsCtrl.reset();
+    _celebrationCtrl.reset();
+    _timeUpCtrl.stop();
+    _timeUpCtrl.reset();
+    _buildStack();  // rebuilds _stack and _allItems from WasteCollectionResult.current
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -488,6 +520,12 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
               child: Container(color: Colors.black.withValues(alpha: 0.62)),
             ),
           ),
+          // Celebration burst overlay — only when all items sorted in time
+          if (!_timeUp)
+            _CelebrationBurst(animation: _celebrationCtrl),
+          // Time-up pulsing banner — only on time-up
+          if (_timeUp)
+            _TimeUpBanner(animation: _timeUpCtrl),
           _buildResultsCard(isMobile),
         ],
       ]),
@@ -995,8 +1033,32 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
     final acc       = (_accuracy * 100).toStringAsFixed(0);
     final excellent = _accuracy >= 0.85;
     final good      = _accuracy >= 0.60;
-    final heading   = excellent ? 'EXCELLENT SORTING!' : good ? 'GOOD JOB!' : 'SORTING COMPLETE';
-    final hColor    = excellent ? Colors.limeAccent : good ? Colors.amber : _wrong;
+
+    // ── Outcome-specific display values ───────────────────────────────────
+    final String topEmoji;
+    final String topTitle;
+    final String subHeading;
+    final Color  hColor;
+
+    if (!_timeUp) {
+      // Player sorted everything before the timer ran out — celebrate!
+      topEmoji   = '🎉';
+      topTitle   = 'City Waste Sorted Successfully!';
+      subHeading = excellent
+          ? 'OUTSTANDING ACCURACY!'
+          : good ? 'GREAT SORTING WORK!' : 'SORTING COMPLETE!';
+      hColor     = excellent ? Colors.limeAccent
+                 : good      ? Colors.amber
+                 :             _correct;
+    } else {
+      // Timer expired — time-up mode
+      topEmoji   = '⏰';
+      topTitle   = 'Time\'s Up — Waste Sorting Ended';
+      subHeading = _sortedCorrectly > 0
+          ? 'You sorted $_sortedCorrectly items — head to the workshop or retry!'
+          : 'No items sorted in time. Try again!';
+      hColor     = Colors.orange;
+    }
 
     return Positioned.fill(
       child: Center(
@@ -1021,34 +1083,36 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
                 ),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
 
-                  // Header
-                  const Icon(Icons.emoji_events_rounded,
-                      color: Colors.amber, size: 46),
-                  const SizedBox(height: 6),
-                  Text('🏙️  CITY SORTING COMPLETE!',
-                      style: TextStyle(color: Colors.white, fontSize: isMobile ? 17 : 20,
-                          fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-                  const SizedBox(height: 2),
-                  Text(heading,
+                  // Header icon + titles
+                  Text(topEmoji, style: const TextStyle(fontSize: 46)),
+                  const SizedBox(height: 4),
+                  Text(topTitle,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white,
+                          fontSize: isMobile ? 16 : 19,
+                          fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+                  const SizedBox(height: 4),
+                  Text(subHeading,
+                      textAlign: TextAlign.center,
                       style: GoogleFonts.exo2(
-                          fontSize: isMobile ? 14 : 17,
-                          fontWeight: FontWeight.w900,
-                          color: hColor, letterSpacing: 1.0)),
+                          fontSize: isMobile ? 12 : 14,
+                          fontWeight: FontWeight.w800,
+                          color: hColor, letterSpacing: 0.8)),
                   const SizedBox(height: 14),
 
                   // Score chips
                   Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    _statChip('$acc%',            'ACCURACY', hColor,   isMobile),
+                    _statChip('$acc%',              'ACCURACY', hColor,    isMobile),
                     const SizedBox(width: 10),
-                    _statChip('$_sortedCorrectly', 'CORRECT',  _correct, isMobile),
+                    _statChip('$_sortedCorrectly',  'CORRECT',  _correct,  isMobile),
                     const SizedBox(width: 10),
-                    _statChip('$_sortedIncorrectly','WRONG',   _wrong,   isMobile),
+                    _statChip('$_sortedIncorrectly','WRONG',    _wrong,    isMobile),
                   ]),
 
                   const SizedBox(height: 16),
 
-                  // City sorted breakdown — exact _WasteRow style
-                  _sectionLabel('Waste Collected by Category', Colors.amber, isMobile),
+                  // City sorted breakdown
+                  _sectionLabel('Waste Sorted From the City', Colors.amber, isMobile),
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -1058,11 +1122,11 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
                       border: Border.all(color: Colors.white12),
                     ),
                     child: Column(children: [
-                      _WasteResultRow('🧴', 'Plastic',    _plasticSorted,  _plasticC,  isMobile),
-                      _WasteResultRow('🍌', 'Organic',    _organicSorted,  _organicC,  isMobile),
-                      _WasteResultRow('📱', 'E-Waste',    _eWasteSorted,   _eWasteC,   isMobile),
-                      _WasteResultRow('🍶', 'Glass / Broken', _glassSorted, _glassC,   isMobile),
-                      _WasteResultRow('🔩', 'Metallic',   _metallicSorted, _metallicC, isMobile),
+                      _WasteResultRow('🧴', 'Plastic',         _plasticSorted,  _plasticC,  isMobile),
+                      _WasteResultRow('🍌', 'Organic',         _organicSorted,  _organicC,  isMobile),
+                      _WasteResultRow('📱', 'E-Waste',         _eWasteSorted,   _eWasteC,   isMobile),
+                      _WasteResultRow('🍶', 'Glass / Broken',  _glassSorted,    _glassC,    isMobile),
+                      _WasteResultRow('🔩', 'Metallic',        _metallicSorted, _metallicC, isMobile),
                     ]),
                   ),
 
@@ -1120,7 +1184,7 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
 
                   const SizedBox(height: 14),
 
-                  // Eco-points — same gradient card as city collection
+                  // Eco-points
                   Container(
                     padding: const EdgeInsets.symmetric(
                         vertical: 14, horizontal: 20),
@@ -1152,23 +1216,51 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
 
                   const SizedBox(height: 18),
 
-                  // Proceed button — navigate to Crafting Workshop
+                  // ── Action buttons ───────────────────────────────────────
+                  // Time-up shows RETRY + PROCEED (continue with what was sorted)
+                  // Completion shows PROCEED only
+                  if (_timeUp) ...[
+                    // Retry button
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _retrySort,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: Text('RETRY SORTING',
+                            style: GoogleFonts.exo2(
+                                fontSize: isMobile ? 13 : 15,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.orange,
+                          side: const BorderSide(color: Colors.orange, width: 1.5),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+
+                  // Proceed to Crafting Workshop button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: () => Navigator.of(context).pushReplacement(
                         MaterialPageRoute(
-                          // SortingResult.current was written in _endSorting.
-                          // CraftingWorkshopScreen reads it — no constructor params needed.
                           builder: (_) => const CraftingWorkshopScreen(),
                         ),
                       ),
                       icon: const Icon(Icons.arrow_forward_rounded),
-                      label: Text('PROCEED TO CRAFTING WORKSHOP',
-                          style: GoogleFonts.exo2(
-                              fontSize: isMobile ? 13 : 15,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1)),
+                      label: Text(
+                        _timeUp
+                            ? 'CONTINUE TO WORKSHOP'
+                            : 'PROCEED TO CRAFTING WORKSHOP',
+                        style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 13 : 15,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF4CAF50),
                         foregroundColor: Colors.white,
@@ -1602,4 +1694,116 @@ class _CityFacilityBgPainter extends CustomPainter {
 class _PilePos {
   final double dx, dy, rot;
   const _PilePos({required this.dx, required this.dy, required this.rot});
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  CELEBRATION BURST — confetti-style animated dots on successful completion
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _CelebrationBurst extends StatelessWidget {
+  final AnimationController animation;
+  const _CelebrationBurst({required this.animation});
+
+  static final _rng  = math.Random(42);
+  static final _colors = [
+    Colors.limeAccent, Colors.amber, Colors.cyanAccent,
+    Colors.pinkAccent, Colors.greenAccent, Colors.yellowAccent,
+  ];
+  static const _count = 28;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: animation,
+          builder: (_, __) {
+            final t = animation.value;
+            return CustomPaint(
+              painter: _BurstPainter(t: t, rng: _rng,
+                  colors: _colors, count: _count),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _BurstPainter extends CustomPainter {
+  final double t;
+  final math.Random rng;
+  final List<Color> colors;
+  final int count;
+
+  const _BurstPainter({
+    required this.t, required this.rng,
+    required this.colors, required this.count,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (t <= 0 || t >= 1.0) return;
+    final fade = t < 0.5 ? (t / 0.5) : ((1.0 - t) / 0.5);
+    final cx   = size.width / 2;
+    final cy   = size.height * 0.35;
+
+    for (var i = 0; i < count; i++) {
+      final seed   = i * 137.508;           // golden-angle spacing
+      final angle  = (seed % 360) * math.pi / 180;
+      final radius = size.width * 0.45 * t * (0.4 + (i % 5) * 0.12);
+      final px     = cx + math.cos(angle) * radius;
+      final py     = cy + math.sin(angle) * radius - size.height * 0.15 * t;
+      final r      = (4.0 + (i % 4) * 2) * (1 - t * 0.5);
+      final color  = colors[i % colors.length].withValues(alpha: fade * 0.85);
+
+      canvas.drawCircle(Offset(px, py), r,
+          Paint()..color = color..style = PaintingStyle.fill);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BurstPainter old) => old.t != t;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TIME-UP BANNER — pulsing orange strip at top of results overlay
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _TimeUpBanner extends StatelessWidget {
+  final AnimationController animation;
+  const _TimeUpBanner({required this.animation});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 0, left: 0, right: 0,
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: animation,
+          builder: (_, __) {
+            final pulse = (math.sin(animation.value * math.pi * 2) * 0.5 + 0.5);
+            return Container(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              color: Colors.orange.withValues(alpha: 0.15 + pulse * 0.25),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                const Text('⏰', style: TextStyle(fontSize: 20)),
+                const SizedBox(width: 10),
+                Text(
+                  "TIME'S UP!",
+                  style: TextStyle(
+                    color: Colors.orange.withValues(alpha: 0.6 + pulse * 0.4),
+                    fontSize: 18, fontWeight: FontWeight.w900,
+                    letterSpacing: 2.5,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Text('⏰', style: TextStyle(fontSize: 20)),
+              ]),
+            );
+          },
+        ),
+      ),
+    );
+  }
 }

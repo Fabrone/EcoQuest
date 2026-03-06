@@ -477,11 +477,11 @@ class _CategoryRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: mobile ? 90 : 102,
+      height: mobile ? 84 : 96,
       color: const Color(0xFF0C1525),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         itemCount: categories.length,
         itemBuilder: (_, i) {
           final cat  = categories[i];
@@ -491,7 +491,7 @@ class _CategoryRail extends StatelessWidget {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               margin: const EdgeInsets.only(right: 9),
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: sel
                     ? cat.color.withValues(alpha: 0.15)
@@ -509,13 +509,16 @@ class _CategoryRail extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(cat.emoji,
-                      style: TextStyle(fontSize: mobile ? 22 : 26)),
-                  const SizedBox(height: 3),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(cat.emoji,
+                        style: TextStyle(fontSize: mobile ? 20 : 24)),
+                  ),
+                  const SizedBox(height: 2),
                   Text(cat.label,
                       style: TextStyle(
                         color: sel ? cat.color : const Color(0xFF4A6A88),
-                        fontSize: 10,
+                        fontSize: 9,
                         fontWeight: sel
                             ? FontWeight.bold : FontWeight.normal,
                       )),
@@ -523,7 +526,7 @@ class _CategoryRail extends StatelessWidget {
                   // Count badge
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 1),
+                        horizontal: 4, vertical: 1),
                     decoration: BoxDecoration(
                       color: cat.count > 0
                           ? cat.color.withValues(alpha: 0.18)
@@ -536,7 +539,7 @@ class _CategoryRail extends StatelessWidget {
                         color: cat.count > 0
                             ? cat.color
                             : const Color(0xFF2A4A66),
-                        fontSize: 9,
+                        fontSize: 8,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
