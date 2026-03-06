@@ -1,5 +1,7 @@
 import 'package:ecoquest/game/level2/water_pollution_screen.dart';
+import 'package:ecoquest/game/level3/city_collection_screen.dart';
 import 'package:ecoquest/game/level3/polluted_city_screen.dart';
+import 'package:ecoquest/game/level3/sorting_facility_screen.dart';
 import 'package:ecoquest/main.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -146,7 +148,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                       
                       const SizedBox(height: 12),
                       
-                      // Level 3 Test Button - NEW
+                      // Level 3 Test Button — launches PollutedCityScreen (city game entry)
                       FloatingActionButton.extended(
                         onPressed: () => _navigateToPollutedCityTest(context),
                         backgroundColor: const Color.fromARGB(255, 139, 69, 19).withValues(alpha: 0.9),
@@ -160,6 +162,24 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                           ),
                         ),
                         heroTag: 'testPollutedCityButton',
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      // Sorting Facility direct test — skips the city game entirely
+                      FloatingActionButton.extended(
+                        onPressed: () => _navigateToSortingTest(context),
+                        backgroundColor: const Color.fromARGB(255, 20, 90, 40).withValues(alpha: 0.9),
+                        icon: const Icon(Icons.recycling, color: Colors.white),
+                        label: Text(
+                          'TEST SORT',
+                          style: GoogleFonts.vt323(
+                            fontSize: 16,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        heroTag: 'testSortingButton',
                       ),
                     ],
                   ),
@@ -202,6 +222,48 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
           cropType: 'Maize',
           purifiedWater: 100,
           recycledOrganic: 12,
+        ),
+      ),
+    );
+  }
+
+  // For testing purposes — jumps straight to the Sorting Facility with dummy data,
+  // bypassing the entire city collection + sewer repair game.
+  // Seeds WasteCollectionResult.current and a WaterLevelCarryOver so the sorting
+  // screen has realistic data to display and merge.
+  void _navigateToSortingTest(BuildContext context) {
+    // Seed a fake city collection result so SortingFacilityScreen's _buildStack()
+    // and _endSorting() have real data to work with.
+    WasteCollectionResult.current = const WasteCollectionResult(
+      total:          35,
+      plastic:        8,
+      organic:        7,
+      electronic:     4,
+      glass:          5,
+      metallic:       6,
+      general:        5,
+      ecoPoints:      280,
+      collisions:     2,
+      sewersFixed:    10,
+      sewerEcoPoints: 420,
+      totalEcoPoints: 700,
+    );
+
+    // Dummy carry-over from Level 2 (matches the test values used in TEST L3)
+    const waterCarryOver = WaterLevelCarryOver(
+      plastic:      10,
+      metal:        8,
+      organic:      12,
+      hazardous:    0,
+      ecoPoints:    250,
+      purifiedWater: 100,
+      fishCount:    15,
+    );
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const SortingFacilityScreen(
+          waterCarryOver: waterCarryOver,
         ),
       ),
     );

@@ -68,7 +68,15 @@ enum RepairTool { pliers, plumbingTape, wrench, sealant, none }
 //  SCREEN WRAPPER
 // ══════════════════════════════════════════════════════════════════════
 class CityCollectionScreen extends StatefulWidget {
-  const CityCollectionScreen({super.key});
+  /// Carry-over data from Level 2 (water cleaning). Defaults to empty so
+  /// CityCollectionScreen can still be run standalone without Level 2 data.
+  final WaterLevelCarryOver waterCarryOver;
+
+  const CityCollectionScreen({
+    super.key,
+    this.waterCarryOver = const WaterLevelCarryOver(),
+  });
+
   @override
   State<CityCollectionScreen> createState() => _CityCollectionScreenState();
 }
@@ -79,13 +87,20 @@ class _CityCollectionScreenState extends State<CityCollectionScreen> {
   @override
   void initState() {
     super.initState();
-    _game = CityCollectionGame(onLevelComplete: _onDone);
+    _game = CityCollectionGame(
+      onLevelComplete: _onDone,
+      waterCarryOver:  widget.waterCarryOver,
+    );
   }
 
   void _onDone() {
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const SortingFacilityScreen()),
+      MaterialPageRoute(
+        builder: (_) => SortingFacilityScreen(
+          waterCarryOver: widget.waterCarryOver,
+        ),
+      ),
     );
   }
 
@@ -128,7 +143,14 @@ class CityCollectionGame extends FlameGame
     with HasCollisionDetection, ChangeNotifier {
 
   final VoidCallback onLevelComplete;
-  CityCollectionGame({required this.onLevelComplete});
+  /// Carry-over from Level 2, threaded through so CityGameOver can forward it
+  /// to SortingFacilityScreen without needing a BuildContext reference.
+  final WaterLevelCarryOver waterCarryOver;
+
+  CityCollectionGame({
+    required this.onLevelComplete,
+    this.waterCarryOver = const WaterLevelCarryOver(),
+  });
 
   // phase
   GamePhase phase       = GamePhase.collection;
@@ -4039,7 +4061,9 @@ class CityGameOver extends StatelessWidget {
           // ── Proceed button ────────────────────────────────────────────
           SizedBox(width: double.infinity, child: ElevatedButton.icon(
             onPressed: () => Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const SortingFacilityScreen())),
+                MaterialPageRoute(builder: (_) => SortingFacilityScreen(
+                  waterCarryOver: game.waterCarryOver,
+                ))),
             icon: const Icon(Icons.arrow_forward_rounded),
             label: const Text('PROCEED TO SORTING FACILITY',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 1)),

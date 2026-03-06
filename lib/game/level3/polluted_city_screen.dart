@@ -1,9 +1,31 @@
 import 'dart:ui';
 import 'package:ecoquest/game/level3/city_collection_screen.dart';
+import 'package:ecoquest/game/level3/sorting_facility_screen.dart';
 import 'package:flutter/material.dart';
 
 class PollutedCityScreen extends StatelessWidget {
-  const PollutedCityScreen({super.key, required int recycledPlastic, required int recycledMetal, required int bacteriaCultures, required int ecoPoints, required int fishCount, required int cropYield, required String cropType, required int purifiedWater, required int recycledOrganic});
+  final int recycledPlastic;
+  final int recycledMetal;
+  final int bacteriaCultures;
+  final int ecoPoints;
+  final int fishCount;
+  final int cropYield;
+  final String cropType;
+  final int purifiedWater;
+  final int recycledOrganic;
+
+  const PollutedCityScreen({
+    super.key,
+    required this.recycledPlastic,
+    required this.recycledMetal,
+    required this.bacteriaCultures,
+    required this.ecoPoints,
+    required this.fishCount,
+    required this.cropYield,
+    required this.cropType,
+    required this.purifiedWater,
+    required this.recycledOrganic,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -195,7 +217,17 @@ class PollutedCityScreen extends StatelessWidget {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => const CityCollectionScreen(),
+                                    builder: (context) => CityCollectionScreen(
+                                      waterCarryOver: WaterLevelCarryOver(
+                                        plastic:      recycledPlastic,
+                                        metal:        recycledMetal,
+                                        organic:      recycledOrganic,
+                                        hazardous:    0,
+                                        ecoPoints:    ecoPoints,
+                                        purifiedWater: purifiedWater,
+                                        fishCount:    fishCount,
+                                      ),
+                                    ),
                                   ),
                                 );
                               },

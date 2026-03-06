@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:ecoquest/game/level3/city_collection_screen.dart';
+import 'package:ecoquest/game/level3/crafting_workshop_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -71,6 +72,38 @@ class WaterLevelCarryOver {
   });
 
   int get totalItems => plastic + metal + organic + hazardous;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  SORTING RESULT — merged totals written here the moment sorting ends.
+//  CraftingWorkshopScreen reads SortingResult.current without needing any
+//  constructor parameters, following the same pattern as WasteCollectionResult.
+// ══════════════════════════════════════════════════════════════════════════════
+
+class SortingResult {
+  final int plastic;
+  final int metal;
+  final int organic;
+  final int glass;
+  final int metallic;
+  final int hazardous;
+  final int ecoPoints;
+  final int accuracyPct;
+
+  const SortingResult({
+    required this.plastic,
+    required this.metal,
+    required this.organic,
+    required this.glass,
+    required this.metallic,
+    required this.hazardous,
+    required this.ecoPoints,
+    required this.accuracyPct,
+  });
+
+  /// Global holder — written by SortingFacilityScreen when sorting ends.
+  /// Read by CraftingWorkshopScreen via SortingResult.current.
+  static SortingResult? current;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -346,6 +379,19 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
     _mergedMetallic  = _metallicSorted;
     _mergedHazardous = widget.waterCarryOver.hazardous;
     _totalEcoPoints  = cityPts + widget.waterCarryOver.ecoPoints + (_sortedCorrectly * 12);
+
+    // Publish to global holder — CraftingWorkshopScreen reads this via
+    // SortingResult.current, so no constructor parameters are needed.
+    SortingResult.current = SortingResult(
+      plastic:     _mergedPlastic,
+      metal:       _mergedMetal,
+      organic:     _mergedOrganic,
+      glass:       _mergedGlass,
+      metallic:    _mergedMetallic,
+      hazardous:   _mergedHazardous,
+      ecoPoints:   _totalEcoPoints,
+      accuracyPct: (_accuracy * 100).round(),
+    );
 
     Future.delayed(const Duration(milliseconds: 400), () {
       if (!mounted) return;
@@ -1106,22 +1152,19 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
 
                   const SizedBox(height: 18),
 
-                  // Proceed button — same style as city collection proceed
+                  // Proceed button — navigate to Crafting Workshop
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: () => Navigator.pop(context, {
-                        'plastic':   _mergedPlastic,
-                        'metal':     _mergedMetal,
-                        'organic':   _mergedOrganic,
-                        'glass':     _mergedGlass,
-                        'metallic':  _mergedMetallic,
-                        'hazardous': _mergedHazardous,
-                        'ecoPoints': _totalEcoPoints,
-                        'accuracy':  (_accuracy * 100).round(),
-                      }),
+                      onPressed: () => Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(
+                          // SortingResult.current was written in _endSorting.
+                          // CraftingWorkshopScreen reads it — no constructor params needed.
+                          builder: (_) => const CraftingWorkshopScreen(),
+                        ),
+                      ),
                       icon: const Icon(Icons.arrow_forward_rounded),
-                      label: Text('PROCEED TO SORTING FACILITY',
+                      label: Text('PROCEED TO CRAFTING WORKSHOP',
                           style: GoogleFonts.exo2(
                               fontSize: isMobile ? 13 : 15,
                               fontWeight: FontWeight.bold,
