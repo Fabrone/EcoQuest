@@ -2,6 +2,7 @@ import 'package:ecoquest/game/level2/water_pollution_screen.dart';
 import 'package:ecoquest/game/level3/city_collection_screen.dart';
 import 'package:ecoquest/game/level3/polluted_city_screen.dart';
 import 'package:ecoquest/game/level3/sorting_facility_screen.dart';
+import 'package:ecoquest/game/level4/air_noise_city_screen.dart';
 import 'package:ecoquest/main.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -181,6 +182,24 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                         ),
                         heroTag: 'testSortingButton',
                       ),
+
+                      const SizedBox(height: 12),
+
+                      // Level 4 Test Button — launches AirNoiseCityScreen directly
+                      FloatingActionButton.extended(
+                        onPressed: () => _navigateToLevel4Test(context),
+                        backgroundColor: const Color.fromARGB(255, 10, 50, 100).withValues(alpha: 0.9),
+                        icon: const Icon(Icons.air, color: Colors.white),
+                        label: Text(
+                          'TEST L4',
+                          style: GoogleFonts.vt323(
+                            fontSize: 16,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        heroTag: 'testLevel4Button',
+                      ),
                     ],
                   ),
                 ),
@@ -264,6 +283,24 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       MaterialPageRoute(
         builder: (_) => const SortingFacilityScreen(
           waterCarryOver: waterCarryOver,
+        ),
+      ),
+    );
+  }
+
+  // For testing purposes — launches Level 4 intro screen directly with
+  // representative dummy carry-over values from a completed Level 3.
+  void _navigateToLevel4Test(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const AirNoiseCityScreen(
+          carryOver: Level3CarryOver(
+            ecoPoints:      700,
+            ecoCreativity:  320,
+            craftedCount:   8,
+            itemsSorted:    35,
+            categoriesUsed: 5,
+          ),
         ),
       ),
     );

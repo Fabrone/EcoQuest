@@ -1,49 +1,27 @@
 import 'dart:math' as math;
 import 'package:ecoquest/game/level4/air_noise_city_screen.dart';
+import 'package:ecoquest/game/level4/air_pollution_game_screen.dart';
+import 'package:ecoquest/game/level4/noise_pollution_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  LEVEL COMPLETE SCREEN  —  Level 3 final summary
+//  LEVEL 4 COMPLETE SCREEN  —  Air & Noise Pollution final summary
 //  Pure Flutter. Zero Flame. Zero image assets.
-//  All metrics passed from CraftingWorkshopScreen via constructor.
-//  Features: confetti burst, animated grade badge, stat grid, Level 4 CTA.
+//  Reads AirPollutionResult.current & NoiseResult.current (static holders).
+//  Features: confetti burst, animated grade badge, stat grid, Level 5 CTA.
 // ══════════════════════════════════════════════════════════════════════════════
 
-class LevelCompleteScreen extends StatefulWidget {
-  /// Eco-points accumulated across the entire Level 3 (sorting phase total).
-  final int ecoPoints;
+class Level4CompleteScreen extends StatefulWidget {
+  final Level3CarryOver carryOver;
 
-  /// Eco-Creativity XP earned in the crafting workshop.
-  final int ecoCreativity;
-
-  /// Number of products crafted in the workshop.
-  final int craftedCount;
-
-  /// Total waste categories shown in the workshop (always 5).
-  final int totalCategories;
-
-  /// Waste categories that contained at least 1 item.
-  final int categoriesUsed;
-
-  /// Total individual waste items the player sorted.
-  final int totalItemsSorted;
-
-  const LevelCompleteScreen({
-    super.key,
-    required this.ecoPoints,
-    required this.ecoCreativity,
-    required this.craftedCount,
-    required this.totalCategories,
-    required this.categoriesUsed,
-    required this.totalItemsSorted,
-  });
+  const Level4CompleteScreen({super.key, required this.carryOver});
 
   @override
-  State<LevelCompleteScreen> createState() => _LevelCompleteScreenState();
+  State<Level4CompleteScreen> createState() => _Level4CompleteScreenState();
 }
 
-class _LevelCompleteScreenState extends State<LevelCompleteScreen>
+class _Level4CompleteScreenState extends State<Level4CompleteScreen>
     with TickerProviderStateMixin {
 
   // ── Animation controllers ─────────────────────────────────────────────────
@@ -58,13 +36,54 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
   late final Animation<Offset> _slideAnim;
   late final Animation<double> _fadeAnim;
 
-  // ── Colour constants (accessible from inner widgets via class ref) ─────────
-  static const Color bgDeep  = Color(0xFF020B18);
-  static const Color bgMid   = Color(0xFF071428);
-  static const Color panel   = Color(0xFF0A1628);
-  static const Color gold    = Color(0xFFFFD700);
-  static const Color lime    = Color(0xFF76FF03);
-  static const Color teal    = Color(0xFF00E5FF);
+  // ── Colour constants ──────────────────────────────────────────────────────
+  static const Color bgDeep        = Color(0xFF060C16);
+  static const Color bgMid         = Color(0xFF0C1828);
+  static const Color panel         = Color(0xFF0A1422);
+  static const Color toxicOrange   = Color(0xFFFF6D00);
+  static const Color calmBlue      = Color(0xFF29B6F6);
+  static const Color acidGreen     = Color(0xFF69F0AE);
+  static const Color gold          = Color(0xFFFFD700);
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+  AirPollutionResult get _air =>
+      AirPollutionResult.current ??
+      const AirPollutionResult(
+        pollutantsNeutralized: 0, wrongArrows: 0, ecoPoints: 0,
+        methanol: 0, gypsum: 0, urea: 0, nitrates: 0,
+      );
+
+  NoiseResult get _noise =>
+      NoiseResult.current ??
+      const NoiseResult(
+        hotspotsFix: 0, wrongTools: 0, ecoPoints: 0,
+        noiseMeterFinal: 96, peacefulCityBadge: false,
+      );
+
+  int get _totalScore => _air.ecoPoints + _noise.ecoPoints;
+
+  String get _grade {
+    if (_totalScore >= 500) return 'S';
+    if (_totalScore >= 350) return 'A';
+    if (_totalScore >= 200) return 'B';
+    if (_totalScore >= 100) return 'C';
+    return 'D';
+  }
+
+  Color get _gradeColor {
+    switch (_grade) {
+      case 'S': return gold;
+      case 'A': return acidGreen;
+      case 'B': return calmBlue;
+      case 'C': return Colors.orange;
+      default:  return Colors.redAccent;
+    }
+  }
+
+  bool get _airPerfect =>
+      _air.pollutantsNeutralized >= 20;
+
+  bool get _peacefulCity => _noise.peacefulCityBadge;
 
   @override
   void initState() {
@@ -82,7 +101,7 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
     _staggerCtrl = AnimationController(vsync: this,
         duration: const Duration(milliseconds: 1500))..forward();
     _bgCtrl     = AnimationController(vsync: this,
-        duration: const Duration(seconds: 9))..repeat(reverse: true);
+        duration: const Duration(seconds: 10))..repeat(reverse: true);
 
     _scaleAnim = Tween<double>(begin: 0.72, end: 1.0).animate(
         CurvedAnimation(parent: _entryCtrl, curve: Curves.elasticOut));
@@ -104,27 +123,6 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
     super.dispose();
   }
 
-  // ── Derived stats ─────────────────────────────────────────────────────────
-  int get _totalScore => widget.ecoPoints + widget.ecoCreativity;
-
-  String get _grade {
-    if (_totalScore >= 1200) return 'S';
-    if (_totalScore >= 900)  return 'A';
-    if (_totalScore >= 600)  return 'B';
-    if (_totalScore >= 300)  return 'C';
-    return 'D';
-  }
-
-  Color get _gradeColor {
-    switch (_grade) {
-      case 'S': return gold;
-      case 'A': return lime;
-      case 'B': return teal;
-      case 'C': return Colors.orange;
-      default:  return Colors.redAccent;
-    }
-  }
-
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -140,7 +138,7 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
         backgroundColor: bgDeep,
         body: Stack(children: [
 
-          // ── Animated gradient background ──────────────────────────────
+          // Animated dark gradient background
           AnimatedBuilder(
             animation: _bgCtrl,
             builder: (_, __) => Container(
@@ -149,9 +147,9 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    Color.lerp(bgDeep, const Color(0xFF031A2E), _bgCtrl.value)!,
-                    Color.lerp(bgMid,  const Color(0xFF0A2040), _bgCtrl.value)!,
-                    Color.lerp(bgDeep, const Color(0xFF011020), _bgCtrl.value * 0.5)!,
+                    Color.lerp(bgDeep, const Color(0xFF0A1A2E), _bgCtrl.value)!,
+                    Color.lerp(bgMid,  const Color(0xFF0C1E10), _bgCtrl.value * 0.5)!,
+                    Color.lerp(bgDeep, const Color(0xFF08100A), _bgCtrl.value * 0.3)!,
                   ],
                   stops: const [0.0, 0.55, 1.0],
                 ),
@@ -159,13 +157,13 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
             ),
           ),
 
-          // ── Subtle star-field dots ────────────────────────────────────
-          const _StarField(),
+          // Starfield
+          const _L4StarField(),
 
-          // ── Confetti burst (appears at entry, fades out) ──────────────
-          _ConfettiBurst(ctrl: _burstCtrl, screenSize: size),
+          // Confetti burst
+          _L4ConfettiBurst(ctrl: _burstCtrl, screenSize: size),
 
-          // ── Main scrollable content ───────────────────────────────────
+          // Scrollable content
           SafeArea(
             child: FadeTransition(
               opacity: _fadeAnim,
@@ -178,16 +176,18 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
                         horizontal: hPad, vertical: 22),
                     child: Column(children: [
 
-                      _TrophyHeader(
-                        badgePulse:  _badgePulse,
-                        shimmer:     _shimmerCtrl,
-                        totalXP:     widget.ecoCreativity,
-                        mobile:      mobile,
+                      _L4TrophyHeader(
+                        badgePulse:   _badgePulse,
+                        shimmer:      _shimmerCtrl,
+                        totalScore:   _totalScore,
+                        peacefulCity: _peacefulCity,
+                        airPerfect:   _airPerfect,
+                        mobile:       mobile,
                       ),
 
                       SizedBox(height: mobile ? 22 : 30),
 
-                      _ScoreBanner(
+                      _L4ScoreBanner(
                         totalScore: _totalScore,
                         grade:      _grade,
                         gradeColor: _gradeColor,
@@ -197,20 +197,26 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
 
                       SizedBox(height: mobile ? 18 : 26),
 
-                      _StatGrid(
-                        stagger:       _staggerCtrl,
-                        ecoPoints:     widget.ecoPoints,
-                        ecoCreativity: widget.ecoCreativity,
-                        craftedCount:  widget.craftedCount,
-                        itemsSorted:   widget.totalItemsSorted,
-                        categoriesUsed: widget.categoriesUsed,
-                        totalCats:     widget.totalCategories,
-                        mobile:        mobile,
+                      _L4StatGrid(
+                        stagger:    _staggerCtrl,
+                        air:        _air,
+                        noise:      _noise,
+                        mobile:     mobile,
                       ),
 
                       SizedBox(height: mobile ? 18 : 26),
 
-                      _BadgeCard(
+                      // Badges row
+                      _L4BadgesRow(
+                        peacefulCity: _peacefulCity,
+                        airPerfect:   _airPerfect,
+                        pulse:        _badgePulse,
+                        mobile:       mobile,
+                      ),
+
+                      SizedBox(height: mobile ? 18 : 26),
+
+                      _L4BadgeCard(
                         grade:      _grade,
                         gradeColor: _gradeColor,
                         pulse:      _badgePulse,
@@ -219,14 +225,7 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
 
                       SizedBox(height: mobile ? 22 : 30),
 
-                      _ActionButtons(
-                        mobile:          mobile,
-                        ecoPoints:       widget.ecoPoints,
-                        ecoCreativity:   widget.ecoCreativity,
-                        craftedCount:    widget.craftedCount,
-                        totalItemsSorted: widget.totalItemsSorted,
-                        categoriesUsed:  widget.categoriesUsed,
-                      ),
+                      _L4ActionButtons(mobile: mobile),
 
                       const SizedBox(height: 24),
                     ]),
@@ -242,32 +241,27 @@ class _LevelCompleteScreenState extends State<LevelCompleteScreen>
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  STAR FIELD  — static tiny dots for depth
+//  STAR FIELD
 // ══════════════════════════════════════════════════════════════════════════════
-class _StarField extends StatelessWidget {
-  const _StarField();
-
+class _L4StarField extends StatelessWidget {
+  const _L4StarField();
   @override
-  Widget build(BuildContext context) {
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: CustomPaint(painter: _StarPainter()),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Positioned.fill(
+    child: IgnorePointer(child: CustomPaint(painter: _L4StarPainter())),
+  );
 }
 
-class _StarPainter extends CustomPainter {
+class _L4StarPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final rng   = math.Random(77);
-    final paint = Paint()..color = Colors.white;
+    final rng   = math.Random(99);
+    final paint = Paint();
     for (int i = 0; i < 80; i++) {
       final x = rng.nextDouble() * size.width;
       final y = rng.nextDouble() * size.height;
       final r = rng.nextDouble() * 1.2 + 0.3;
       paint.color = Colors.white.withValues(
-          alpha: rng.nextDouble() * 0.25 + 0.05);
+          alpha: rng.nextDouble() * 0.22 + 0.04);
       canvas.drawCircle(Offset(x, y), r, paint);
     }
   }
@@ -275,63 +269,58 @@ class _StarPainter extends CustomPainter {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  CONFETTI BURST
+//  CONFETTI BURST  — orange / cyan / green themed
 // ══════════════════════════════════════════════════════════════════════════════
-class _ConfettiBurst extends StatelessWidget {
+class _L4ConfettiBurst extends StatelessWidget {
   final AnimationController ctrl;
   final Size screenSize;
-  const _ConfettiBurst({required this.ctrl, required this.screenSize});
+  const _L4ConfettiBurst({required this.ctrl, required this.screenSize});
 
   static const _colors = [
-    Color(0xFFFFD700), Color(0xFF76FF03), Color(0xFF00E5FF),
-    Color(0xFFFF4081), Color(0xFFFFAB40), Color(0xFFE040FB),
-    Color(0xFF40C4FF), Color(0xFFB2FF59), Color(0xFFFF6E40),
+    Color(0xFFFF6D00), Color(0xFF29B6F6), Color(0xFF69F0AE),
+    Color(0xFFFFB300), Color(0xFFCE93D8), Color(0xFFFFFFFF),
+    Color(0xFF00E5FF), Color(0xFF76FF03), Color(0xFFFF4081),
   ];
 
   @override
-  Widget build(BuildContext context) {
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: AnimatedBuilder(
-          animation: ctrl,
-          builder: (_, __) => CustomPaint(
-            painter: _ConfettiPainter(t: ctrl.value, colors: _colors),
-          ),
+  Widget build(BuildContext context) => Positioned.fill(
+    child: IgnorePointer(
+      child: AnimatedBuilder(
+        animation: ctrl,
+        builder: (_, __) => CustomPaint(
+          painter: _L4ConfettiPainter(t: ctrl.value, colors: _colors),
         ),
       ),
-    );
-  }
+    ),
+  );
 }
 
-class _ConfettiPainter extends CustomPainter {
+class _L4ConfettiPainter extends CustomPainter {
   final double t;
   final List<Color> colors;
-  static const _count = 64;
-
-  const _ConfettiPainter({required this.t, required this.colors});
+  static const _count = 72;
+  const _L4ConfettiPainter({required this.t, required this.colors});
 
   @override
   void paint(Canvas canvas, Size size) {
     if (t <= 0) return;
-    // Opacity envelope: ramp up 0→0.25, hold 0.25→0.65, fade 0.65→1.0
     final opacity = t < 0.25
         ? t / 0.25
-        : t < 0.65
-            ? 1.0
-            : (1.0 - (t - 0.65) / 0.35).clamp(0.0, 1.0);
+        : t < 0.65 ? 1.0
+        : (1.0 - (t - 0.65) / 0.35).clamp(0.0, 1.0);
     if (opacity <= 0) return;
 
     final cx = size.width  / 2;
     final cy = size.height * 0.22;
 
     for (int i = 0; i < _count; i++) {
-      final delay = (i / _count) * 0.28;
-      final pt    = ((t - delay) / (1.0 - delay)).clamp(0.0, 1.0);
+      final delay  = (i / _count) * 0.28;
+      final pt     = ((t - delay) / (1.0 - delay)).clamp(0.0, 1.0);
       if (pt <= 0) continue;
 
       final angle  = (i * 137.508 % 360) * math.pi / 180;
-      final radius = size.width * 0.52 * pt * (0.28 + (i % 8) * 0.09);
-      final gravY  = size.height * 0.3 * pt * pt;
+      final radius = size.width * 0.50 * pt * (0.28 + (i % 8) * 0.09);
+      final gravY  = size.height * 0.28 * pt * pt;
       final px     = cx + math.cos(angle) * radius;
       final py     = cy + math.sin(angle) * radius * 0.55 + gravY;
       final r      = (2.5 + (i % 6) * 2.2) * (1 - pt * 0.35);
@@ -339,25 +328,26 @@ class _ConfettiPainter extends CustomPainter {
       final paint  = Paint()..color = col;
 
       switch (i % 3) {
-        case 0: // circle
+        case 0:
           canvas.drawCircle(Offset(px, py), r, paint);
           break;
-        case 1: // rotated rectangle (confetti strip)
+        case 1:
           final rot = angle + pt * math.pi * 5;
           canvas.save();
           canvas.translate(px, py);
           canvas.rotate(rot);
           canvas.drawRect(
-              Rect.fromCenter(center: Offset.zero, width: r * 2.2, height: r * 0.8),
+              Rect.fromCenter(center: Offset.zero,
+                  width: r * 2.2, height: r * 0.8),
               paint);
           canvas.restore();
           break;
-        case 2: // short line
+        case 2:
           canvas.drawLine(
             Offset(px - math.cos(angle) * r, py - math.sin(angle) * r),
             Offset(px + math.cos(angle) * r, py + math.sin(angle) * r),
             Paint()
-              ..color    = col
+              ..color       = col
               ..strokeWidth = r * 0.55
               ..strokeCap   = StrokeCap.round,
           );
@@ -367,20 +357,21 @@ class _ConfettiPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ConfettiPainter o) => o.t != t;
+  bool shouldRepaint(covariant _L4ConfettiPainter o) => o.t != t;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  TROPHY HEADER
 // ══════════════════════════════════════════════════════════════════════════════
-class _TrophyHeader extends StatelessWidget {
+class _L4TrophyHeader extends StatelessWidget {
   final AnimationController badgePulse, shimmer;
-  final int   totalXP;
-  final bool  mobile;
+  final int   totalScore;
+  final bool  peacefulCity, airPerfect, mobile;
 
-  const _TrophyHeader({
+  const _L4TrophyHeader({
     required this.badgePulse, required this.shimmer,
-    required this.totalXP,    required this.mobile,
+    required this.totalScore, required this.peacefulCity,
+    required this.airPerfect, required this.mobile,
   });
 
   @override
@@ -398,18 +389,20 @@ class _TrophyHeader extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: const RadialGradient(colors: [
-                Color(0xFF1A3A1A), Color(0xFF0A1A0A),
+                Color(0xFF1A2A0A), Color(0xFF0A100A),
               ]),
               border: Border.all(
-                color: Color.lerp(_LevelCompleteScreenState.lime,
-                    _LevelCompleteScreenState.gold, glow)!
-                    .withValues(alpha: 0.72),
+                color: Color.lerp(
+                    _Level4CompleteScreenState.calmBlue,
+                    _Level4CompleteScreenState.acidGreen,
+                    glow)!.withValues(alpha: 0.72),
                 width: 2.5,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Color.lerp(_LevelCompleteScreenState.lime,
-                          _LevelCompleteScreenState.gold, glow)!
+                  color: Color.lerp(
+                          _Level4CompleteScreenState.calmBlue,
+                          _Level4CompleteScreenState.acidGreen, glow)!
                       .withValues(alpha: 0.28 + glow * 0.28),
                   blurRadius: 28 + glow * 22,
                   spreadRadius: 4 + glow * 3,
@@ -425,13 +418,17 @@ class _TrophyHeader extends StatelessWidget {
 
       const SizedBox(height: 18),
 
-      // LEVEL 3 COMPLETE — gradient text
+      // LEVEL 4 COMPLETE — gradient text
       ShaderMask(
         shaderCallback: (bounds) => const LinearGradient(
-          colors: [Color(0xFFFFD700), Color(0xFF76FF03), Color(0xFF00E5FF)],
+          colors: [
+            Color(0xFFFF6D00),
+            Color(0xFF29B6F6),
+            Color(0xFF69F0AE),
+          ],
         ).createShader(bounds),
         child: Text(
-          'LEVEL 3 COMPLETE',
+          'LEVEL 4 COMPLETE',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.white,
@@ -445,7 +442,7 @@ class _TrophyHeader extends StatelessWidget {
       const SizedBox(height: 6),
 
       Text(
-        '♻️  City Waste Recycled — Mission Accomplished!',
+        '🌿  Air Purified & City Silenced — Mission Accomplished!',
         textAlign: TextAlign.center,
         style: TextStyle(
           color: Colors.white54,
@@ -456,7 +453,7 @@ class _TrophyHeader extends StatelessWidget {
 
       const SizedBox(height: 18),
 
-      // XP earned pill
+      // Total score pill
       AnimatedBuilder(
         animation: shimmer,
         builder: (_, __) => Container(
@@ -464,17 +461,17 @@ class _TrophyHeader extends StatelessWidget {
               horizontal: mobile ? 18 : 26, vertical: 9),
           decoration: BoxDecoration(
             gradient: LinearGradient(colors: [
-              Color.lerp(const Color(0xFF1A4A1A),
-                  const Color(0xFF2E7D32), shimmer.value)!,
-              const Color(0xFF1B5E20),
+              Color.lerp(const Color(0xFF001A2E),
+                  const Color(0xFF003050), shimmer.value)!,
+              const Color(0xFF001E2A),
             ]),
             borderRadius: BorderRadius.circular(32),
             border: Border.all(
-                color: _LevelCompleteScreenState.lime.withValues(alpha: 0.45),
-                width: 1.5),
+                color: _Level4CompleteScreenState.calmBlue
+                    .withValues(alpha: 0.45), width: 1.5),
             boxShadow: [
               BoxShadow(
-                  color: _LevelCompleteScreenState.lime
+                  color: _Level4CompleteScreenState.calmBlue
                       .withValues(alpha: 0.12 + shimmer.value * 0.18),
                   blurRadius: 18),
             ],
@@ -482,7 +479,7 @@ class _TrophyHeader extends StatelessWidget {
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             const Text('⚡', style: TextStyle(fontSize: 17)),
             const SizedBox(width: 9),
-            Text('+$totalXP Eco-Creativity XP earned',
+            Text('+$totalScore Total Eco-Points earned',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -498,14 +495,14 @@ class _TrophyHeader extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════════════════
 //  SCORE BANNER
 // ══════════════════════════════════════════════════════════════════════════════
-class _ScoreBanner extends StatelessWidget {
+class _L4ScoreBanner extends StatelessWidget {
   final int   totalScore;
   final String grade;
   final Color  gradeColor;
   final AnimationController shimmer;
   final bool   mobile;
 
-  const _ScoreBanner({
+  const _L4ScoreBanner({
     required this.totalScore, required this.grade,
     required this.gradeColor, required this.shimmer,
     required this.mobile,
@@ -521,28 +518,27 @@ class _ScoreBanner extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              const Color(0xFF0D2A14),
-              Color.lerp(const Color(0xFF0D2A14),
-                  const Color(0xFF163D20), shimmer.value)!,
-              const Color(0xFF0A1E10),
+              const Color(0xFF0A1A2E),
+              Color.lerp(const Color(0xFF0A1A2E),
+                  const Color(0xFF0D2A14), shimmer.value)!,
+              const Color(0xFF080E1A),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: _LevelCompleteScreenState.lime.withValues(alpha: 0.28),
-              width: 1.5),
+              color: _Level4CompleteScreenState.calmBlue
+                  .withValues(alpha: 0.28), width: 1.5),
           boxShadow: [
             BoxShadow(
-              color: _LevelCompleteScreenState.lime
+              color: _Level4CompleteScreenState.calmBlue
                   .withValues(alpha: 0.07 + shimmer.value * 0.07),
               blurRadius: 22, spreadRadius: 1,
             ),
           ],
         ),
         child: Row(children: [
-          // Score + label
           Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -556,8 +552,8 @@ class _ScoreBanner extends StatelessWidget {
               const SizedBox(height: 4),
               ShaderMask(
                 shaderCallback: (b) => LinearGradient(
-                    colors: [_LevelCompleteScreenState.lime,
-                             _LevelCompleteScreenState.gold])
+                    colors: [_Level4CompleteScreenState.toxicOrange,
+                             _Level4CompleteScreenState.calmBlue])
                     .createShader(b),
                 child: Text('$totalScore pts',
                     style: TextStyle(
@@ -570,7 +566,6 @@ class _ScoreBanner extends StatelessWidget {
             ],
           )),
 
-          // Grade badge
           Container(
             width:  mobile ? 58 : 72,
             height: mobile ? 58 : 72,
@@ -601,44 +596,46 @@ class _ScoreBanner extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════════════════
 //  STAT GRID  — 6 animated metric cards
 // ══════════════════════════════════════════════════════════════════════════════
-class _StatGrid extends StatelessWidget {
+class _L4StatGrid extends StatelessWidget {
   final AnimationController stagger;
-  final int ecoPoints, ecoCreativity, craftedCount;
-  final int itemsSorted, categoriesUsed, totalCats;
+  final AirPollutionResult air;
+  final NoiseResult noise;
   final bool mobile;
 
-  const _StatGrid({
-    required this.stagger,
-    required this.ecoPoints,     required this.ecoCreativity,
-    required this.craftedCount,  required this.itemsSorted,
-    required this.categoriesUsed, required this.totalCats,
-    required this.mobile,
+  const _L4StatGrid({
+    required this.stagger, required this.air,
+    required this.noise,   required this.mobile,
   });
 
   @override
   Widget build(BuildContext context) {
-    final impactPct =
-        ((ecoPoints + ecoCreativity) / 14.0).clamp(0, 100).toStringAsFixed(0);
+    final byProducts = air.methanol + air.gypsum + air.urea + air.nitrates;
 
     final stats = [
-      _SD('⭐', 'Eco-Points',      '$ecoPoints',
-          'Earned from sorting\n& collection accuracy',
-          const Color(0xFFFFD700)),
-      _SD('⚡', 'Creativity XP',   '$ecoCreativity',
-          'XP from crafting recycled\nproducts in the workshop',
-          const Color(0xFF76FF03)),
-      _SD('🔨', 'Items Crafted',   '$craftedCount',
-          'Useful products made\nfrom sorted waste',
-          const Color(0xFF00E5FF)),
-      _SD('🗑️', 'Waste Sorted',   '$itemsSorted',
-          'Individual waste items\ncorrectly binned',
-          const Color(0xFFFF9800)),
-      _SD('♻️', 'Categories',     '$categoriesUsed / $totalCats',
-          'Waste types actively\nrecycled this level',
-          const Color(0xFFE040FB)),
-      _SD('🌱', 'Eco-Impact',     '$impactPct%',
-          'Your positive environmental\nimpact rating',
-          const Color(0xFF69F0AE)),
+      _L4SD('🛩️', 'Air Purified',
+          '${air.pollutantsNeutralized}/20',
+          'Pollutant bubbles correctly\nneutralized in Phase 1 & 2',
+          _Level4CompleteScreenState.toxicOrange),
+      _L4SD('🔊', 'Noise Reduced',
+          '${noise.noiseMeterFinal.toStringAsFixed(0)} dB',
+          'Final city noise level\n(target: < 40 dB)',
+          _Level4CompleteScreenState.calmBlue),
+      _L4SD('✅', 'Hotspots Fixed',
+          '${noise.hotspotsFix}/8',
+          'Noise hotspots correctly\ntreated in Phase 3 & 4',
+          _Level4CompleteScreenState.acidGreen),
+      _L4SD('⚗️', 'By-Products',
+          '$byProducts',
+          'Chemical by-products collected\n(methanol, gypsum, urea, nitrates)',
+          const Color(0xFFFFE082)),
+      _L4SD('⭐', 'Air Eco-Pts',
+          '${air.ecoPoints}',
+          'Points from Phases 1 & 2\nair purification',
+          _Level4CompleteScreenState.toxicOrange),
+      _L4SD('🌿', 'Noise Eco-Pts',
+          '${noise.ecoPoints}',
+          'Points from Phases 3 & 4\nnoise reduction',
+          _Level4CompleteScreenState.acidGreen),
     ];
 
     return LayoutBuilder(
@@ -654,7 +651,7 @@ class _StatGrid extends StatelessWidget {
             mainAxisSpacing:  10,
             childAspectRatio: mobile ? 1.25 : 1.45,
           ),
-          itemBuilder: (_, i) => _StatCard(
+          itemBuilder: (_, i) => _L4StatCard(
             stat:    stats[i],
             idx:     i,
             stagger: stagger,
@@ -666,19 +663,19 @@ class _StatGrid extends StatelessWidget {
   }
 }
 
-class _SD {
+class _L4SD {
   final String e, label, value, desc;
   final Color  color;
-  const _SD(this.e, this.label, this.value, this.desc, this.color);
+  const _L4SD(this.e, this.label, this.value, this.desc, this.color);
 }
 
-class _StatCard extends StatelessWidget {
-  final _SD  stat;
+class _L4StatCard extends StatelessWidget {
+  final _L4SD stat;
   final int  idx;
   final AnimationController stagger;
   final bool mobile;
 
-  const _StatCard({
+  const _L4StatCard({
     required this.stat, required this.idx,
     required this.stagger, required this.mobile,
   });
@@ -699,7 +696,7 @@ class _StatCard extends StatelessWidget {
       child: Container(
         padding: EdgeInsets.all(mobile ? 12 : 16),
         decoration: BoxDecoration(
-          color: _LevelCompleteScreenState.panel,
+          color: _Level4CompleteScreenState.panel,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
               color: stat.color.withValues(alpha: 0.25), width: 1.2),
@@ -713,10 +710,8 @@ class _StatCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Emoji + label
             Row(children: [
-              Text(stat.e,
-                  style: TextStyle(fontSize: mobile ? 17 : 20)),
+              Text(stat.e, style: TextStyle(fontSize: mobile ? 17 : 20)),
               const SizedBox(width: 6),
               Expanded(child: Text(stat.label,
                   style: TextStyle(
@@ -728,7 +723,6 @@ class _StatCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis)),
             ]),
-            // Value
             ShaderMask(
               shaderCallback: (b) =>
                   LinearGradient(colors: [stat.color, Colors.white])
@@ -741,7 +735,6 @@ class _StatCard extends StatelessWidget {
                     letterSpacing: 0.5,
                   )),
             ),
-            // Description
             Text(stat.desc,
                 style: TextStyle(
                   color: Colors.white30,
@@ -756,41 +749,119 @@ class _StatCard extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  BADGE CARD
+//  BADGES ROW  — Peaceful City + Air Purifier unlocks
 // ══════════════════════════════════════════════════════════════════════════════
-class _BadgeCard extends StatelessWidget {
+class _L4BadgesRow extends StatelessWidget {
+  final bool peacefulCity, airPerfect;
+  final AnimationController pulse;
+  final bool mobile;
+
+  const _L4BadgesRow({
+    required this.peacefulCity, required this.airPerfect,
+    required this.pulse, required this.mobile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!peacefulCity && !airPerfect) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: pulse,
+      builder: (_, __) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('BADGES UNLOCKED',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white38,
+                fontSize: mobile ? 10 : 11,
+                letterSpacing: 2,
+                fontWeight: FontWeight.w600,
+              )),
+          const SizedBox(height: 10),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            if (peacefulCity)
+              _BadgePill('🕊️', 'Peaceful City',
+                  _Level4CompleteScreenState.acidGreen, pulse.value, mobile),
+            if (peacefulCity && airPerfect) const SizedBox(width: 10),
+            if (airPerfect)
+              _BadgePill('💨', 'Air Purifier',
+                  _Level4CompleteScreenState.calmBlue, pulse.value, mobile),
+          ]),
+        ],
+      ),
+    );
+  }
+}
+
+class _BadgePill extends StatelessWidget {
+  final String emoji, label;
+  final Color color;
+  final double pulse;
+  final bool mobile;
+  const _BadgePill(this.emoji, this.label, this.color, this.pulse, this.mobile);
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: EdgeInsets.symmetric(
+        horizontal: mobile ? 14 : 20, vertical: 10),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.10 + pulse * 0.06),
+      borderRadius: BorderRadius.circular(32),
+      border: Border.all(
+          color: color.withValues(alpha: 0.45 + pulse * 0.20), width: 1.5),
+      boxShadow: [BoxShadow(
+          color: color.withValues(alpha: 0.18 + pulse * 0.14),
+          blurRadius: 14)],
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Text(emoji, style: TextStyle(fontSize: mobile ? 18 : 22)),
+      const SizedBox(width: 8),
+      Text(label,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w900,
+            fontSize: mobile ? 12 : 14,
+          )),
+    ]),
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  GRADE BADGE CARD
+// ══════════════════════════════════════════════════════════════════════════════
+class _L4BadgeCard extends StatelessWidget {
   final String grade;
   final Color  gradeColor;
   final AnimationController pulse;
   final bool   mobile;
 
-  const _BadgeCard({
+  const _L4BadgeCard({
     required this.grade,   required this.gradeColor,
     required this.pulse,   required this.mobile,
   });
 
   String get _title {
     switch (grade) {
-      case 'S': return 'Master City Recycler';
-      case 'A': return 'Expert Eco-Warrior';
-      case 'B': return 'Skilled Waste Sorter';
+      case 'S': return 'Eco-Hero: City Saviour';
+      case 'A': return 'Air & Sound Champion';
+      case 'B': return 'Environmental Defender';
       case 'C': return 'City Cleaner';
-      default:  return 'Waste Collector';
+      default:  return 'Pollution Fighter';
     }
   }
 
   String get _desc {
     switch (grade) {
-      case 'S': return 'Outstanding across all Level 3 phases. You sorted, '
-          'crafted, and recycled with exceptional skill and knowledge!';
-      case 'A': return 'Excellent work! Strong recycling knowledge and a '
-          'solid range of products crafted from the workshop.';
-      case 'B': return 'Good job! You successfully sorted and recycled city '
-          'waste and created useful items from the workshop.';
-      case 'C': return 'Level 3 complete. Improve your sorting accuracy and '
-          'craft more items to earn a higher grade next time.';
-      default:  return 'You finished Level 3. Sort waste more accurately and '
-          'craft more workshop products to improve your grade.';
+      case 'S': return 'Outstanding! You neutralized every pollutant and '
+          'silenced the city entirely. Kiambu breathes and rests in peace!';
+      case 'A': return 'Excellent work! Strong chemistry knowledge and sharp '
+          'noise interventions restored health to the city.';
+      case 'B': return 'Good effort! You reduced both air and noise pollution '
+          'and made the city noticeably cleaner and quieter.';
+      case 'C': return 'Level 4 complete. Sharpen your arrow selection and '
+          'intervention choices to earn a higher grade next time.';
+      default:  return 'You finished Level 4. Study the chemical reactions and '
+          'noise sources to improve your score on the next attempt.';
     }
   }
 
@@ -803,15 +874,15 @@ class _BadgeCard extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: LinearGradient(colors: [
             gradeColor.withValues(alpha: 0.08 + pulse.value * 0.06),
-            _LevelCompleteScreenState.panel,
+            _Level4CompleteScreenState.panel,
           ], begin: Alignment.topLeft, end: Alignment.bottomRight),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: gradeColor.withValues(alpha: 0.35 + pulse.value * 0.2),
-              width: 1.5),
+              color: gradeColor
+                  .withValues(alpha: 0.35 + pulse.value * 0.2), width: 1.5),
           boxShadow: [
             BoxShadow(
-              color: gradeColor.withValues(alpha: 0.1 + pulse.value * 0.1),
+              color: gradeColor.withValues(alpha: 0.10 + pulse.value * 0.10),
               blurRadius: 22, spreadRadius: 2,
             ),
           ],
@@ -873,56 +944,77 @@ class _BadgeCard extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════════════════
 //  ACTION BUTTONS
 // ══════════════════════════════════════════════════════════════════════════════
-class _ActionButtons extends StatelessWidget {
+class _L4ActionButtons extends StatelessWidget {
   final bool mobile;
-  final int ecoPoints;
-  final int ecoCreativity;
-  final int craftedCount;
-  final int totalItemsSorted;
-  final int categoriesUsed;
+  const _L4ActionButtons({required this.mobile});
 
-  const _ActionButtons({
-    required this.mobile,
-    required this.ecoPoints,
-    required this.ecoCreativity,
-    required this.craftedCount,
-    required this.totalItemsSorted,
-    required this.categoriesUsed,
-  });
+  void _showComingSoon(BuildContext context) {
+    HapticFeedback.lightImpact();
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: const Color(0xFF0A1422),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(
+              color: _Level4CompleteScreenState.calmBlue
+                  .withValues(alpha: 0.35), width: 1.5),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('🚧', style: TextStyle(fontSize: 48)),
+            const SizedBox(height: 12),
+            const Text('Level 5 Coming Soon!',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20)),
+            const SizedBox(height: 10),
+            const Text(
+              'The next adventure is under construction.\n'
+              'Your Level 4 progress has been saved — '
+              'check back soon to continue your eco-journey!',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: Colors.white54, fontSize: 13, height: 1.5),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF003050),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('GOT IT',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, letterSpacing: 1)),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Column(children: [
 
-      // ── PROCEED TO LEVEL 4 ─────────────────────────────────────────────
+      // PROCEED TO LEVEL 5
       SizedBox(
         width: double.infinity,
         child: Material(
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
-            onTap: () {
-              HapticFeedback.heavyImpact();
-              Navigator.of(context).push(
-                PageRouteBuilder(
-                  pageBuilder: (_, anim, __) => AirNoiseCityScreen(
-                    carryOver: Level3CarryOver(
-                      ecoPoints:      ecoPoints,
-                      ecoCreativity:  ecoCreativity,
-                      craftedCount:   craftedCount,
-                      itemsSorted:    totalItemsSorted,
-                      categoriesUsed: categoriesUsed,
-                    ),
-                  ),
-                  transitionsBuilder: (_, anim, __, child) => FadeTransition(
-                    opacity: CurvedAnimation(
-                        parent: anim, curve: Curves.easeIn),
-                    child: child,
-                  ),
-                  transitionDuration: const Duration(milliseconds: 600),
-                ),
-              );
-            },
+            onTap: () => _showComingSoon(context),
             borderRadius: BorderRadius.circular(16),
             child: Ink(
               padding: EdgeInsets.symmetric(
@@ -930,15 +1022,15 @@ class _ActionButtons extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   colors: [
-                    Color(0xFF1B5E20),
-                    Color(0xFF2E7D32),
-                    Color(0xFF388E3C),
+                    Color(0xFF001A2E),
+                    Color(0xFF003050),
+                    Color(0xFF004070),
                   ],
                 ),
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                      color: _LevelCompleteScreenState.lime
+                      color: _Level4CompleteScreenState.calmBlue
                           .withValues(alpha: 0.28),
                       blurRadius: 18,
                       offset: const Offset(0, 4)),
@@ -949,7 +1041,7 @@ class _ActionButtons extends StatelessWidget {
                 children: [
                   const Text('🚀', style: TextStyle(fontSize: 20)),
                   const SizedBox(width: 10),
-                  Text('PROCEED TO LEVEL 4',
+                  Text('PROCEED TO LEVEL 5',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
@@ -968,14 +1060,14 @@ class _ActionButtons extends StatelessWidget {
 
       const SizedBox(height: 12),
 
-      // ── REPLAY LEVEL 3 ─────────────────────────────────────────────────
+      // REPLAY LEVEL 4
       SizedBox(
         width: double.infinity,
         child: OutlinedButton.icon(
           onPressed: () =>
               Navigator.of(context).popUntil((r) => r.isFirst),
           icon: const Icon(Icons.replay_rounded, size: 17),
-          label: Text('REPLAY LEVEL 3',
+          label: Text('REPLAY LEVEL 4',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: mobile ? 13 : 14,
