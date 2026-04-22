@@ -3,6 +3,7 @@ import 'package:ecoquest/game/level3/city_collection_screen.dart';
 import 'package:ecoquest/game/level3/polluted_city_screen.dart';
 import 'package:ecoquest/game/level3/sorting_facility_screen.dart';
 import 'package:ecoquest/game/level4/air_noise_city_screen.dart';
+import 'package:ecoquest/game/level5/degraded_land_screen.dart';
 import 'package:ecoquest/main.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -200,6 +201,24 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                         ),
                         heroTag: 'testLevel4Button',
                       ),
+
+                      const SizedBox(height: 12),
+
+                      // Level 5 Test Button — launches DegradedLandScreen directly
+                      FloatingActionButton.extended(
+                        onPressed: () => _navigateToLevel5Test(context),
+                        backgroundColor: const Color.fromARGB(255, 101, 60, 10).withValues(alpha: 0.9),
+                        icon: const Icon(Icons.landscape, color: Colors.white),
+                        label: Text(
+                          'TEST L5',
+                          style: GoogleFonts.vt323(
+                            fontSize: 16,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        heroTag: 'testLevel5Button',
+                      ),
                     ],
                   ),
                 ),
@@ -300,6 +319,29 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             craftedCount:   8,
             itemsSorted:    35,
             categoriesUsed: 5,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // For testing purposes — launches Level 5 intro screen directly with
+  // representative dummy carry-over values from a completed Level 4.
+  void _navigateToLevel5Test(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const DegradedLandScreen(
+          carryOver: Level4CarryOver(
+            ecoPoints:             900,
+            airEcoPoints:          450,
+            noiseEcoPoints:        450,
+            pollutantsNeutralized: 12,
+            hotspotsFix:           8,
+            methanol:              5,
+            gypsum:                4,
+            urea:                  6,
+            nitrates:              3,
+            peacefulCityBadge:     true,
           ),
         ),
       ),
