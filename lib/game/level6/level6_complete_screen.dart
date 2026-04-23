@@ -1,0 +1,949 @@
+import 'dart:math' as math;
+import 'package:ecoquest/game/level6/degraded_park_screen.dart';
+import 'package:ecoquest/game/level6/habitat_cleanup_game_screen.dart';
+import 'package:ecoquest/game/level6/wildlife_rescue_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  LEVEL 6 COMPLETE SCREEN  —  Habitat Destruction final summary
+//  Pure Flutter. Zero Flame. Zero image assets.
+//  Reads HabitatCleanupResult.current & WildlifeRescueResult.current.
+// ══════════════════════════════════════════════════════════════════════════════
+
+class Level6CompleteScreen extends StatefulWidget {
+  final Level5CarryOver carryOver;
+  const Level6CompleteScreen({super.key, required this.carryOver});
+
+  @override
+  State<Level6CompleteScreen> createState() => _Level6CompleteScreenState();
+}
+
+class _Level6CompleteScreenState extends State<Level6CompleteScreen>
+    with TickerProviderStateMixin {
+
+  late final AnimationController _entryCtrl;
+  late final AnimationController _burstCtrl;
+  late final AnimationController _badgePulse;
+  late final AnimationController _shimmerCtrl;
+  late final AnimationController _staggerCtrl;
+  late final AnimationController _bgCtrl;
+
+  late final Animation<double> _scaleAnim;
+  late final Animation<Offset> _slideAnim;
+  late final Animation<double> _fadeAnim;
+
+  // ── Colours ───────────────────────────────────────────────────────────────
+  static const Color bgDeep        = Color(0xFF040A06);
+  static const Color bgMid         = Color(0xFF081408);
+  static const Color panel         = Color(0xFF0A1008);
+  static const Color wildlifeGold  = Color(0xFFFFB300);
+  static const Color healthGreen   = Color(0xFF69F0AE);
+  static const Color waterTeal     = Color(0xFF00897B);
+  static const Color posterBlue    = Color(0xFF1E88E5);
+  static const Color gold          = Color(0xFFFFD700);
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+  HabitatCleanupResult get _cleanup =>
+      HabitatCleanupResult.current ??
+      const HabitatCleanupResult(
+        litterCollected: 0, correctSorts: 0,
+        pondsClean: 0, ecoPoints: 0, waterPurity: 0,
+      );
+
+  WildlifeRescueResult get _rescue =>
+      WildlifeRescueResult.current ??
+      const WildlifeRescueResult(
+        animalsRescued: 0, postersPlaced: 0,
+        ecoPoints: 0, habitatHealth: 0,
+        guardianOfNatureBadge: false,
+      );
+
+  int get _totalScore => _cleanup.ecoPoints + _rescue.ecoPoints;
+
+  String get _grade {
+    if (_totalScore >= 600) return 'S';
+    if (_totalScore >= 420) return 'A';
+    if (_totalScore >= 250) return 'B';
+    if (_totalScore >= 120) return 'C';
+    return 'D';
+  }
+
+  Color get _gradeColor {
+    switch (_grade) {
+      case 'S': return gold;
+      case 'A': return healthGreen;
+      case 'B': return wildlifeGold;
+      case 'C': return Colors.orange;
+      default:  return Colors.redAccent;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    HapticFeedback.heavyImpact();
+
+    _entryCtrl   = AnimationController(vsync: this,
+        duration: const Duration(milliseconds: 950))..forward();
+    _burstCtrl   = AnimationController(vsync: this,
+        duration: const Duration(milliseconds: 2600))..forward();
+    _badgePulse  = AnimationController(vsync: this,
+        duration: const Duration(milliseconds: 1800))..repeat(reverse: true);
+    _shimmerCtrl = AnimationController(vsync: this,
+        duration: const Duration(seconds: 2))..repeat(reverse: true);
+    _staggerCtrl = AnimationController(vsync: this,
+        duration: const Duration(milliseconds: 1500))..forward();
+    _bgCtrl      = AnimationController(vsync: this,
+        duration: const Duration(seconds: 10))..repeat(reverse: true);
+
+    _scaleAnim = Tween<double>(begin: 0.72, end: 1.0).animate(
+        CurvedAnimation(parent: _entryCtrl, curve: Curves.elasticOut));
+    _slideAnim = Tween<Offset>(
+            begin: const Offset(0, 0.1), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _entryCtrl,
+            curve: Curves.easeOutCubic));
+    _fadeAnim = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeIn);
+  }
+
+  @override
+  void dispose() {
+    _entryCtrl.dispose(); _burstCtrl.dispose(); _badgePulse.dispose();
+    _shimmerCtrl.dispose(); _staggerCtrl.dispose(); _bgCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size   = MediaQuery.of(context).size;
+    final mobile = size.width < 640;
+    final hPad   = size.width > 1000
+        ? size.width * 0.18
+        : mobile ? 16.0 : 32.0;
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: bgDeep,
+        body: Stack(children: [
+
+          AnimatedBuilder(
+            animation: _bgCtrl,
+            builder: (_, __) => Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  colors: [
+                    Color.lerp(bgDeep, const Color(0xFF0A1E08), _bgCtrl.value)!,
+                    Color.lerp(bgMid,  const Color(0xFF0C2008), _bgCtrl.value * 0.5)!,
+                    Color.lerp(bgDeep, const Color(0xFF060A04), _bgCtrl.value * 0.3)!,
+                  ],
+                  stops: const [0.0, 0.55, 1.0],
+                ),
+              ),
+            ),
+          ),
+
+          const _L6StarField(),
+          _L6ConfettiBurst(ctrl: _burstCtrl, screenSize: size),
+
+          SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnim,
+              child: SlideTransition(
+                position: _slideAnim,
+                child: ScaleTransition(
+                  scale: _scaleAnim,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: hPad, vertical: 22),
+                    child: Column(children: [
+
+                      _L6TrophyHeader(
+                        badgePulse:   _badgePulse,
+                        shimmer:      _shimmerCtrl,
+                        totalScore:   _totalScore,
+                        guardian:     _rescue.guardianOfNatureBadge,
+                        mobile:       mobile,
+                      ),
+
+                      SizedBox(height: mobile ? 22 : 30),
+
+                      _L6ScoreBanner(
+                        totalScore: _totalScore,
+                        grade:      _grade,
+                        gradeColor: _gradeColor,
+                        shimmer:    _shimmerCtrl,
+                        mobile:     mobile,
+                      ),
+
+                      SizedBox(height: mobile ? 18 : 26),
+
+                      _L6StatGrid(
+                        stagger:  _staggerCtrl,
+                        cleanup:  _cleanup,
+                        rescue:   _rescue,
+                        mobile:   mobile,
+                      ),
+
+                      SizedBox(height: mobile ? 18 : 26),
+
+                      if (_rescue.guardianOfNatureBadge)
+                        _L6BadgesRow(pulse: _badgePulse, mobile: mobile),
+
+                      if (_rescue.guardianOfNatureBadge)
+                        SizedBox(height: mobile ? 18 : 26),
+
+                      _L6BadgeCard(
+                        grade:      _grade,
+                        gradeColor: _gradeColor,
+                        pulse:      _badgePulse,
+                        mobile:     mobile,
+                      ),
+
+                      SizedBox(height: mobile ? 22 : 30),
+                      _L6ActionButtons(mobile: mobile),
+                      const SizedBox(height: 24),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  STAR FIELD
+// ════════════════════════════════════════════════════════════════════════════
+class _L6StarField extends StatelessWidget {
+  const _L6StarField();
+  @override
+  Widget build(BuildContext context) => Positioned.fill(
+    child: IgnorePointer(child: CustomPaint(painter: _L6StarPainter())),
+  );
+}
+
+class _L6StarPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rng = math.Random(44);
+    final p   = Paint();
+    for (int i = 0; i < 80; i++) {
+      p.color = Colors.white.withValues(
+          alpha: rng.nextDouble() * 0.20 + 0.04);
+      canvas.drawCircle(
+        Offset(rng.nextDouble() * size.width,
+               rng.nextDouble() * size.height),
+        rng.nextDouble() * 1.2 + 0.3, p,
+      );
+    }
+  }
+  @override bool shouldRepaint(_) => false;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CONFETTI BURST  — nature themed
+// ════════════════════════════════════════════════════════════════════════════
+class _L6ConfettiBurst extends StatelessWidget {
+  final AnimationController ctrl;
+  final Size screenSize;
+  const _L6ConfettiBurst({required this.ctrl, required this.screenSize});
+
+  static const _colors = [
+    Color(0xFFFFB300), Color(0xFF69F0AE), Color(0xFF00897B),
+    Color(0xFF1E88E5), Color(0xFFFFD700), Color(0xFFFFFFFF),
+    Color(0xFF558B2F), Color(0xFFFF8A65), Color(0xFF90CAF9),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Positioned.fill(
+    child: IgnorePointer(child: AnimatedBuilder(
+      animation: ctrl,
+      builder: (_, __) => CustomPaint(
+        painter: _L6ConfettiPainter(t: ctrl.value, colors: _colors),
+      ),
+    )),
+  );
+}
+
+class _L6ConfettiPainter extends CustomPainter {
+  final double t;
+  final List<Color> colors;
+  static const _count = 72;
+  const _L6ConfettiPainter({required this.t, required this.colors});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (t <= 0) return;
+    final opacity = t < 0.25 ? t / 0.25
+        : t < 0.65 ? 1.0
+        : (1.0 - (t - 0.65) / 0.35).clamp(0.0, 1.0);
+    if (opacity <= 0) return;
+    final cx = size.width / 2;
+    final cy = size.height * 0.22;
+    for (int i = 0; i < _count; i++) {
+      final delay  = (i / _count) * 0.28;
+      final pt     = ((t - delay) / (1.0 - delay)).clamp(0.0, 1.0);
+      if (pt <= 0) continue;
+      final angle  = (i * 137.508 % 360) * math.pi / 180;
+      final radius = size.width * 0.50 * pt * (0.28 + (i % 8) * 0.09);
+      final gravY  = size.height * 0.28 * pt * pt;
+      final px     = cx + math.cos(angle) * radius;
+      final py     = cy + math.sin(angle) * radius * 0.55 + gravY;
+      final r      = (2.5 + (i % 6) * 2.2) * (1 - pt * 0.35);
+      final col    = colors[i % colors.length].withValues(alpha: opacity * 0.88);
+      final paint  = Paint()..color = col;
+      switch (i % 3) {
+        case 0:
+          canvas.drawCircle(Offset(px, py), r, paint);
+          break;
+        case 1:
+          canvas.save();
+          canvas.translate(px, py);
+          canvas.rotate(angle + pt * math.pi * 5);
+          canvas.drawRect(Rect.fromCenter(
+              center: Offset.zero, width: r * 2.2, height: r * 0.8), paint);
+          canvas.restore();
+          break;
+        case 2:
+          canvas.drawLine(
+            Offset(px - math.cos(angle) * r, py - math.sin(angle) * r),
+            Offset(px + math.cos(angle) * r, py + math.sin(angle) * r),
+            Paint()..color = col..strokeWidth = r * 0.55..strokeCap = StrokeCap.round,
+          );
+          break;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _L6ConfettiPainter o) => o.t != t;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TROPHY HEADER
+// ════════════════════════════════════════════════════════════════════════════
+class _L6TrophyHeader extends StatelessWidget {
+  final AnimationController badgePulse, shimmer;
+  final int   totalScore;
+  final bool  guardian, mobile;
+
+  const _L6TrophyHeader({
+    required this.badgePulse, required this.shimmer,
+    required this.totalScore, required this.guardian, required this.mobile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+
+      AnimatedBuilder(
+        animation: badgePulse,
+        builder: (_, __) {
+          final glow = badgePulse.value;
+          return Container(
+            width:  mobile ? 106 : 130,
+            height: mobile ? 106 : 130,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const RadialGradient(colors: [
+                Color(0xFF1A2A0A), Color(0xFF0A100A),
+              ]),
+              border: Border.all(
+                color: Color.lerp(
+                    _Level6CompleteScreenState.wildlifeGold,
+                    _Level6CompleteScreenState.healthGreen,
+                    glow)!.withValues(alpha: 0.72),
+                width: 2.5,
+              ),
+              boxShadow: [BoxShadow(
+                color: Color.lerp(
+                        _Level6CompleteScreenState.wildlifeGold,
+                        _Level6CompleteScreenState.healthGreen, glow)!
+                    .withValues(alpha: 0.28 + glow * 0.28),
+                blurRadius: 28 + glow * 22,
+                spreadRadius: 4 + glow * 3,
+              )],
+            ),
+            child: Center(child: Text('🏆',
+                style: TextStyle(fontSize: mobile ? 48 : 60))),
+          );
+        },
+      ),
+
+      const SizedBox(height: 18),
+
+      ShaderMask(
+        shaderCallback: (bounds) => const LinearGradient(
+          colors: [Color(0xFFFFB300), Color(0xFF69F0AE), Color(0xFF1E88E5)],
+        ).createShader(bounds),
+        child: Text(
+          'LEVEL 6 COMPLETE',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: mobile ? 26 : 36,
+            fontWeight: FontWeight.w900,
+            letterSpacing: mobile ? 1.8 : 3.0,
+          ),
+        ),
+      ),
+
+      const SizedBox(height: 6),
+
+      Text(
+        '🦓  Ondiri Restored — The Wetland Lives Again!',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white54,
+          fontSize: mobile ? 12 : 14, letterSpacing: 0.3,
+        ),
+      ),
+
+      const SizedBox(height: 18),
+
+      AnimatedBuilder(
+        animation: shimmer,
+        builder: (_, __) => Container(
+          padding: EdgeInsets.symmetric(
+              horizontal: mobile ? 18 : 26, vertical: 9),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [
+              Color.lerp(const Color(0xFF0A1800),
+                  const Color(0xFF142800), shimmer.value)!,
+              const Color(0xFF0E1C00),
+            ]),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(
+                color: _Level6CompleteScreenState.wildlifeGold
+                    .withValues(alpha: 0.45), width: 1.5),
+            boxShadow: [BoxShadow(
+                color: _Level6CompleteScreenState.wildlifeGold
+                    .withValues(alpha: 0.12 + shimmer.value * 0.18),
+                blurRadius: 18)],
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Text('⭐', style: TextStyle(fontSize: 17)),
+            const SizedBox(width: 9),
+            Text('+$totalScore Total Eco-Points earned',
+                style: TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold,
+                  fontSize: mobile ? 12 : 14,
+                )),
+          ]),
+        ),
+      ),
+    ]);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SCORE BANNER
+// ════════════════════════════════════════════════════════════════════════════
+class _L6ScoreBanner extends StatelessWidget {
+  final int   totalScore;
+  final String grade;
+  final Color  gradeColor;
+  final AnimationController shimmer;
+  final bool   mobile;
+
+  const _L6ScoreBanner({
+    required this.totalScore, required this.grade,
+    required this.gradeColor, required this.shimmer, required this.mobile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: shimmer,
+      builder: (_, __) => Container(
+        padding: EdgeInsets.symmetric(
+            vertical: mobile ? 18 : 24, horizontal: mobile ? 20 : 32),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xFF0A1408),
+              Color.lerp(const Color(0xFF0A1408), const Color(0xFF121E0A),
+                  shimmer.value)!,
+              const Color(0xFF060A04),
+            ],
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: _Level6CompleteScreenState.wildlifeGold
+                  .withValues(alpha: 0.28), width: 1.5),
+          boxShadow: [BoxShadow(
+            color: _Level6CompleteScreenState.wildlifeGold
+                .withValues(alpha: 0.07 + shimmer.value * 0.07),
+            blurRadius: 22, spreadRadius: 1,
+          )],
+        ),
+        child: Row(children: [
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('TOTAL LEVEL SCORE',
+                  style: TextStyle(
+                    color: Colors.white38, fontSize: mobile ? 10 : 11,
+                    letterSpacing: 2, fontWeight: FontWeight.w600,
+                  )),
+              const SizedBox(height: 4),
+              ShaderMask(
+                shaderCallback: (b) => LinearGradient(
+                    colors: [_Level6CompleteScreenState.wildlifeGold,
+                             _Level6CompleteScreenState.healthGreen])
+                    .createShader(b),
+                child: Text('$totalScore pts',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: mobile ? 34 : 46,
+                      fontWeight: FontWeight.w900, letterSpacing: 1,
+                    )),
+              ),
+            ],
+          )),
+          Container(
+            width:  mobile ? 58 : 72,
+            height: mobile ? 58 : 72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: gradeColor.withValues(alpha: 0.12),
+              border: Border.all(
+                  color: gradeColor.withValues(alpha: 0.6), width: 2.2),
+              boxShadow: [BoxShadow(
+                  color: gradeColor.withValues(alpha: 0.28),
+                  blurRadius: 16, spreadRadius: 2)],
+            ),
+            child: Center(child: Text(grade,
+                style: TextStyle(
+                  color: gradeColor, fontSize: mobile ? 26 : 32,
+                  fontWeight: FontWeight.w900,
+                ))),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  STAT GRID
+// ════════════════════════════════════════════════════════════════════════════
+class _L6StatGrid extends StatelessWidget {
+  final AnimationController stagger;
+  final HabitatCleanupResult cleanup;
+  final WildlifeRescueResult  rescue;
+  final bool mobile;
+
+  const _L6StatGrid({
+    required this.stagger, required this.cleanup,
+    required this.rescue,  required this.mobile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final stats = [
+      _L6SD('🗑️', 'Litter Collected',
+          '${cleanup.litterCollected}/${HabitatCleanupGame.totalLitter}',
+          'Waste items collected &\nsorted in Phase 1',
+          _Level6CompleteScreenState.wildlifeGold),
+      _L6SD('💧', 'Water Purity',
+          '${cleanup.waterPurity.toStringAsFixed(0)}%',
+          'Final water purity\nacross all ponds',
+          _Level6CompleteScreenState.waterTeal),
+      _L6SD('🦓', 'Animals Rescued',
+          '${rescue.animalsRescued}/${WildlifeRescueGame.totalAnimals}',
+          'Injured wildlife treated\n& released in Phase 3',
+          _Level6CompleteScreenState.wildlifeGold),
+      _L6SD('📋', 'Posters Placed',
+          '${rescue.postersPlaced}/${WildlifeRescueGame.totalPosters}',
+          'Awareness posters crafted\n& installed in Phase 4',
+          _Level6CompleteScreenState.posterBlue),
+      _L6SD('⭐', 'Cleanup Pts',
+          '${cleanup.ecoPoints}',
+          'Eco-points from waste\n& water phases',
+          _Level6CompleteScreenState.wildlifeGold),
+      _L6SD('🌿', 'Rescue Pts',
+          '${rescue.ecoPoints}',
+          'Eco-points from rescue\n& awareness phases',
+          _Level6CompleteScreenState.healthGreen),
+    ];
+
+    return LayoutBuilder(builder: (_, constraints) {
+      final cols = constraints.maxWidth > 500 ? 3 : 2;
+      return GridView.builder(
+        shrinkWrap:  true,
+        physics:     const NeverScrollableScrollPhysics(),
+        itemCount:   stats.length,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount:   cols,
+          crossAxisSpacing: 10,
+          mainAxisSpacing:  10,
+          childAspectRatio: mobile ? 1.25 : 1.45,
+        ),
+        itemBuilder: (_, i) => _L6StatCard(
+          stat: stats[i], idx: i, stagger: stagger, mobile: mobile),
+      );
+    });
+  }
+}
+
+class _L6SD {
+  final String e, label, value, desc;
+  final Color  color;
+  const _L6SD(this.e, this.label, this.value, this.desc, this.color);
+}
+
+class _L6StatCard extends StatelessWidget {
+  final _L6SD stat;
+  final int  idx;
+  final AnimationController stagger;
+  final bool mobile;
+  const _L6StatCard({required this.stat, required this.idx,
+      required this.stagger, required this.mobile});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: stagger,
+      builder: (_, child) {
+        final delay = idx * 0.075;
+        final raw   = ((stagger.value - delay) / (1.0 - delay)).clamp(0.0, 1.0);
+        final t     = Curves.easeOutBack.transform(raw).clamp(0.0, 1.0);
+        return Opacity(opacity: t,
+            child: Transform.translate(
+                offset: Offset(0, 22 * (1 - t)), child: child));
+      },
+      child: Container(
+        padding: EdgeInsets.all(mobile ? 12 : 16),
+        decoration: BoxDecoration(
+          color: _Level6CompleteScreenState.panel,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: stat.color.withValues(alpha: 0.25),
+              width: 1.2),
+          boxShadow: [BoxShadow(color: stat.color.withValues(alpha: 0.08),
+              blurRadius: 14, spreadRadius: 1)],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(children: [
+              Text(stat.e, style: TextStyle(fontSize: mobile ? 17 : 20)),
+              const SizedBox(width: 6),
+              Expanded(child: Text(stat.label,
+                  style: TextStyle(color: stat.color,
+                      fontSize: mobile ? 9 : 10, fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4),
+                  maxLines: 1, overflow: TextOverflow.ellipsis)),
+            ]),
+            ShaderMask(
+              shaderCallback: (b) =>
+                  LinearGradient(colors: [stat.color, Colors.white])
+                      .createShader(b),
+              child: Text(stat.value,
+                  style: TextStyle(color: Colors.white,
+                      fontSize: mobile ? 22 : 28,
+                      fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+            ),
+            Text(stat.desc, style: TextStyle(
+                color: Colors.white30,
+                fontSize: mobile ? 9 : 10, height: 1.4)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  BADGES ROW
+// ════════════════════════════════════════════════════════════════════════════
+class _L6BadgesRow extends StatelessWidget {
+  final AnimationController pulse;
+  final bool mobile;
+  const _L6BadgesRow({required this.pulse, required this.mobile});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: pulse,
+      builder: (_, __) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('BADGE UNLOCKED',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white38, fontSize: mobile ? 10 : 11,
+                letterSpacing: 2, fontWeight: FontWeight.w600,
+              )),
+          const SizedBox(height: 10),
+          Center(
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                  horizontal: mobile ? 20 : 28, vertical: 12),
+              decoration: BoxDecoration(
+                color: _Level6CompleteScreenState.healthGreen
+                    .withValues(alpha: 0.10 + pulse.value * 0.06),
+                borderRadius: BorderRadius.circular(32),
+                border: Border.all(
+                    color: _Level6CompleteScreenState.healthGreen
+                        .withValues(alpha: 0.45 + pulse.value * 0.20),
+                    width: 1.5),
+                boxShadow: [BoxShadow(
+                    color: _Level6CompleteScreenState.healthGreen
+                        .withValues(alpha: 0.18 + pulse.value * 0.14),
+                    blurRadius: 14)],
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text('🦒', style: TextStyle(fontSize: mobile ? 22 : 26)),
+                const SizedBox(width: 10),
+                Text('Guardian of Nature',
+                    style: TextStyle(
+                      color: _Level6CompleteScreenState.healthGreen,
+                      fontWeight: FontWeight.w900,
+                      fontSize: mobile ? 14 : 16,
+                    )),
+              ]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  GRADE BADGE CARD
+// ════════════════════════════════════════════════════════════════════════════
+class _L6BadgeCard extends StatelessWidget {
+  final String grade;
+  final Color  gradeColor;
+  final AnimationController pulse;
+  final bool   mobile;
+  const _L6BadgeCard({required this.grade, required this.gradeColor,
+      required this.pulse, required this.mobile});
+
+  String get _title {
+    switch (grade) {
+      case 'S': return 'Guardian of Ondiri';
+      case 'A': return 'Wildlife Champion';
+      case 'B': return 'Habitat Restorer';
+      case 'C': return 'Park Cleaner';
+      default:  return 'Eco-Volunteer';
+    }
+  }
+
+  String get _desc {
+    switch (grade) {
+      case 'S': return 'Extraordinary! Every pond sparkles, every animal '
+          'runs free, and the Ondiri Wetland is alive once more. '
+          'Kiambu\'s biodiversity is yours to protect!';
+      case 'A': return 'Excellent! You cleaned the park, purified the water, '
+          'rescued wildlife, and ran a powerful awareness campaign.';
+      case 'B': return 'Well done! The habitat is healthier — more ponds '
+          'are clean, animals are recovering, and posters spread the word.';
+      case 'C': return 'Level 6 complete. Focus on correct first-aid choices '
+          'and pond treatments to earn a higher grade next time.';
+      default:  return 'You finished Level 6. Review the treatment table '
+          'and first-aid actions to improve your score.';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: pulse,
+      builder: (_, __) => Container(
+        padding: EdgeInsets.all(mobile ? 16 : 22),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [
+            gradeColor.withValues(alpha: 0.08 + pulse.value * 0.06),
+            _Level6CompleteScreenState.panel,
+          ], begin: Alignment.topLeft, end: Alignment.bottomRight),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: gradeColor.withValues(alpha: 0.35 + pulse.value * 0.2),
+              width: 1.5),
+          boxShadow: [BoxShadow(
+            color: gradeColor.withValues(alpha: 0.10 + pulse.value * 0.10),
+            blurRadius: 22, spreadRadius: 2,
+          )],
+        ),
+        child: Row(children: [
+          Container(
+            width:  mobile ? 66 : 82,
+            height: mobile ? 66 : 82,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: gradeColor.withValues(alpha: 0.12),
+              border: Border.all(
+                  color: gradeColor.withValues(alpha: 0.6), width: 2.2),
+              boxShadow: [BoxShadow(
+                  color: gradeColor.withValues(alpha: 0.22 + pulse.value * 0.16),
+                  blurRadius: 20, spreadRadius: 3)],
+            ),
+            child: Center(child: Text(grade,
+                style: TextStyle(color: gradeColor,
+                    fontSize: mobile ? 28 : 36,
+                    fontWeight: FontWeight.w900))),
+          ),
+          const SizedBox(width: 16),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Text('🏅 ', style: TextStyle(fontSize: 15)),
+                Expanded(child: Text(_title,
+                    style: TextStyle(color: gradeColor,
+                        fontWeight: FontWeight.w800,
+                        fontSize: mobile ? 14 : 16))),
+              ]),
+              const SizedBox(height: 7),
+              Text(_desc, style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: mobile ? 11 : 12, height: 1.55)),
+            ],
+          )),
+        ]),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ACTION BUTTONS
+// ════════════════════════════════════════════════════════════════════════════
+class _L6ActionButtons extends StatelessWidget {
+  final bool mobile;
+  const _L6ActionButtons({required this.mobile});
+
+  void _showComingSoon(BuildContext context) {
+    HapticFeedback.lightImpact();
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: const Color(0xFF0A1008),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(
+              color: _Level6CompleteScreenState.healthGreen
+                  .withValues(alpha: 0.35), width: 1.5),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('🚧', style: TextStyle(fontSize: 48)),
+            const SizedBox(height: 12),
+            const Text('Level 7 Coming Soon!',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white,
+                    fontWeight: FontWeight.bold, fontSize: 20)),
+            const SizedBox(height: 10),
+            const Text(
+              'The next chapter of Kiambu\'s story is being written.\n'
+              'Your Level 6 progress has been saved — '
+              'check back soon to continue your eco-journey!',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white54, fontSize: 13, height: 1.5),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF142810),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('GOT IT',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, letterSpacing: 1)),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+
+      SizedBox(
+        width: double.infinity,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: () => _showComingSoon(context),
+            borderRadius: BorderRadius.circular(16),
+            child: Ink(
+              padding: EdgeInsets.symmetric(
+                  vertical: mobile ? 16 : 19, horizontal: 24),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0A1E04), Color(0xFF142E08),
+                           Color(0xFF1A3A0C)],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [BoxShadow(
+                    color: _Level6CompleteScreenState.healthGreen
+                        .withValues(alpha: 0.28),
+                    blurRadius: 18, offset: const Offset(0, 4))],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('🚀', style: TextStyle(fontSize: 20)),
+                  const SizedBox(width: 10),
+                  Text('PROCEED TO LEVEL 7',
+                      style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w900,
+                        fontSize: mobile ? 15 : 17, letterSpacing: 1.2,
+                      )),
+                  const SizedBox(width: 10),
+                  const Icon(Icons.arrow_forward_rounded,
+                      color: Colors.white, size: 20),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+
+      const SizedBox(height: 12),
+
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: () =>
+              Navigator.of(context).popUntil((r) => r.isFirst),
+          icon: const Icon(Icons.replay_rounded, size: 17),
+          label: Text('REPLAY LEVEL 6',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: mobile ? 13 : 14, letterSpacing: 0.8,
+              )),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white70,
+            side: BorderSide(
+                color: Colors.white.withValues(alpha: 0.18), width: 1.2),
+            padding: EdgeInsets.symmetric(vertical: mobile ? 13 : 15),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+      ),
+    ]);
+  }
+}

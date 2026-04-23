@@ -4,6 +4,7 @@ import 'package:ecoquest/game/level3/polluted_city_screen.dart';
 import 'package:ecoquest/game/level3/sorting_facility_screen.dart';
 import 'package:ecoquest/game/level4/air_noise_city_screen.dart';
 import 'package:ecoquest/game/level5/degraded_land_screen.dart';
+import 'package:ecoquest/game/level6/degraded_park_screen.dart'; // 🧪 TEST L6
 import 'package:ecoquest/main.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -219,6 +220,24 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                         ),
                         heroTag: 'testLevel5Button',
                       ),
+
+                      const SizedBox(height: 12),
+
+                      // 🧪 Level 6 Test Button — launches DegradedParkScreen directly
+                      FloatingActionButton.extended(
+                        onPressed: () => _navigateToLevel6Test(context),
+                        backgroundColor: const Color.fromARGB(255, 20, 80, 45).withValues(alpha: 0.9),
+                        icon: const Icon(Icons.park, color: Colors.white),
+                        label: Text(
+                          'TEST L6',
+                          style: GoogleFonts.vt323(
+                            fontSize: 16,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        heroTag: 'testLevel6Button',
+                      ),
                     ],
                   ),
                 ),
@@ -342,6 +361,33 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             urea:                  6,
             nitrates:              3,
             peacefulCityBadge:     true,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // For testing purposes — launches Level 6 intro screen (DegradedParkScreen)
+  // directly with representative dummy carry-over values from a completed Level 5.
+  // ⚠️  Adjust the Level5CarryOver field names/values to match your actual class.
+  void _navigateToLevel6Test(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const DegradedParkScreen(
+          carryOver: Level5CarryOver(
+            ecoPoints:           1100,
+            landEcoPoints:        550,
+            soilEcoPoints:        550,
+            patchesRestored:       12,
+            zonesRemediated:        4,
+            soilHealthFinal:       78.0,
+            soilGuardianBadge:     true,
+            terrainStabilised:     true,
+            biochar:                6,
+            compost:                8,
+            bacteriaCultures:       5,
+            gypsum:                 4,
+            naturalDyes:            3,
           ),
         ),
       ),
