@@ -214,33 +214,68 @@ class AirPollutionGame extends FlameGame
     gameStarted = true;
     HapticFeedback.lightImpact();
 
-    // Find nearest bubble
+    final target = _findTargetBubble();
+    if (target == null) return;
+
+    final arrowType = selectedArrow;
+
+    final arrow = Arrow(
+      game:   this,
+      x:      gliderPos.x,
+      y:      gliderPos.y - 20,
+      type:   arrowType,
+      target: target,
+      onHit: (correct) {
+        if (correct) {
+          target.neutralize();
+          neutralized++;
+          ecoPoints += 10;
+          _collectByProduct(target.type);
+          _triggerReaction(true);
+        } else {
+          ecoPoints = math.max(0, ecoPoints - 5);
+          wrongArrows++;
+          _triggerReaction(false);
+        }
+        if (bubbles.where((b) => !b.isNeutralized).isEmpty) {
+          Future.delayed(const Duration(milliseconds: 800), _endLevel);
+        }
+        notifyListeners();
+      },
+    );
+    add(arrow);
+    arrows.add(arrow);
+    notifyListeners();
+  }
+
+  /// Returns the best bubble to target.
+  /// Prefers bubbles directly above the glider (smallest horizontal offset),
+  /// falling back to absolute nearest if nothing is above.
+  PollutantBubble? _findTargetBubble() {
     PollutantBubble? target;
-    double bestDist = 200.0;
+
+    // Pass 1 — bubbles above the glider, scored by x-alignment weight
+    double bestScore = double.infinity;
+    for (final b in bubbles) {
+      if (b.isNeutralized) continue;
+      final dy = gliderPos.y - b.bubbleY; // positive = bubble is above
+      if (dy <= 0) continue;
+      final dxAbs = (b.bubbleX - gliderPos.x).abs();
+      // Weight x-alignment 3× more than vertical distance so the
+      // bubble that is "most directly above" wins.
+      final score = dxAbs * 3 + dy * 0.3;
+      if (score < bestScore) { bestScore = score; target = b; }
+    }
+    if (target != null) return target;
+
+    // Pass 2 — fallback: absolute nearest bubble in any direction
+    double bestDist = double.infinity;
     for (final b in bubbles) {
       if (b.isNeutralized) continue;
       final d = (b.bubblePos - gliderPos).length;
       if (d < bestDist) { bestDist = d; target = b; }
     }
-    if (target == null) return;
-
-    final correct = _isCorrectArrow(target.type, selectedArrow);
-    if (correct) {
-      target.neutralize();
-      neutralized++;
-      ecoPoints += 10;
-      _collectByProduct(target.type);
-      _triggerReaction(true);
-    } else {
-      ecoPoints = math.max(0, ecoPoints - 5);
-      wrongArrows++;
-      _triggerReaction(false);
-    }
-
-    if (bubbles.where((b) => !b.isNeutralized).isEmpty) {
-      Future.delayed(const Duration(milliseconds: 800), _endLevel);
-    }
-    notifyListeners();
+    return target;
   }
 
   bool _isCorrectArrow(PollutantType p, ArrowType a) {
@@ -588,24 +623,64 @@ class PollutantBubble extends Component {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ARROW (fired projectile)  — purely visual, collision handled in game
+//  ARROW (fired projectile) — tracks toward its target bubble
 // ════════════════════════════════════════════════════════════════════════════
 class Arrow extends Component {
-  final AirPollutionGame game;
-  double x, y;
-  final double dx, dy;
-  final ArrowType type;
-  bool done = false;
+  final AirPollutionGame        game;
+  double                        x, y;
+  final ArrowType               type;
+  final PollutantBubble         target;
+  final void Function(bool ok)  onHit;
+  bool                          done    = false;
+  bool                          _fired  = false; // onHit called at most once
 
-  Arrow({required this.game, required this.x, required this.y,
-         required this.dx, required this.dy, required this.type});
+  static const double _speed = 420.0; // px / s
+
+  Arrow({
+    required this.game,
+    required this.x,
+    required this.y,
+    required this.type,
+    required this.target,
+    required this.onHit,
+  });
 
   @override
   void update(double dt) {
     if (done) return;
-    x += dx * dt * 500;
-    y += dy * dt * 500;
-    if (x < 0 || x > game.size.x || y < 0 || y > game.size.y) {
+
+    // If the target was already neutralised by another arrow, self-destruct.
+    if (target.isNeutralized && !_fired) {
+      done = true;
+      removeFromParent();
+      return;
+    }
+
+    final tx   = target.bubbleX;
+    final ty   = target.bubbleY;
+    final dx   = tx - x;
+    final dy   = ty - y;
+    final dist = math.sqrt(dx * dx + dy * dy);
+
+    // Hit threshold: bubble visual radius ≈ 28 px
+    if (dist < 26) {
+      if (!_fired) {
+        _fired = true;
+        final correct = game._isCorrectArrow(target.type, type);
+        onHit(correct);
+      }
+      done = true;
+      removeFromParent();
+      return;
+    }
+
+    // Move toward target at constant speed
+    x += (dx / dist) * _speed * dt;
+    y += (dy / dist) * _speed * dt;
+
+    // Safety: out of bounds
+    if (x < -40 || x > game.size.x + 40 ||
+        y < -40 || y > game.size.y + 40) {
       done = true;
       removeFromParent();
     }
@@ -615,13 +690,33 @@ class Arrow extends Component {
   void render(Canvas canvas) {
     if (done) return;
     final color = _arrowColor();
+
+    final tx  = target.bubbleX;
+    final ty  = target.bubbleY;
+    final dx  = tx - x;
+    final dy  = ty - y;
+    final len = math.sqrt(dx * dx + dy * dy);
+    final ndx = len > 0 ? dx / len : 0.0;
+    final ndy = len > 0 ? dy / len : -1.0;
+
+    // Arrow shaft
     canvas.drawLine(
-        Offset(x, y), Offset(x - dx * 20, y - dy * 20),
-        Paint()
-          ..color = color
-          ..strokeWidth = 3
-          ..strokeCap = StrokeCap.round);
-    canvas.drawCircle(Offset(x, y), 5, Paint()..color = color);
+      Offset(x, y),
+      Offset(x - ndx * 22, y - ndy * 22),
+      Paint()
+        ..color      = color
+        ..strokeWidth = 3.2
+        ..strokeCap  = StrokeCap.round,
+    );
+
+    // Arrow tip (glowing dot)
+    canvas.drawCircle(
+      Offset(x, y), 6,
+      Paint()
+        ..color      = color
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    canvas.drawCircle(Offset(x, y), 4, Paint()..color = Colors.white);
   }
 
   Color _arrowColor() {
@@ -771,15 +866,15 @@ class _ByProductChip extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ARROW SELECTOR  (bottom tray)
+//  ARROW SELECTOR  — vertical strip on the right, just above the FIRE button
 // ════════════════════════════════════════════════════════════════════════════
 class ArrowSelector extends StatelessWidget {
   final AirPollutionGame game;
   const ArrowSelector(this.game, {super.key});
 
   static const _arrows = [
-    (ArrowType.h2,    '💨', 'H₂',    Color(0xFF29B6F6), 'CO / CO₂ / CH₄'),
-    (ArrowType.nh3,   '🌿', 'NH₃',   Color(0xFF69F0AE), 'NO / NO₂ / NH₃'),
+    (ArrowType.h2,    '💨', 'H₂',    Color(0xFF29B6F6), 'CO/CO₂/CH₄'),
+    (ArrowType.nh3,   '🌿', 'NH₃',   Color(0xFF69F0AE), 'NO/NO₂/NH₃'),
     (ArrowType.caco3, '🪨', 'CaCO₃', Color(0xFFFFE082), 'SO₂'),
   ];
 
@@ -788,80 +883,88 @@ class ArrowSelector extends StatelessWidget {
     return AnimatedBuilder(
       animation: game,
       builder: (_, __) {
-        final mobile = MediaQuery.of(context).size.width < 600;
-
+        // Fire button occupies ≈ bottom 20 + 68 + safeArea = ~108 px.
+        // Stack the selector directly above it with a small gap.
         return Align(
-          alignment: Alignment.bottomCenter,
+          alignment: Alignment.bottomRight,
           child: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.only(
-                  bottom: 80, left: 12, right: 12),
+              // right: keeps it flush with the fire button (right: 14)
+              // bottom: sits just above the 68 px button + 20 px bottom pad
+              padding: const EdgeInsets.only(bottom: 100, right: 6),
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 8),
+                    horizontal: 6, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.78),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: Colors.white12),
                 ),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text('SELECT ARROW TYPE',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Label rotated sideways to save horizontal space
+                    const Text(
+                      'ARROW',
                       style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: mobile ? 8 : 9,
-                          letterSpacing: 1.5,
-                          fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: _arrows.map((a) {
+                        color: Colors.white38,
+                        fontSize: 7,
+                        letterSpacing: 1.4,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ..._arrows.map((a) {
                       final (type, emoji, chem, color, target) = a;
                       final sel = game.selectedArrow == type;
                       return GestureDetector(
                         onTap: () => game.selectArrow(type),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 140),
-                          margin: const EdgeInsets.symmetric(horizontal: 5),
+                          margin: const EdgeInsets.symmetric(vertical: 3),
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
+                              horizontal: 8, vertical: 6),
                           decoration: BoxDecoration(
                             color: sel
                                 ? color.withValues(alpha: 0.22)
-                                : Colors.white.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(12),
+                                : Colors.white.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                                 color: sel ? color : Colors.white12,
                                 width: sel ? 2.0 : 1.0),
-                            boxShadow: sel ? [BoxShadow(
-                                color: color.withValues(alpha: 0.35),
-                                blurRadius: 10)] : [],
+                            boxShadow: sel
+                                ? [BoxShadow(
+                                    color: color.withValues(alpha: 0.40),
+                                    blurRadius: 8)]
+                                : [],
                           ),
                           child: Column(
-                              mainAxisSize: MainAxisSize.min, children: [
-                            Text(emoji,
-                                style: TextStyle(
-                                    fontSize: mobile ? 18 : 22)),
-                            const SizedBox(height: 2),
-                            Text(chem,
-                                style: TextStyle(
-                                  color: sel ? color : Colors.white70,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: mobile ? 10 : 11,
-                                )),
-                            const SizedBox(height: 1),
-                            Text(target,
-                                style: TextStyle(
-                                  color: sel
-                                      ? color.withValues(alpha: 0.75)
-                                      : Colors.white38,
-                                  fontSize: mobile ? 7 : 8,
-                                )),
-                          ]),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(emoji,
+                                  style: const TextStyle(fontSize: 18)),
+                              const SizedBox(height: 2),
+                              Text(chem,
+                                  style: TextStyle(
+                                    color: sel ? color : Colors.white70,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 9,
+                                  )),
+                              const SizedBox(height: 1),
+                              Text(target,
+                                  style: TextStyle(
+                                    color: sel
+                                        ? color.withValues(alpha: 0.70)
+                                        : Colors.white30,
+                                    fontSize: 6.5,
+                                  )),
+                            ],
+                          ),
                         ),
                       );
-                    }).toList(),
-                  ),
-                ]),
+                    }),
+                  ],
+                ),
               ),
             ),
           ),
