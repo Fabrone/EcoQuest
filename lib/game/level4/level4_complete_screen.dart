@@ -49,8 +49,18 @@ class _Level4CompleteScreenState extends State<Level4CompleteScreen>
   AirPollutionResult get _air =>
       AirPollutionResult.current ??
       const AirPollutionResult(
-        pollutantsNeutralized: 0, wrongArrows: 0, ecoPoints: 0,
-        methanol: 0, gypsum: 0, urea: 0, nitrates: 0,
+        pollutantsNeutralized: 0,
+        wrongArrows: 0,
+        ecoPoints: 0,
+        methanol: 0,
+        gypsum: 0,
+        urea: 0,
+        nitrates: 0,
+        sulfuricAcid: 0,
+        nitrousOxide: 0,
+        carbonSuboxide: 0,
+        ammoniumNitrate: 0,
+        wrongHits: 0,
       );
 
   NoiseResult get _noise =>
