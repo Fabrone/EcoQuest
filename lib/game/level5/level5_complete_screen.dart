@@ -47,8 +47,14 @@ class _Level5CompleteScreenState extends State<Level5CompleteScreen>
   LandDegradationResult get _land =>
       LandDegradationResult.current ??
       const LandDegradationResult(
-        patchesRestored: 0, wrongTools: 0, ecoPoints: 0,
-        erosionIndex: 92, terrainStabilised: false,
+        patchesRestored:   0,
+        patchesStabilized: 0,
+        correctTools:      0,
+        wrongTools:        0,
+        ecoPoints:         0,
+        erosionIndex:      92,
+        terrainStabilised: false,
+        scannedPatches:    0,
       );
 
   SoilPollutionResult get _soil =>
