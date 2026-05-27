@@ -29,6 +29,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   int currentPhase = 0; // 0=Intro, 1=Collection, 2=Sorting, 3=Treatment, 3.5=AppSelect(shown as bool), 4=Agriculture, 5=Urban, 6=Industrial, 7=Environmental, 8=Complete
   bool _showApplicationSelection = false; // shown after Phase 3 completes
   String? _selectedApplication; // 'agriculture' | 'urban' | 'industrial' | 'environmental'
+  bool _appSelectionDisclaimerAcknowledged = false; // must be true before cards become tappable
   bool _showPhaseTransition = false;
   
   // Phase 1 stats
@@ -164,6 +165,7 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           } else if (phase == 3) {
             // Show application selection instead of going directly to agriculture
             _showApplicationSelection = true;
+            _appSelectionDisclaimerAcknowledged = false; // reset so disclaimer shows fresh
           }
         });
       });
@@ -3284,7 +3286,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
           child: Column(
             children: [
               SizedBox(height: isMobile ? 12 : 24),
-              // Badge
+
+              // ── Phase badge ───────────────────────────────────────────────
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                 decoration: BoxDecoration(
@@ -3303,7 +3306,8 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                 ]),
               ),
               SizedBox(height: isMobile ? 16 : 24),
-              // Header
+
+              // ── Header ────────────────────────────────────────────────────
               Text('💧 Water is Purified!', style: GoogleFonts.exo2(
                 fontSize: isMobile ? 26 : 32, color: Colors.white, fontWeight: FontWeight.w900)),
               SizedBox(height: isMobile ? 8 : 12),
@@ -3321,23 +3325,164 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
                     color: Colors.white60, fontWeight: FontWeight.w500),
                   textAlign: TextAlign.center),
               ),
+              SizedBox(height: isMobile ? 16 : 22),
+
+              // ── ⚠ ONE-TIME CHOICE DISCLAIMER BANNER ──────────────────────
+              // Shown always. When not yet acknowledged, the banner pulses and
+              // a prominent CTA button must be tapped before cards unlock.
+              // After acknowledgement the banner shrinks to a compact reminder.
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeInOut,
+                padding: EdgeInsets.all(isMobile ? 14 : 18),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: _appSelectionDisclaimerAcknowledged
+                        ? [
+                            const Color(0xFFFF6F00).withValues(alpha: 0.08),
+                            const Color(0xFFFF8F00).withValues(alpha: 0.05),
+                          ]
+                        : [
+                            const Color(0xFFFF6F00).withValues(alpha: 0.22),
+                            const Color(0xFFFF3D00).withValues(alpha: 0.12),
+                          ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _appSelectionDisclaimerAcknowledged
+                        ? Colors.orange.withValues(alpha: 0.35)
+                        : Colors.orange.withValues(alpha: 0.85),
+                    width: _appSelectionDisclaimerAcknowledged ? 1.0 : 1.8,
+                  ),
+                  boxShadow: _appSelectionDisclaimerAcknowledged
+                      ? []
+                      : [
+                          BoxShadow(
+                            color: Colors.orange.withValues(alpha: 0.25),
+                            blurRadius: 18,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                ),
+                child: Column(children: [
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    // Icon — lock when unacknowledged, smaller check when done
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: _appSelectionDisclaimerAcknowledged
+                          ? const Icon(Icons.check_circle_rounded,
+                              key: ValueKey('done'), color: Colors.orange, size: 20)
+                          : const Icon(Icons.lock_rounded,
+                              key: ValueKey('lock'), color: Colors.orange, size: 26),
+                    ),
+                    SizedBox(width: isMobile ? 10 : 12),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(
+                          _appSelectionDisclaimerAcknowledged
+                              ? 'ONE-TIME CHOICE  —  LOCKED IN'
+                              : '⚠  ONE-TIME CHOICE — READ BEFORE SELECTING',
+                          style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 11 : 12,
+                            color: Colors.orange,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _appSelectionDisclaimerAcknowledged
+                              ? 'Your selection is final for this level. '
+                                'Replay the level to try a different water application.'
+                              : 'You may select only ONE method of water application. '
+                                'Once chosen, your decision is permanent for this level — '
+                                'you cannot switch to another option. '
+                                'To try a different method, you must replay the level from the beginning.',
+                          style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 11 : 12,
+                            color: _appSelectionDisclaimerAcknowledged
+                                ? Colors.orange.withValues(alpha: 0.65)
+                                : Colors.white.withValues(alpha: 0.85),
+                            fontWeight: FontWeight.w500,
+                            height: 1.45,
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ]),
+
+                  // CTA button — only visible before acknowledgement
+                  if (!_appSelectionDisclaimerAcknowledged) ...[
+                    SizedBox(height: isMobile ? 14 : 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() => _appSelectionDisclaimerAcknowledged = true);
+                        },
+                        icon: const Icon(Icons.done_rounded, size: 18, color: Colors.black),
+                        label: Text(
+                          'I UNDERSTAND — SHOW MY OPTIONS',
+                          style: GoogleFonts.exo2(
+                            fontSize: isMobile ? 12 : 13,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          padding: EdgeInsets.symmetric(vertical: isMobile ? 12 : 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+                  ],
+                ]),
+              ),
               SizedBox(height: isMobile ? 20 : 28),
-              Text('Choose Your Application', style: GoogleFonts.exo2(
-                fontSize: isMobile ? 18 : 22, color: Colors.white70, fontWeight: FontWeight.w800)),
+
+              // ── Section title + lock hint ─────────────────────────────────
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Text('Choose Your Application', style: GoogleFonts.exo2(
+                  fontSize: isMobile ? 18 : 22, color: Colors.white70, fontWeight: FontWeight.w800)),
+                if (!_appSelectionDisclaimerAcknowledged)
+                  Row(children: [
+                    Icon(Icons.lock_outline_rounded, color: Colors.white30, size: isMobile ? 14 : 16),
+                    const SizedBox(width: 4),
+                    Text('Locked', style: GoogleFonts.exo2(
+                      fontSize: isMobile ? 10 : 11, color: Colors.white30, fontWeight: FontWeight.w600)),
+                  ]),
+              ]),
               SizedBox(height: isMobile ? 14 : 20),
-              // Application cards
-              _buildAppCard('agriculture', '🌾', 'Agricultural Irrigation',
-                'Use clean water for sustainable crop farming. Irrigate fields and harvest food for the community.',
-                'Design irrigation channels & grow crops', const Color(0xFF4CAF50), isMobile),
-              _buildAppCard('urban', '🏙', 'Urban Water Supply',
-                'Pipe clean water to homes and families in the city, improving public health.',
-                'Connect households to the water network', const Color(0xFF29B6F6), isMobile),
-              _buildAppCard('industrial', '🏭', 'Industrial Processes',
-                'Supply industries with clean water for eco-friendly manufacturing, reducing pollution.',
-                'Upgrade factory systems with clean water', const Color(0xFFFF8F00), isMobile),
-              _buildAppCard('environmental', '🌿', 'Environmental Restoration',
-                'Release clean water back into ecosystems to restore wetlands, fish habitats, and wildlife.',
-                'Restore habitats and revive biodiversity', const Color(0xFF00BFA5), isMobile),
+
+              // ── Application cards (dimmed + non-interactive until acknowledged) ──
+              IgnorePointer(
+                ignoring: !_appSelectionDisclaimerAcknowledged,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 400),
+                  opacity: _appSelectionDisclaimerAcknowledged ? 1.0 : 0.35,
+                  child: Column(children: [
+                    _buildAppCard('agriculture', '🌾', 'Agricultural Irrigation',
+                      'Use clean water for sustainable crop farming. Irrigate fields and harvest food for the community.',
+                      'Design irrigation channels & grow crops', const Color(0xFF4CAF50), isMobile),
+                    _buildAppCard('urban', '🏙', 'Urban Water Supply',
+                      'Pipe clean water to homes and families in the city, improving public health.',
+                      'Connect households to the water network', const Color(0xFF29B6F6), isMobile),
+                    _buildAppCard('industrial', '🏭', 'Industrial Processes',
+                      'Supply industries with clean water for eco-friendly manufacturing, reducing pollution.',
+                      'Upgrade factory systems with clean water', const Color(0xFFFF8F00), isMobile),
+                    _buildAppCard('environmental', '🌿', 'Environmental Restoration',
+                      'Release clean water back into ecosystems to restore wetlands, fish habitats, and wildlife.',
+                      'Restore habitats and revive biodiversity', const Color(0xFF00BFA5), isMobile),
+                  ]),
+                ),
+              ),
+
               SizedBox(height: isMobile ? 12 : 20),
             ],
           ),
@@ -3349,13 +3494,120 @@ class _WaterPollutionScreenState extends State<WaterPollutionScreen> {
   Widget _buildAppCard(String appKey, String emoji, String title, String desc,
       String actionHint, Color color, bool isMobile) {
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedApplication = appKey;
-          _showApplicationSelection = false;
-          game.selectedApplication = appKey;
-        });
-        _launchApplication(appKey);
+      onTap: () async {
+        // Final confirmation — makes the irreversible nature unmistakably clear
+        // right at the moment of selection, so it never catches a player off-guard.
+        final confirmed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF0D1F35),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(color: color.withValues(alpha: 0.55), width: 1.5),
+            ),
+            contentPadding: EdgeInsets.all(isMobile ? 20 : 24),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              // Emoji + lock icon row
+              Stack(alignment: Alignment.bottomRight, children: [
+                Container(
+                  width: 68, height: 68,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(18)),
+                  child: Center(child: Text(emoji,
+                    style: TextStyle(fontSize: 36))),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0D1F35),
+                    shape: BoxShape.circle),
+                  child: Icon(Icons.lock_rounded, color: Colors.orange, size: 18),
+                ),
+              ]),
+              const SizedBox(height: 16),
+              Text('Confirm Your Choice',
+                style: GoogleFonts.exo2(fontSize: isMobile ? 17 : 19,
+                  color: Colors.white, fontWeight: FontWeight.w900),
+                textAlign: TextAlign.center),
+              const SizedBox(height: 10),
+              Text(title,
+                style: GoogleFonts.exo2(fontSize: isMobile ? 14 : 15,
+                  color: color, fontWeight: FontWeight.w700),
+                textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.45)),
+                ),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Icon(Icons.lock_clock_rounded, color: Colors.orange, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This selection is permanent for this level. '
+                      'You will not be able to switch to another water application '
+                      'method without replaying the level.',
+                      style: GoogleFonts.exo2(fontSize: isMobile ? 11 : 12,
+                        color: Colors.orange.withValues(alpha: 0.90),
+                        fontWeight: FontWeight.w600, height: 1.45),
+                    ),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 20),
+              // Action buttons
+              Row(children: [
+                // Cancel — go back and keep looking
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: Colors.white24),
+                      padding: EdgeInsets.symmetric(vertical: isMobile ? 11 : 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: Text('GO BACK',
+                      style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+                        color: Colors.white54, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // Confirm — lock in and launch
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: color,
+                      padding: EdgeInsets.symmetric(vertical: isMobile ? 11 : 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                      elevation: 0,
+                    ),
+                    child: Text('CONFIRM',
+                      style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13,
+                        color: Colors.black, fontWeight: FontWeight.w800,
+                        letterSpacing: 0.6)),
+                  ),
+                ),
+              ]),
+            ]),
+          ),
+        );
+
+        if (confirmed == true) {
+          setState(() {
+            _selectedApplication = appKey;
+            _showApplicationSelection = false;
+            game.selectedApplication = appKey;
+          });
+          _launchApplication(appKey);
+        }
       },
       child: Container(
         margin: EdgeInsets.only(bottom: isMobile ? 12 : 16),
