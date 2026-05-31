@@ -165,6 +165,22 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
   bool    _flashCorrect = true;
   late AnimationController _flashCtrl;
 
+  // One-shot target-bin glow — plays once when an item is selected,
+  // so the "correct bin" highlight glows in once and holds steady,
+  // rather than pulsing continuously with the timer warning controller.
+  late AnimationController _targetGlowCtrl;
+
+  // ── Per-bin hint tracking ─────────────────────────────────────────────────
+  // Each bin key is added here the first time it is correctly hinted to
+  // the player. Once a key is present, the glow is suppressed — the player
+  // must rely on memory rather than following the live highlight.
+  final Set<String> _hintedBins = {};
+
+  // The bin key currently receiving its one-shot glow (null when none active).
+  // Distinct from _hintedBins so _buildBin knows whether the active selection
+  // is a first-time hint (show glow) or a repeat (suppress everything).
+  String? _currentlyGlowingBin;
+
   // Feedback banner
   String? _feedbackMsg;
   late AnimationController _feedbackCtrl;
@@ -194,6 +210,7 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
   @override
   void dispose() {
     _flashCtrl.dispose();
+    _targetGlowCtrl.dispose();
     _feedbackCtrl.dispose();
     _resultsCtrl.dispose();
     _warningCtrl.dispose();
@@ -273,6 +290,7 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
 
   void _initAnimations() {
     _flashCtrl        = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
+    _targetGlowCtrl   = AnimationController(vsync: this, duration: const Duration(milliseconds: 320));
     _feedbackCtrl     = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800));
     _resultsCtrl      = AnimationController(vsync: this, duration: const Duration(milliseconds: 550));
     _warningCtrl      = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))
@@ -306,7 +324,31 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
     _startTimer();
     HapticFeedback.selectionClick();
     _popCtrl.forward(from: 0);
-    setState(() => _selected = (_selected == item) ? null : item);
+    final becomingSelected = _selected != item;
+
+    if (becomingSelected) {
+      final binKey = item.correctBin;
+      if (!_hintedBins.contains(binKey)) {
+        // First time this bin type appears — glow it once to familiarise
+        // the player, then never glow it again for the rest of the session.
+        _hintedBins.add(binKey);
+        _currentlyGlowingBin = binKey;
+        _targetGlowCtrl.forward(from: 0).then((_) {
+          // Glow has finished playing — clear the active glow marker so
+          // subsequent selections of this bin type show no highlight.
+          if (mounted) setState(() => _currentlyGlowingBin = null);
+        });
+      } else {
+        // Bin already introduced — suppress all glow and highlights.
+        _currentlyGlowingBin = null;
+        _targetGlowCtrl.reset();
+      }
+    } else {
+      _currentlyGlowingBin = null;
+      _targetGlowCtrl.reset();
+    }
+
+    setState(() => _selected = becomingSelected ? item : null);
   }
 
   void _dropIntoBin(String binKey) {
@@ -315,6 +357,8 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
 
     final ok = item.correctBin == binKey;
     HapticFeedback.mediumImpact();
+    _targetGlowCtrl.reset(); // selection cleared — glow done
+    _currentlyGlowingBin = null;
 
     setState(() {
       _selected = null;
@@ -429,6 +473,9 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
     _celebrationCtrl.reset();
     _timeUpCtrl.stop();
     _timeUpCtrl.reset();
+    _targetGlowCtrl.reset();
+    _hintedBins.clear();
+    _currentlyGlowingBin = null;
     _buildStack();  // rebuilds _stack and _allItems from WasteCollectionResult.current
   }
 
@@ -558,7 +605,7 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
         const SizedBox(width: 5),
         Text('SORTING FACILITY',
             style: GoogleFonts.exo2(
-                fontSize: isMobile ? 10 : 11, color: Colors.limeAccent,
+                fontSize: isMobile ? 13 : 14, color: Colors.limeAccent,
                 fontWeight: FontWeight.w800, letterSpacing: 1.4)),
 
         const Spacer(),
@@ -718,13 +765,13 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
           Text(
             '${_stack.length} item${_stack.length == 1 ? '' : 's'} in pile',
             style: GoogleFonts.exo2(
-                fontSize: isMobile ? 9 : 10, color: Colors.white30,
+                fontSize: isMobile ? 12 : 13, color: Colors.white30,
                 fontWeight: FontWeight.w600, letterSpacing: 0.8),
           ),
           const Spacer(),
           if (_selected != null)
             RichText(text: TextSpan(
-              style: GoogleFonts.exo2(fontSize: isMobile ? 9 : 10),
+              style: GoogleFonts.exo2(fontSize: isMobile ? 12 : 13),
               children: [
                 const TextSpan(text: 'Selected: ', style: TextStyle(color: Colors.white30)),
                 TextSpan(text: _selected!.label,
@@ -890,16 +937,32 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
       );
 
   Widget _buildBin(String key, bool isMobile) {
-    final color     = _binColor(key);
-    final isTarget  = _selected?.correctBin == key;
+    final color      = _binColor(key);
+    // isTarget is true ONLY while this bin is receiving its one-shot
+    // introductory glow. Once the glow finishes (_currentlyGlowingBin
+    // becomes null / switches to a different key) all highlights vanish
+    // permanently for this bin type — the player must rely on memory.
+    final isTarget   = _currentlyGlowingBin == key;
     final isFlashing = _flashBin == key;
 
+    // Two separate AnimatedBuilders so the target-bin glow is driven by
+    // _targetGlowCtrl (fires once on selection, then holds) while the
+    // drop-flash is driven by _flashCtrl (fires once on drop).
+    // Neither is tied to _warningCtrl, so the timer warning no longer
+    // causes the bin highlight to re-animate on every pulse tick.
     return GestureDetector(
       onTap: () => _dropIntoBin(key),
       child: AnimatedBuilder(
-        animation: _flashCtrl,
+        animation: Listenable.merge([_flashCtrl, _targetGlowCtrl]),
         builder: (_, __) {
+          // Flash alpha: fades out over the flash controller's duration
           final fa = isFlashing ? (1.0 - _flashCtrl.value) * 0.50 : 0.0;
+
+          // Target glow alpha: eases in to a steady value and stays there
+          // until _targetGlowCtrl is reset (item deselected / dropped).
+          final tga = isTarget
+              ? Curves.easeOut.transform(_targetGlowCtrl.value) * 0.35
+              : 0.0;
 
           return AnimatedContainer(
             duration: const Duration(milliseconds: 180),
@@ -918,14 +981,17 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
                   color: isTarget ? color : color.withValues(alpha: 0.40),
                   width: isTarget ? 2.5 : 1.5),
               boxShadow: [
+                // Drop flash — one-shot, fades out
                 if (fa > 0)
                   BoxShadow(
                       color: (_flashCorrect ? _correct : _wrong)
                           .withValues(alpha: fa),
                       blurRadius: 18, spreadRadius: 2),
-                if (isTarget)
+                // Target glow — eases in once, stays steady
+                if (tga > 0)
                   BoxShadow(
-                      color: color.withValues(alpha: 0.30), blurRadius: 12),
+                      color: color.withValues(alpha: tga),
+                      blurRadius: 14, spreadRadius: 1),
               ],
             ),
             child: Padding(
@@ -947,31 +1013,32 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
 
                 const SizedBox(height: 4),
 
-                // Exact emoji from bin config (same icon used on road)
+                // Exact emoji from bin config
                 Text(_binEmoji(key),
-                    style: TextStyle(fontSize: isMobile ? 16 : 20)),
-                const SizedBox(height: 1),
+                    style: TextStyle(fontSize: isMobile ? 18 : 22)),
 
-                // Bin label
+                const SizedBox(height: 2),
+
+                // Bin label — raised from 7.5/8.5 to 11/12
                 Text(_binLabel(key),
                     style: GoogleFonts.exo2(
-                        fontSize: isMobile ? 7.5 : 8.5, color: color,
+                        fontSize: isMobile ? 11 : 12, color: color,
                         fontWeight: FontWeight.w800, letterSpacing: 0.3),
                     textAlign: TextAlign.center),
 
-                // Sorted count badge
+                // Sorted count badge — raised from 7/8 to 11/12
                 if (_binCount(key) > 0) ...[
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 1),
+                        horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: 0.22),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text('${_binCount(key)} ✓',
                         style: GoogleFonts.exo2(
-                            fontSize: isMobile ? 7 : 8,
+                            fontSize: isMobile ? 11 : 12,
                             color: Colors.white,
                             fontWeight: FontWeight.w700)),
                   ),
@@ -979,9 +1046,9 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
 
                 // Drop-here arrow
                 if (isTarget) ...[
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Icon(Icons.arrow_downward_rounded,
-                      color: color, size: isMobile ? 11 : 13),
+                      color: color, size: isMobile ? 13 : 15),
                 ],
               ]),
             ),
@@ -1205,7 +1272,7 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
                           children: [
                         const Text('TOTAL ECO-POINTS',
                             style: TextStyle(color: Colors.white60,
-                                fontSize: 11, letterSpacing: 1.5)),
+                                fontSize: 13, letterSpacing: 1.5)),
                         Text('$_totalEcoPoints pts',
                             style: const TextStyle(
                                 color: Colors.limeAccent,
@@ -1289,7 +1356,7 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
         const SizedBox(width: 8),
         Text(text,
             style: TextStyle(color: Colors.white70,
-                fontSize: isMobile ? 11 : 12,
+                fontSize: isMobile ? 13 : 14,
                 fontWeight: FontWeight.bold, letterSpacing: 1)),
         const SizedBox(width: 8),
         Container(width: 24, height: 1.5, color: color.withValues(alpha: 0.4)),
@@ -1312,7 +1379,7 @@ class _SortingFacilityScreenState extends State<SortingFacilityScreen>
                   fontWeight: FontWeight.w900, color: color)),
           Text(lbl,
               style: GoogleFonts.exo2(
-                  fontSize: 8, color: color.withValues(alpha: 0.65),
+                  fontSize: isMobile ? 11 : 12, color: color.withValues(alpha: 0.65),
                   fontWeight: FontWeight.w700, letterSpacing: 0.8)),
         ]),
       );

@@ -66,8 +66,15 @@ class _Level4CompleteScreenState extends State<Level4CompleteScreen>
   NoiseResult get _noise =>
       NoiseResult.current ??
       const NoiseResult(
-        hotspotsFix: 0, wrongTools: 0, ecoPoints: 0,
-        noiseMeterFinal: 96, peacefulCityBadge: false, windEvades: 0, scanComboMax: 0,
+        hotspotsFix: 0,
+        wrongTools: 0,
+        ecoPoints: 0,
+        noiseMeterFinal: 96,
+        peacefulCityBadge: false,
+        windEvades: 0,
+        scanComboMax: 0,
+        meetsMinimum: false,
+        minimumRequired: 3,
       );
 
   int get _totalScore => _air.ecoPoints + _noise.ecoPoints;

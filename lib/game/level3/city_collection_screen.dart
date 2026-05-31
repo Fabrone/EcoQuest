@@ -171,6 +171,34 @@ class CityCollectionGame extends FlameGame
   int sewersFixed         = 0;
   /// Total sewers pre-spawned along the route (not a cap — just the spawn count).
   static const int kSewerSpawnCount = 18;
+
+  // ── Minimum thresholds — player must meet both to advance ─────────────
+  /// Minimum waste items that must be collected before the player may
+  /// proceed from the collection phase to the sewer-repair phase.
+  /// Calibrated: even a cautious new player (80 px/s avg, 50% miss rate)
+  /// collects ~17 items; 15 is a meaningful gate without punishing beginners.
+  static const int kMinWasteToCollect  = 15;
+
+  /// Minimum number of sewer leaks that must be fully repaired before the
+  /// player may proceed from the sewer-repair phase to the grand finale.
+  /// Calibrated: the worst-case player still fixes ~9-10 sewers; 3 ensures
+  /// only players who completely ignore the mechanic are blocked.
+  static const int kMinSewersToRepair  = 3;
+
+  // ── Average / good benchmarks — used for the live HUD tier labels ─────
+  /// "Average" waste target — requires focused steering and active collection
+  /// (average player at 100 px/s + 35% miss rate collects ~28; 35 pushes effort).
+  static const int kAvgWasteToCollect  = 35;
+
+  /// "Average" sewer target — requires consistent stopping at each sewer
+  /// (average player can fix ~13-15; 8 is a realistic mid-skill mark).
+  static const int kAvgSewersToRepair  = 8;
+
+  /// "Excellent" waste target — requires good speed and low miss rate.
+  static const int kTopWasteToCollect  = 55;
+
+  /// "Excellent" sewer target — requires near-full route coverage.
+  static const int kTopSewersToRepair  = 13;
   int ecoPoints           = 0;
   int collectionEcoPoints = 0;   // eco-points earned in collection phase alone
   int sewerEcoPoints      = 0;   // eco-points earned in sewer phase alone
@@ -1108,6 +1136,25 @@ class CityCollectionGame extends FlameGame
       _showBanner();
     }
     notifyListeners();
+  }
+
+  // ── Minimum-not-met retries ───────────────────────────────────────────
+
+  /// Called when the player taps "Retry Collection" after failing to meet
+  /// [kMinWasteToCollect]. Resets collection phase from scratch.
+  void retryCollectionPhase() {
+    overlays.remove('collectionResults');
+    // Reuse the existing full-reset path already coded in restartCurrentPhase
+    phase = GamePhase.collection;   // ensure correct branch
+    restartCurrentPhase();
+  }
+
+  /// Called when the player taps "Retry Sewer Repair" after failing to meet
+  /// [kMinSewersToRepair]. Resets only the sewer phase (keeps collection data).
+  void retrySewerPhase() {
+    overlays.remove('sewerResults');
+    phase = GamePhase.sewerRepair;  // ensure correct branch
+    restartCurrentPhase();
   }
 
 }  // end CityCollectionGame
@@ -2582,6 +2629,97 @@ class CityHud extends StatelessWidget {
   final CityCollectionGame game;
   const CityHud(this.game, {super.key});
 
+  // ── Tier resolution helpers ────────────────────────────────────────────
+
+  /// Returns (label, colour, icon) for the current waste count against
+  /// the defined minimum / average / excellent thresholds.
+  static ({String label, Color color, IconData icon, double pct}) _wasteTier(
+      int collected) {
+    const min = CityCollectionGame.kMinWasteToCollect;
+    const avg = CityCollectionGame.kAvgWasteToCollect;
+    const top = CityCollectionGame.kTopWasteToCollect;
+
+    final pct = (collected / top * 100).clamp(0.0, 100.0);
+
+    if (collected == 0) {
+      return (label: 'Start collecting!', color: Colors.white38,
+          icon: Icons.arrow_upward_rounded, pct: pct);
+    } else if (collected < min) {
+      final need = min - collected;
+      return (
+        label: '$need more to pass  •  ${pct.round()}% of target',
+        color: Colors.redAccent,
+        icon: Icons.warning_amber_rounded,
+        pct: pct,
+      );
+    } else if (collected < avg) {
+      return (
+        label: 'PASS ✔  •  ${pct.round()}% — aim for average ($avg)',
+        color: Colors.orange,
+        icon: Icons.trending_up_rounded,
+        pct: pct,
+      );
+    } else if (collected < top) {
+      return (
+        label: 'GOOD ★  •  ${pct.round()}% — push for excellent ($top)',
+        color: Colors.amber,
+        icon: Icons.star_half_rounded,
+        pct: pct,
+      );
+    } else {
+      return (
+        label: 'EXCELLENT ★★  •  ${pct.round()}% — full haul!',
+        color: Colors.greenAccent,
+        icon: Icons.star_rounded,
+        pct: pct,
+      );
+    }
+  }
+
+  /// Returns tier info for current sewer repairs.
+  static ({String label, Color color, IconData icon, double pct}) _sewerTier(
+      int fixed) {
+    const min = CityCollectionGame.kMinSewersToRepair;
+    const avg = CityCollectionGame.kAvgSewersToRepair;
+    const top = CityCollectionGame.kTopSewersToRepair;
+
+    final pct = (fixed / top * 100).clamp(0.0, 100.0);
+
+    if (fixed == 0) {
+      return (label: 'Stop & repair sewers!', color: Colors.white38,
+          icon: Icons.arrow_upward_rounded, pct: pct);
+    } else if (fixed < min) {
+      final need = min - fixed;
+      return (
+        label: '$need more to pass  •  ${pct.round()}% of target',
+        color: Colors.redAccent,
+        icon: Icons.warning_amber_rounded,
+        pct: pct,
+      );
+    } else if (fixed < avg) {
+      return (
+        label: 'PASS ✔  •  ${pct.round()}% — aim for average ($avg)',
+        color: Colors.orange,
+        icon: Icons.trending_up_rounded,
+        pct: pct,
+      );
+    } else if (fixed < top) {
+      return (
+        label: 'GOOD ★  •  ${pct.round()}% — push for excellent ($top)',
+        color: Colors.amber,
+        icon: Icons.star_half_rounded,
+        pct: pct,
+      );
+    } else {
+      return (
+        label: 'EXCELLENT ★★  •  ${pct.round()}% — all sewers sealed!',
+        color: Colors.cyanAccent,
+        icon: Icons.star_rounded,
+        pct: pct,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -2592,13 +2730,31 @@ class CityHud extends StatelessWidget {
         final phaseColor = isCol ? const Color(0xFF4CAF50) : const Color(0xFF2196F3);
         final kmh        = (game.speed * 3.6 / 10).clamp(0.0, 999.0).toInt();
 
+        // ── Live tier data ───────────────────────────────────────────────
+        final wasteTier = _wasteTier(game.wasteCollected);
+        final sewerTier = _sewerTier(game.sewersFixed);
+        final tier      = isCol ? wasteTier : sewerTier;
+
+        // Milestone markers as fractions of the progress bar (0.0–1.0)
+        // Each maps to fraction of the "top" target
+        const double minWasteFrac = CityCollectionGame.kMinWasteToCollect /
+                                    CityCollectionGame.kTopWasteToCollect;
+        const double avgWasteFrac = CityCollectionGame.kAvgWasteToCollect /
+                                    CityCollectionGame.kTopWasteToCollect;
+        const double minSewFrac   = CityCollectionGame.kMinSewersToRepair /
+                                    CityCollectionGame.kTopSewersToRepair;
+        const double avgSewFrac   = CityCollectionGame.kAvgSewersToRepair /
+                                    CityCollectionGame.kTopSewersToRepair;
+        final double minFrac      = isCol ? minWasteFrac : minSewFrac;
+        final double avgFrac      = isCol ? avgWasteFrac : avgSewFrac;
+
         return SafeArea(child: Padding(
           padding: const EdgeInsets.all(10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Phase pill
+              // ── Phase pill ─────────────────────────────────────────────
               Align(
                 alignment: Alignment.topCenter,
                 child: Container(
@@ -2616,7 +2772,8 @@ class CityHud extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              // Stats row
+
+              // ── Stats row ──────────────────────────────────────────────
               Row(children: [
                 _HudTile(Icons.timer_rounded, '${timeLeft.toInt()}s', 'TIME',
                     timeLeft < 20 ? Colors.red : Colors.white),
@@ -2632,10 +2789,192 @@ class CityHud extends StatelessWidget {
                 _HudTile(Icons.speed_rounded, '$kmh', 'KM/H',
                     kmh > 80 ? Colors.orange : Colors.white70),
               ]),
-              // ── Truck Health bar ───────────────────────────────────────
+
+              // ── Truck health ───────────────────────────────────────────
               const SizedBox(height: 5),
               _TruckHealthBar(health: game.truckHealth),
-              // Cargo fill bar
+
+              // ══════════════════════════════════════════════════════════
+              //  LIVE PROGRESS METER  (new)
+              //  Shows % toward minimum / average / excellent with
+              //  milestone markers and a contextual tier label.
+              // ══════════════════════════════════════════════════════════
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.72),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: tier.color.withValues(alpha: 0.45)),
+                  boxShadow: [BoxShadow(
+                    color: tier.color.withValues(alpha: 0.12),
+                    blurRadius: 8, spreadRadius: 0,
+                  )],
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+                  // ── Top row: icon + tier label + live percentage ───────
+                  Row(children: [
+                    Icon(tier.icon, color: tier.color, size: 13),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        tier.label,
+                        style: TextStyle(
+                          color: tier.color,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    // Live big-percentage badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: tier.color.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: tier.color.withValues(alpha: 0.5)),
+                      ),
+                      child: Text(
+                        '${tier.pct.round()}%',
+                        style: TextStyle(
+                          color: tier.color,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ]),
+
+                  const SizedBox(height: 5),
+
+                  // ── Progress bar with milestone marker lines ───────────
+                  LayoutBuilder(builder: (ctx, constraints) {
+                    final barW = constraints.maxWidth;
+                    final fillW = (tier.pct / 100.0 * barW).clamp(0.0, barW);
+
+                    return Stack(clipBehavior: Clip.none, children: [
+                      // Track
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(5),
+                        child: Container(
+                          height: 12,
+                          color: Colors.white10,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 350),
+                              curve: Curves.easeOut,
+                              width: fillW,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(colors: [
+                                  tier.color.withValues(alpha: 0.7),
+                                  tier.color,
+                                ]),
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // ── MIN marker ──────────────────────────────────
+                      Positioned(
+                        left: barW * minFrac - 1,
+                        top: -3,
+                        bottom: -3,
+                        child: Container(width: 2, color: Colors.white60),
+                      ),
+                      Positioned(
+                        left: barW * minFrac - 14,
+                        top: -14,
+                        child: Text('MIN',
+                          style: const TextStyle(
+                            color: Colors.white60, fontSize: 7,
+                            fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+                      ),
+
+                      // ── AVG marker ──────────────────────────────────
+                      Positioned(
+                        left: barW * avgFrac - 1,
+                        top: -3,
+                        bottom: -3,
+                        child: Container(width: 2, color: Colors.amber.withValues(alpha: 0.8)),
+                      ),
+                      Positioned(
+                        left: barW * avgFrac - 12,
+                        top: -14,
+                        child: Text('AVG',
+                          style: TextStyle(
+                            color: Colors.amber.withValues(alpha: 0.9), fontSize: 7,
+                            fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+                      ),
+
+                      // ── TOP marker (right edge) ──────────────────────
+                      Positioned(
+                        right: 0,
+                        top: -14,
+                        child: Text('TOP',
+                          style: const TextStyle(
+                            color: Colors.greenAccent, fontSize: 7,
+                            fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+                      ),
+                    ]);
+                  }),
+
+                  const SizedBox(height: 10),
+
+                  // ── Milestone legend chips ─────────────────────────────
+                  Row(children: [
+                    _MilestoneChip(
+                      label: isCol
+                          ? 'MIN ${CityCollectionGame.kMinWasteToCollect}'
+                          : 'MIN ${CityCollectionGame.kMinSewersToRepair}',
+                      reached: isCol
+                          ? game.wasteCollected >= CityCollectionGame.kMinWasteToCollect
+                          : game.sewersFixed    >= CityCollectionGame.kMinSewersToRepair,
+                      activeColor: Colors.white70,
+                    ),
+                    const SizedBox(width: 5),
+                    _MilestoneChip(
+                      label: isCol
+                          ? 'AVG ${CityCollectionGame.kAvgWasteToCollect}'
+                          : 'AVG ${CityCollectionGame.kAvgSewersToRepair}',
+                      reached: isCol
+                          ? game.wasteCollected >= CityCollectionGame.kAvgWasteToCollect
+                          : game.sewersFixed    >= CityCollectionGame.kAvgSewersToRepair,
+                      activeColor: Colors.amber,
+                    ),
+                    const SizedBox(width: 5),
+                    _MilestoneChip(
+                      label: isCol
+                          ? 'TOP ${CityCollectionGame.kTopWasteToCollect}'
+                          : 'TOP ${CityCollectionGame.kTopSewersToRepair}',
+                      reached: isCol
+                          ? game.wasteCollected >= CityCollectionGame.kTopWasteToCollect
+                          : game.sewersFixed    >= CityCollectionGame.kTopSewersToRepair,
+                      activeColor: Colors.greenAccent,
+                    ),
+                    const Spacer(),
+                    // Contextual nudge when below minimum
+                    if (isCol && game.wasteCollected < CityCollectionGame.kMinWasteToCollect)
+                      _NudgeChip(
+                          '${CityCollectionGame.kMinWasteToCollect - game.wasteCollected} to pass',
+                          Colors.redAccent),
+                    if (!isCol && game.sewersFixed < CityCollectionGame.kMinSewersToRepair)
+                      _NudgeChip(
+                          '${CityCollectionGame.kMinSewersToRepair - game.sewersFixed} to pass',
+                          Colors.redAccent),
+                  ]),
+                ]),
+              ),
+
+              // ── Cargo fill bar (collection phase) ─────────────────────
               if (isCol) ...[
                 const SizedBox(height: 6),
                 Row(children: [
@@ -2666,7 +3005,8 @@ class CityHud extends StatelessWidget {
                   _TypeBadge('🗑️', game.generalCollected,   const Color(0xFF9E9E9E)),
                 ]),
               ],
-              // Sewer phase: selected tool indicator
+
+              // ── Sewer phase: selected tool + stop reminder ─────────────
               if (!isCol) ...[
                 const SizedBox(height: 6),
                 Row(children: [
@@ -2687,6 +3027,62 @@ class CityHud extends StatelessWidget {
       },
     );
   }
+}
+
+// ── Milestone chip — lights up green when reached ───────────────────────
+class _MilestoneChip extends StatelessWidget {
+  final String label;
+  final bool   reached;
+  final Color  activeColor;
+  const _MilestoneChip({required this.label, required this.reached, required this.activeColor});
+
+  @override
+  Widget build(BuildContext context) {
+    final col = reached ? activeColor : Colors.white24;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: reached ? activeColor.withValues(alpha: 0.18) : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: col.withValues(alpha: 0.7)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (reached)
+          Padding(
+            padding: const EdgeInsets.only(right: 3),
+            child: Icon(Icons.check_rounded, color: activeColor, size: 9),
+          ),
+        Text(label, style: TextStyle(
+          color: col,
+          fontSize: 9,
+          fontWeight: reached ? FontWeight.w800 : FontWeight.w500,
+          letterSpacing: 0.4,
+        )),
+      ]),
+    );
+  }
+}
+
+// ── Nudge chip — red countdown to the next gate ─────────────────────────
+class _NudgeChip extends StatelessWidget {
+  final String text;
+  final Color  color;
+  const _NudgeChip(this.text, this.color);
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.18),
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: color.withValues(alpha: 0.6)),
+    ),
+    child: Text(text, style: TextStyle(
+      color: color, fontSize: 9,
+      fontWeight: FontWeight.w800, letterSpacing: 0.3,
+    )),
+  );
 }
 
 class _HudTile extends StatelessWidget {
@@ -3547,33 +3943,45 @@ class CollectionResultsOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final g = game;
+    final g     = game;
     final total = g.wasteCollected;
     final pts   = g.collectionEcoPoints;
+    final minRequired = CityCollectionGame.kMinWasteToCollect;
+    final meetsMin    = total >= minRequired;
+    // How far the player is toward the minimum (capped at 1.0 when met)
+    final progressFraction = (total / minRequired).clamp(0.0, 1.0);
 
     return Container(
       color: Colors.black.withValues(alpha: 0.94),
       child: SafeArea(child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Column(children: [
-          // Header
+          // ── Header — green if passed, red/amber if failed ──────────────
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: timeExpired
-                    ? [const Color(0xFF7B1FA2), const Color(0xFF4A148C)]
-                    : [const Color(0xFF1B5E20), const Color(0xFF388E3C)],
+                colors: meetsMin
+                    ? (timeExpired
+                        ? [const Color(0xFF7B1FA2), const Color(0xFF4A148C)]
+                        : [const Color(0xFF1B5E20), const Color(0xFF388E3C)])
+                    : [const Color(0xFF7F0000), const Color(0xFFB71C1C)],
               ),
               borderRadius: BorderRadius.circular(18),
               boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 16)],
             ),
             child: Column(children: [
-              Icon(timeExpired ? Icons.timer_off_rounded : Icons.check_circle_rounded,
-                  color: Colors.white, size: 52),
+              Icon(
+                meetsMin
+                    ? (timeExpired ? Icons.timer_off_rounded : Icons.check_circle_rounded)
+                    : Icons.block_rounded,
+                color: Colors.white, size: 52,
+              ),
               const SizedBox(height: 8),
               Text(
-                timeExpired ? '⏰  Time\'s Up!' : '✅  Collection Complete!',
+                meetsMin
+                    ? (timeExpired ? '⏰  Time\'s Up!' : '✅  Collection Complete!')
+                    : '🚫  Minimum Not Reached',
                 style: const TextStyle(color: Colors.white, fontSize: 22,
                     fontWeight: FontWeight.bold, letterSpacing: 1),
               ),
@@ -3585,16 +3993,81 @@ class CollectionResultsOverlay extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // Total waste & points
+          // ── Minimum-not-met warning banner (only when failed) ──────────
+          if (!meetsMin) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  colors: [Color(0xFF4A0000), Color(0xFF7F0000)],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.75), width: 1.5),
+                boxShadow: [BoxShadow(
+                  color: Colors.red.withValues(alpha: 0.22),
+                  blurRadius: 14, spreadRadius: 1,
+                )],
+              ),
+              child: Column(children: [
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 26),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('NOT ENOUGH WASTE COLLECTED',
+                        style: TextStyle(color: Colors.amber, fontSize: 13,
+                            fontWeight: FontWeight.w800, letterSpacing: 1.0)),
+                    const SizedBox(height: 6),
+                    Text(
+                      'You collected $total item${total == 1 ? '' : 's'}, but at least $minRequired '
+                      'must be collected to advance to the Sewer Repair phase. '
+                      'Drive through all lanes and collect more street waste before time runs out.',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12,
+                          fontWeight: FontWeight.w500, height: 1.45),
+                    ),
+                  ])),
+                ]),
+
+                const SizedBox(height: 12),
+
+                // Progress bar toward minimum
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    const Text('Progress toward minimum',
+                        style: TextStyle(color: Colors.white54, fontSize: 11)),
+                    Text('$total / $minRequired',
+                        style: const TextStyle(color: Colors.amber,
+                            fontWeight: FontWeight.bold, fontSize: 12)),
+                  ]),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: progressFraction,
+                      minHeight: 10,
+                      backgroundColor: Colors.white12,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        progressFraction >= 0.75 ? Colors.amber : Colors.redAccent,
+                      ),
+                    ),
+                  ),
+                ]),
+              ]),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // ── Total waste & points ────────────────────────────────────────
           _ResultCard(children: [
-            _BigStat('🗑️', '$total', 'Total Items Collected',       Colors.greenAccent),
+            _BigStat('🗑️', '$total', 'Total Items Collected',
+                meetsMin ? Colors.greenAccent : Colors.redAccent),
             _BigStat('⭐', '${math.max(0, pts)}', 'Collection Eco-Points', Colors.amber),
-            _BigStat('💥', '${g.collectionCollisions}', 'Collisions',     Colors.redAccent),
+            _BigStat('💥', '${g.collectionCollisions}', 'Collisions', Colors.redAccent),
           ]),
 
           const SizedBox(height: 12),
 
-          // Per-category breakdown
+          // ── Per-category breakdown ──────────────────────────────────────
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -3621,23 +4094,63 @@ class CollectionResultsOverlay extends StatelessWidget {
 
           const SizedBox(height: 20),
 
-          // Continue button
-          SizedBox(width: double.infinity, child: ElevatedButton.icon(
-            onPressed: () => game.continueToSewerPhase(),
-            icon: const Icon(Icons.plumbing_rounded),
-            label: const Text('Continue to Sewer Repair  →',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              elevation: 8,
+          // ── Action button — changes depending on whether minimum was met ─
+          if (meetsMin) ...[
+            // Passed: allow progression to sewer phase
+            SizedBox(width: double.infinity, child: ElevatedButton.icon(
+              onPressed: () => game.continueToSewerPhase(),
+              icon: const Icon(Icons.plumbing_rounded),
+              label: const Text('Continue to Sewer Repair  →',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1565C0), foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 8,
+              ),
+            )),
+            const SizedBox(height: 8),
+            const Text('🔩 Pipe = Wrench  |  🔗 Joint = Tape  |  💧 Crack = Sealant',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.w600)),
+          ] else ...[
+            // Failed: force replay of collection phase
+            SizedBox(width: double.infinity, child: ElevatedButton.icon(
+              onPressed: () => game.retryCollectionPhase(),
+              icon: const Icon(Icons.replay_rounded),
+              label: Text(
+                'RETRY COLLECTION  (need $minRequired, got $total)',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFB71C1C), foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 8, shadowColor: Colors.red,
+              ),
+            )),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.35)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.tips_and_updates_rounded, color: Colors.amber, size: 16),
+                const SizedBox(width: 8),
+                Expanded(child: Text(
+                  'Tip: Drive through both lanes and steer toward waste items. '
+                  'You need ${minRequired - total} more item${minRequired - total == 1 ? '' : 's'} to proceed.',
+                  style: const TextStyle(color: Colors.amber, fontSize: 11,
+                      fontWeight: FontWeight.w600, height: 1.4),
+                )),
+              ]),
             ),
-          )),
+          ],
+
           const SizedBox(height: 8),
-          const Text('🔩 Pipe = Wrench  |  🔗 Joint = Tape  |  💧 Crack = Sealant',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.w600)),
         ]),
       )),
     );
@@ -3653,28 +4166,40 @@ class SewerResultsOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final g   = game;
+    final g          = game;
+    final fixed      = g.sewersFixed;
+    final minRequired= CityCollectionGame.kMinSewersToRepair;
+    final meetsMin   = fixed >= minRequired;
+    final progressFraction = (fixed / minRequired).clamp(0.0, 1.0);
 
     return Container(
       color: Colors.black.withValues(alpha: 0.94),
       child: SafeArea(child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Column(children: [
-          // Header
+          // ── Header — blue if passed, red if failed ─────────────────────
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                  colors: [Color(0xFF0D47A1), Color(0xFF1565C0)]),
+              gradient: LinearGradient(
+                colors: meetsMin
+                    ? [const Color(0xFF0D47A1), const Color(0xFF1565C0)]
+                    : [const Color(0xFF7F0000), const Color(0xFFB71C1C)],
+              ),
               borderRadius: BorderRadius.circular(18),
               boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 16)],
             ),
             child: Column(children: [
-              const Icon(Icons.plumbing_rounded, color: Colors.cyanAccent, size: 52),
+              Icon(
+                meetsMin ? Icons.plumbing_rounded : Icons.block_rounded,
+                color: meetsMin ? Colors.cyanAccent : Colors.white, size: 52,
+              ),
               const SizedBox(height: 8),
-              const Text('🔧  Sewer Repair Complete!',
-                  style: TextStyle(color: Colors.white, fontSize: 22,
-                      fontWeight: FontWeight.bold, letterSpacing: 1)),
+              Text(
+                meetsMin ? '🔧  Sewer Repair Complete!' : '🚫  Minimum Repairs Not Met',
+                style: const TextStyle(color: Colors.white, fontSize: 22,
+                    fontWeight: FontWeight.bold, letterSpacing: 1),
+              ),
               const SizedBox(height: 4),
               const Text('Phase 2 — Repair Results',
                   style: TextStyle(color: Colors.white70, fontSize: 13)),
@@ -3683,10 +4208,74 @@ class SewerResultsOverlay extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // ── Primary stats row ────────────────────────────────────────
+          // ── Minimum-not-met warning banner (only when failed) ──────────
+          if (!meetsMin) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  colors: [Color(0xFF4A0000), Color(0xFF7F0000)],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.75), width: 1.5),
+                boxShadow: [BoxShadow(
+                  color: Colors.red.withValues(alpha: 0.22),
+                  blurRadius: 14, spreadRadius: 1,
+                )],
+              ),
+              child: Column(children: [
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 26),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('NOT ENOUGH SEWERS REPAIRED',
+                        style: TextStyle(color: Colors.amber, fontSize: 13,
+                            fontWeight: FontWeight.w800, letterSpacing: 1.0)),
+                    const SizedBox(height: 6),
+                    Text(
+                      'You repaired $fixed sewer${fixed == 1 ? '' : 's'}, but at least $minRequired '
+                      'must be fully repaired to advance to the mission summary. '
+                      'Stop near glowing sewer icons, select the correct tool, and wait for the repair to complete.',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12,
+                          fontWeight: FontWeight.w500, height: 1.45),
+                    ),
+                  ])),
+                ]),
+
+                const SizedBox(height: 12),
+
+                // Progress bar toward minimum
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    const Text('Progress toward minimum',
+                        style: TextStyle(color: Colors.white54, fontSize: 11)),
+                    Text('$fixed / $minRequired',
+                        style: const TextStyle(color: Colors.amber,
+                            fontWeight: FontWeight.bold, fontSize: 12)),
+                  ]),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: progressFraction,
+                      minHeight: 10,
+                      backgroundColor: Colors.white12,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        progressFraction >= 0.75 ? Colors.amber : Colors.redAccent,
+                      ),
+                    ),
+                  ),
+                ]),
+              ]),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // ── Primary stats row ──────────────────────────────────────────
           _ResultCard(children: [
             _BigStat('🔧', '${g.sewersFixed}',
-                'Repaired', Colors.cyanAccent),
+                'Repaired', meetsMin ? Colors.cyanAccent : Colors.redAccent),
             _BigStat('❌', '${g.sewersMissed}',
                 'Missed', Colors.redAccent),
             _BigStat('📍', '${g.totalSewersOnRoute}',
@@ -3695,7 +4284,7 @@ class SewerResultsOverlay extends StatelessWidget {
 
           const SizedBox(height: 10),
 
-          // ── Accuracy & efficiency row ─────────────────────────────────
+          // ── Accuracy & efficiency row ──────────────────────────────────
           _ResultCard(children: [
             _BigStat('🎯', '${g.sewerAccuracyPct}%',
                 'Repair Accuracy', Colors.limeAccent),
@@ -3707,7 +4296,7 @@ class SewerResultsOverlay extends StatelessWidget {
 
           const SizedBox(height: 10),
 
-          // ── Penalty summary ───────────────────────────────────────────
+          // ── Penalty summary ────────────────────────────────────────────
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
@@ -3728,7 +4317,7 @@ class SewerResultsOverlay extends StatelessWidget {
 
           const SizedBox(height: 10),
 
-          // Sewer breakdown
+          // ── Sewer breakdown ────────────────────────────────────────────
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -3748,18 +4337,60 @@ class SewerResultsOverlay extends StatelessWidget {
 
           const SizedBox(height: 20),
 
-          SizedBox(width: double.infinity, child: ElevatedButton.icon(
-            onPressed: () => game.continueToGrandFinale(),
-            icon: const Icon(Icons.emoji_events_rounded),
-            label: const Text('View Full Summary  →',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF388E3C), foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              elevation: 8,
+          // ── Action button — changes depending on whether minimum was met ─
+          if (meetsMin) ...[
+            // Passed: proceed to grand finale
+            SizedBox(width: double.infinity, child: ElevatedButton.icon(
+              onPressed: () => game.continueToGrandFinale(),
+              icon: const Icon(Icons.emoji_events_rounded),
+              label: const Text('View Full Summary  →',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF388E3C), foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 8,
+              ),
+            )),
+          ] else ...[
+            // Failed: force replay of sewer phase only (collection data is kept)
+            SizedBox(width: double.infinity, child: ElevatedButton.icon(
+              onPressed: () => game.retrySewerPhase(),
+              icon: const Icon(Icons.replay_rounded),
+              label: Text(
+                'RETRY SEWER REPAIR  (need $minRequired, got $fixed)',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFB71C1C), foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 8, shadowColor: Colors.red,
+              ),
+            )),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.35)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.tips_and_updates_rounded, color: Colors.amber, size: 16),
+                const SizedBox(width: 8),
+                Expanded(child: Text(
+                  'Tip: Stop fully beside glowing sewers and pick the right tool — '
+                  '🔩 Pipe = Wrench · 🔗 Joint = Tape · 💧 Crack = Sealant. '
+                  'You need ${minRequired - fixed} more repair${minRequired - fixed == 1 ? '' : 's'} to proceed.',
+                  style: const TextStyle(color: Colors.amber, fontSize: 11,
+                      fontWeight: FontWeight.w600, height: 1.4),
+                )),
+              ]),
             ),
-          )),
+          ],
+
+          const SizedBox(height: 8),
         ]),
       )),
     );

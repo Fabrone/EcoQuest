@@ -48,6 +48,9 @@ class LandDegradationResult {
   final int    criticalSaves;         // critical alerts handled in time
   final int    gulliesExpanded;       // punitive expansion events triggered
   final int    resupplyTriggered;     // times tool resupply was earned
+  // Minimum gate
+  final bool   meetsMinimum;          // did player meet the required minimum?
+  final int    minimumRequired;       // minimum patches to restore to advance
 
   const LandDegradationResult({
     required this.patchesRestored,
@@ -65,6 +68,8 @@ class LandDegradationResult {
     this.criticalSaves     = 0,
     this.gulliesExpanded   = 0,
     this.resupplyTriggered = 0,
+    this.meetsMinimum      = false,
+    this.minimumRequired   = 3,
   });
 
   int get totalActions  => correctTools + wrongTools;
@@ -265,6 +270,7 @@ class _LandDegradationGameScreenState
           'reactionFx':      (ctx, g) => LandReactionFx(g as LandDegradationGame),
           'results':         (ctx, g) => LandResultsOverlay(g as LandDegradationGame),
           'scanResult':      (ctx, g) => ScanResultOverlay(g as LandDegradationGame),
+          'toolSelect':      (ctx, g) => LandToolSelector(g as LandDegradationGame),
           'weatherAlert':    (ctx, g) => WeatherAlertOverlay(g as LandDegradationGame),
           'criticalAlert':   (ctx, g) => CriticalAlertOverlay(g as LandDegradationGame),
           'ecoDiscovery':    (ctx, g) => EcoDiscoveryOverlay(g as LandDegradationGame),
@@ -285,6 +291,24 @@ class LandDegradationGame extends FlameGame
   final Level4CarryOver carryOver;
   final VoidCallback    onLevelComplete;
   LandDegradationGame({required this.carryOver, required this.onLevelComplete});
+
+  // ── Minimum patches required to proceed ───────────────────────────────────
+  static const int kMinPatchesRequired = 2;
+
+  // ── World / camera system (world = 3× screen) ─────────────────────────────
+  static const double kWorldScale    = 3.0;
+  static const double kEdgeFraction  = 0.22;
+  static const double kCameraEase    = 5.5;
+  double worldW = 0, worldH = 0;
+  double camX = 0, camY = 0;
+  // _targetCamX/_targetCamY are kept as fields so _updateCamera() can lerp smoothly
+  double _targetCamX = 0, _targetCamY = 0;
+  double edgeHintLeft = 0, edgeHintRight = 0;
+  double edgeHintTop  = 0, edgeHintBottom = 0;
+
+  // ── Immediate tool selector (opens right after scan) ─────────────────────
+  DegradedPatch? pendingFixTarget;
+  bool toolSelectorOpen = false;
 
   // ── Core ───────────────────────────────────────────────────────────────────
   int    gamePhase   = 1;
@@ -320,10 +344,17 @@ class LandDegradationGame extends FlameGame
   // ── Phase 1 · Scan system ──────────────────────────────────────────────────
   DegradedPatch? activeScanPatch;
   double         scanHoldTime    = 0.0;
-  static const double _scanDuration = 1.5;   // ← was 3.0; now 1.5 s
+  static const double _scanDuration = 1.5;
   bool   inDustCloud  = false;
   bool   scanActive   = false;
   double scanRadius   = 0;
+
+  // ── Phase 1 · User-triggered scan (mirrors sonarPing in noise screen) ─────
+  bool   scanTriggered    = false;   // set true when player taps SCAN button
+  bool   scanLockActive   = false;   // true while the 1.5s hold-scan is running
+  double _scanLockTimer   = 0;       // counts up to _scanDuration
+  // Nearest unscanned patch within scan range (updated each frame)
+  DegradedPatch? _nearestScanTarget;
 
   // ── Phase 1 · Scan result (non-blocking mini-card) ────────────────────────
   bool               scanResultActive = false;
@@ -432,14 +463,31 @@ class LandDegradationGame extends FlameGame
   double  _hintCooldown      = 0;
   double  _idleTimer         = 0;
 
+  // ── "Show-once" consciousness system ──────────────────────────────────────
+  // Scan-card treatment guide shown at most once per issue type.
+  // Tool-hint highlights (correct-tool glow) shown at most once per
+  // (issue-type × restoration-step) pair.  After the first exposure the
+  // player must recall the correct tool from memory — no cues are given.
+  final Set<DegradationType> _seenScanCardTypes = {};
+  final Set<String>          _seenToolHintKeys  = {};
+  bool scanResultShowsHints  = true;   // drives ScanResultOverlay treatment guide
+  bool toolSelectorShowsHints = true;  // drives LandToolSelector correct-tool highlight
+
   // ── Components ─────────────────────────────────────────────────────────────
   late RestorationDroneComponent drone;
   final List<DegradedPatch>      patches = [];
+  // Patch refill timer — spawns new patches when player has explored most of current set
+  double _refillTimer    = 0;
+  static const double _refillInterval = 20.0;
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
-    dronePos = Vector2(size.x * 0.50, size.y * 0.58);
+    worldW = size.x * kWorldScale;
+    worldH = size.y * kWorldScale;
+    dronePos = Vector2(worldW * 0.50, worldH * 0.50);
+    _centerCamOn(dronePos);
+    _targetCamX = camX; _targetCamY = camY;
 
     _initWindZones();
     add(ErodedLandRenderer(game: this));
@@ -455,20 +503,33 @@ class LandDegradationGame extends FlameGame
     add(TimerComponent(period: 1.0, repeat: true, onTick: _onSecond));
   }
 
+  void _centerCamOn(Vector2 pos) {
+    camX = (pos.x - size.x / 2).clamp(0.0, worldW - size.x);
+    camY = (pos.y - size.y / 2).clamp(0.0, worldH - size.y);
+  }
+
+  // Screen ↔ world helpers
+  Vector2 screenToWorld(Vector2 s) => Vector2(s.x + camX, s.y + camY);
+  Vector2 worldToScreen(Vector2 w) => Vector2(w.x - camX, w.y - camY);
+  Vector2 get droneScreen => worldToScreen(dronePos);
+
   // ── Init helpers ───────────────────────────────────────────────────────────
   void _initWindZones() {
     final rng = math.Random(42);
+    // Spread across the 3× world
     final positions = [
-      Vector2(size.x * 0.22, size.y * 0.38),
-      Vector2(size.x * 0.62, size.y * 0.28),
-      Vector2(size.x * 0.78, size.y * 0.62),
+      Vector2(worldW * 0.18, worldH * 0.28),
+      Vector2(worldW * 0.50, worldH * 0.18),
+      Vector2(worldW * 0.72, worldH * 0.42),
+      Vector2(worldW * 0.30, worldH * 0.62),
+      Vector2(worldW * 0.82, worldH * 0.68),
     ];
     for (final pos in positions) {
       final angle = rng.nextDouble() * math.pi * 2;
-      final mag   = 55.0 + rng.nextDouble() * 35.0;
+      final mag   = 45.0 + rng.nextDouble() * 35.0;
       windZones.add(WindZone(
         center: pos,
-        radius: 115.0 + rng.nextDouble() * 40.0,
+        radius: 130.0 + rng.nextDouble() * 50.0,
         force:  Vector2(math.cos(angle) * mag, math.sin(angle) * mag),
       ));
       add(WindZoneRenderer(zone: windZones.last, game: this));
@@ -477,12 +538,12 @@ class LandDegradationGame extends FlameGame
 
   void _spawnDustClouds() {
     final rng = math.Random(99);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 5; i++) {
       final cloud = DustCloudComponent(
         game:   this,
-        startX: size.x * (0.15 + rng.nextDouble() * 0.70),
-        startY: size.y * (0.20 + rng.nextDouble() * 0.50),
-        radius: 80.0  + rng.nextDouble() * 45.0,
+        startX: worldW * (0.10 + rng.nextDouble() * 0.80),
+        startY: worldH * (0.15 + rng.nextDouble() * 0.65),
+        radius: 90.0  + rng.nextDouble() * 55.0,
         speed:  18.0  + rng.nextDouble() * 14.0,
         seed:   i * 33 + 7,
       );
@@ -492,25 +553,56 @@ class LandDegradationGame extends FlameGame
   }
 
   void _spawnPatches() {
+    // 16 patches spread across the 3× world — player must explore to find them all
     const specs = [
-      (DegradationType.steepSlope, 0.14, 0.28),
-      (DegradationType.steepSlope, 0.72, 0.22),
-      (DegradationType.gully,      0.30, 0.55),
-      (DegradationType.gully,      0.64, 0.48),
-      (DegradationType.bareLand,   0.48, 0.35),
-      (DegradationType.bareLand,   0.86, 0.62),
-      (DegradationType.drySoil,    0.18, 0.70),
-      (DegradationType.drySoil,    0.56, 0.72),
+      // Near-centre cluster (visible at start)
+      (DegradationType.steepSlope, 0.38, 0.38),
+      (DegradationType.gully,      0.52, 0.44),
+      (DegradationType.bareLand,   0.46, 0.52),
+      (DegradationType.drySoil,    0.58, 0.36),
+      // Far left
+      (DegradationType.steepSlope, 0.12, 0.28),
+      (DegradationType.gully,      0.18, 0.58),
+      (DegradationType.bareLand,   0.08, 0.72),
+      (DegradationType.drySoil,    0.22, 0.42),
+      // Far right
+      (DegradationType.steepSlope, 0.82, 0.22),
+      (DegradationType.gully,      0.76, 0.55),
+      (DegradationType.bareLand,   0.88, 0.68),
+      (DegradationType.drySoil,    0.70, 0.38),
+      // Top / bottom extremes
+      (DegradationType.steepSlope, 0.44, 0.14),
+      (DegradationType.gully,      0.62, 0.76),
+      (DegradationType.bareLand,   0.28, 0.80),
+      (DegradationType.drySoil,    0.56, 0.18),
     ];
     for (int i = 0; i < specs.length; i++) {
       final (type, rx, ry) = specs[i];
       final p = DegradedPatch(
         game: this, type: type,
-        worldX: size.x * rx, worldY: size.y * ry,
+        worldX: worldW * rx, worldY: worldH * ry,
         seed: i * 17,
       );
       add(p);
       patches.add(p);
+    }
+  }
+
+  // Spawn a fresh batch when the player has explored most existing patches
+  void _tryRefillPatches() {
+    final remaining = patches.where((p) => !p.isRestored).length;
+    if (remaining < 4) {
+      final rng = math.Random(patches.length * 13 + DateTime.now().millisecondsSinceEpoch);
+      for (int i = 0; i < 6; i++) {
+        final angle = rng.nextDouble() * math.pi * 2;
+        final dist  = worldW * (0.20 + rng.nextDouble() * 0.25);
+        final wx    = (dronePos.x + math.cos(angle) * dist).clamp(80.0, worldW - 80.0);
+        final wy    = (dronePos.y + math.sin(angle) * dist).clamp(80.0, worldH - 80.0);
+        final type  = DegradationType.values[rng.nextInt(DegradationType.values.length)];
+        final p = DegradedPatch(game: this, type: type, worldX: wx, worldY: wy, seed: rng.nextInt(9999));
+        add(p);
+        patches.add(p);
+      }
     }
   }
 
@@ -533,7 +625,7 @@ class LandDegradationGame extends FlameGame
 
   // ── Getters ────────────────────────────────────────────────────────────────
   double get scanHoldProgress =>
-      activeScanPatch != null ? (scanHoldTime / _scanDuration).clamp(0.0, 1.0) : 0.0;
+      scanLockActive ? (_scanLockTimer / _scanDuration).clamp(0.0, 1.0) : 0.0;
 
   bool get _hasNearbyUnscanned =>
       patches.any((p) => !p.isScanned && (p.patchPos - dronePos).length <= _scanRange);
@@ -551,7 +643,62 @@ class LandDegradationGame extends FlameGame
     return best;
   }
 
-  // ── Phase 1: Quick scan ───────────────────────────────────────────────────
+  // ── Phase 1: User-triggered SCAN (mirrors sonarPing in NoisePollutionGame) ─
+  // Player taps the SCAN button; if a patch is in range, initiates a 1.5s
+  // lock scan. On completion the scan result card appears, then tool selector
+  // opens — identical flow to noise screen's sonarPing → lock → toolSelect.
+  void triggerScan() {
+    if (!gameStarted || levelDone || gamePhase != 1) return;
+    gameStarted = true;
+    HapticFeedback.selectionClick();
+
+    // If tool selector is open, pinging should not dismiss it
+    if (toolSelectorOpen) {
+      reactionMsg = '🔧 Select a tool from the panel first!';
+      _triggerReaction(false, inRange: false);
+      notifyListeners();
+      return;
+    }
+
+    // If scan lock already active, do nothing (let it complete)
+    if (scanLockActive) {
+      reactionMsg = '📡 Scanning in progress…';
+      _triggerReaction(true, inRange: true);
+      notifyListeners();
+      return;
+    }
+
+    // Find nearest unscanned patch in range
+    DegradedPatch? nearest;
+    double nearestD = _scanRange;
+    for (final p in patches) {
+      if (p.isScanned) continue;
+      final d = (p.patchPos - dronePos).length;
+      if (d < nearestD) { nearestD = d; nearest = p; }
+    }
+
+    if (nearest == null) {
+      scanActive = true; scanRadius = 0;
+      reactionMsg = '🛰️ No degraded zone in range — fly closer';
+      _triggerReaction(false, inRange: false);
+      notifyListeners();
+      return;
+    }
+
+    // Begin 1.5s lock-scan on this patch
+    _nearestScanTarget = nearest;
+    activeScanPatch = nearest;
+    scanLockActive = true;
+    _scanLockTimer = 0;
+    scanHoldTime = 0;
+    scanActive = true; scanRadius = 0;
+    reactionMsg = '📡 Scanning terrain — hold position!';
+    _triggerReaction(true, inRange: true);
+    HapticFeedback.lightImpact();
+    notifyListeners();
+  }
+
+  // ── Phase 1: Quick scan (instant, fewer pts) — tap again while locked ─────
   void triggerQuickScan() {
     if (!gameStarted || levelDone || gamePhase != 1) return;
     HapticFeedback.selectionClick();
@@ -561,9 +708,8 @@ class LandDegradationGame extends FlameGame
       if (p.isScanned) continue;
       if ((p.patchPos - dronePos).length <= _scanRange) {
         p.isScanned = true; scannedCount++;
-        final pts = 3;
+        const pts = 3;
         ecoPoints += pts; newly++; lastP = p;
-        // No eco-discovery on quick scan (reward full hover)
         p.scanVariant = newly;
         lastScanPoints = pts;
       }
@@ -592,7 +738,10 @@ class LandDegradationGame extends FlameGame
     notifyListeners();
   }
 
-  // ── Phase 1: Full hover-scan (1.5 s) auto-completes ──────────────────────
+  // ── Phase 1: Full scan completion — result card first, tool selector after ─
+  // Flow: triggerScan() → 1.5s lock → _completePatchScan() → scanResult card
+  //       (player reads the identified issue) → dismissScanResult()
+  //       → toolSelect opens. Player always KNOWS what was found before picking.
   void _completePatchScan(DegradedPatch p) {
     if (p.isScanned) return;
     final idx            = patches.indexOf(p);
@@ -601,7 +750,6 @@ class LandDegradationGame extends FlameGame
     scannedCount++;
     p.scanVariant        = idx;
 
-    // Points: 10 base + discovery bonus
     final pts            = hasDiscovery ? 30 : 10;
     ecoPoints           += pts;
     lastScanPoints       = pts;
@@ -611,20 +759,52 @@ class LandDegradationGame extends FlameGame
     lastScanResult       = TerrainScanResult.forType(
         p.type, withDiscovery: hasDiscovery, variant: idx);
     scanCardPos          = dronePos.clone();
-    scanResultTimer      = hasDiscovery ? 4.0 : _scanResultDisplay;
+    // First time seeing this issue type → show the treatment guide.
+    // Subsequent scans of the same type → hide guide; player recalls from memory.
+    final firstScan = !_seenScanCardTypes.contains(p.type);
+    if (firstScan) _seenScanCardTypes.add(p.type);
+    scanResultShowsHints = firstScan;
+    // Longer display so player can read and understand the identified issue
+    scanResultTimer      = hasDiscovery ? 5.5 : 4.0;
     scanResultActive     = true;
     _handleScanStreak();
-    HapticFeedback.mediumImpact();
+    HapticFeedback.heavyImpact();
+
+    // Reset lock state
+    scanLockActive  = false;
+    _scanLockTimer  = 0;
+    activeScanPatch = null;
 
     if (hasDiscovery) {
       ecoDiscoveriesFound++;
-      discoveredEcoPatches.add(idx);   // mark so the shimmer indicator clears
+      discoveredEcoPatches.add(idx);
       lastDiscoveryFact    = lastScanResult!.discoveryFact;
       discoveryDisplayTimer = _discoveryDisplay;
       overlays.add('ecoDiscovery');
     } else {
       overlays.add('scanResult');
     }
+
+    // Store pending target but DON'T open tool selector yet.
+    // Tool selector opens when player taps "FIX IT" on the scan result card
+    // (or auto-opens when the card auto-dismisses). This ensures the player
+    // always sees and understands the identified issue before choosing a tool.
+    pendingFixTarget = p;
+    // toolSelectorOpen set in dismissScanResult() / openToolSelectorForPending()
+
+    notifyListeners();
+  }
+
+  // ── Called when player taps "FIX IT" on scan result card ─────────────────
+  void openToolSelectorForPending() {
+    if (pendingFixTarget == null || toolSelectorOpen) return;
+    toolSelectorOpen = true;
+    overlays.remove('scanResult');
+    scanResultActive = false;
+    // First time for this type → show correct-tool highlight; else no hints
+    toolSelectorShowsHints = _checkAndMarkHintsSeen(
+        pendingFixTarget!.type, RestorationStep.none);
+    overlays.add('toolSelect');
     notifyListeners();
   }
 
@@ -644,8 +824,15 @@ class LandDegradationGame extends FlameGame
     if (!scanResultActive) return;
     scanResultActive = false;
     overlays.remove('scanResult');
+    // Open tool selector now that player has seen the identified issue
+    if (pendingFixTarget != null && !toolSelectorOpen) {
+      toolSelectorOpen = true;
+      toolSelectorShowsHints = _checkAndMarkHintsSeen(
+          pendingFixTarget!.type, RestorationStep.none);
+      overlays.add('toolSelect');
+    }
     notifyListeners();
-    if (scannedCount >= patches.length) {
+    if (scannedCount >= patches.length && !toolSelectorOpen) {
       Future.delayed(const Duration(milliseconds: 400), _advanceToPhase2);
     }
   }
@@ -659,36 +846,54 @@ class LandDegradationGame extends FlameGame
 
   // ── Phase 2: Apply tool ────────────────────────────────────────────────────
   void applyTool() {
-    if (!gameStarted || levelDone || gamePhase != 2) return;
+    if (!gameStarted || levelDone) return;
     if (!canUseSelectedTool) {
       reactionMsg = '⚠️ No ${_toolLabel(selectedTool)} uses left!';
-      _triggerReaction(false, inRange: false); return;
+      _triggerReaction(false, inRange: false);
+      notifyListeners();
+      return;
     }
-    final target = _nearestActionable;
+    // Use pending target (just-scanned) or nearest unrestored within range
+    final target = pendingFixTarget ?? _nearestActionable;
     if (target == null) {
-      reactionMsg = '✈️ Move closer to a degraded patch';
-      _triggerReaction(false, inRange: false); return;
+      reactionMsg = '✈️ Move closer to a scanned patch';
+      _triggerReaction(false, inRange: false);
+      notifyListeners();
+      return;
     }
 
     HapticFeedback.lightImpact();
     toolUses[selectedTool] = (toolUses[selectedTool] ?? 1) - 1;
-    final correct = _isCorrectTool(target.type, selectedTool, target.step);
+
+    final stepBeforeApply = target.step; // capture before mutation
+    final correct = _isCorrectTool(target.type, selectedTool, stepBeforeApply);
+
+    // closeSelector: only close when step 2 completes or player explicitly cancels.
+    // Wrong tools and step-1-success keep the selector open so the player must
+    // finish both restoration steps before moving to the next hotspot.
+    bool closeSelector = false;
 
     if (correct) {
-      if (target.step == RestorationStep.none) {
+      if (stepBeforeApply == RestorationStep.none) {
+        // ── Step 1 correctly applied ─────────────────────────────────────────
         target.step = RestorationStep.stabilized; stabilizedCount++;
         correctTools++;
         erosionIndex = math.max(0, erosionIndex - 5.0);
         final pts    = 10 * _comboMult();
         ecoPoints   += pts; _incCombo();
         riskPatches.remove(target); target.isAtRisk = false;
-        // Remove gully idle timer if applicable
         _gullyIdleTimers.remove(target);
-        // Dismiss critical alert if this patch had one
         _dismissCriticalAlert(target, saved: true);
-        reactionMsg  = '🏗️ Step 1 done!  +$pts pts';
+        reactionMsg  = '🏗️ Step ① done!  +$pts pts  —  Now apply Step ② (Biological)!';
         _triggerReaction(true);
-      } else if (target.step == RestorationStep.stabilized) {
+        // Transition to Step 2 inside the same selector:
+        // decide whether to show hints for step 2 (first time only)
+        toolSelectorShowsHints = _checkAndMarkHintsSeen(
+            target.type, RestorationStep.stabilized);
+        // selector stays open (closeSelector = false)
+
+      } else if (stepBeforeApply == RestorationStep.stabilized) {
+        // ── Step 2 correctly applied → patch fully restored ──────────────────
         target.step = RestorationStep.restored; restoredCount++;
         correctTools++;
         erosionIndex = math.max(0, erosionIndex - 9.0);
@@ -696,7 +901,7 @@ class LandDegradationGame extends FlameGame
         ecoPoints   += pts; _incCombo();
         riskPatches.remove(target); target.isAtRisk = false;
         _dismissCriticalAlert(target, saved: true);
-        reactionMsg  = '🌿 Fully Restored!  +$pts pts';
+        reactionMsg  = '🌿 Patch Fully Restored!  +$pts pts  🎉';
         _triggerReaction(true);
         _patchesSinceLastSurge++;
         _patchesSinceResupply++;
@@ -707,7 +912,7 @@ class LandDegradationGame extends FlameGame
         if (idx == timeBonusPatchIndex && !timeBonusCollected) {
           timeBonusCollected = true;
           timeLeft = math.min(timeLeft + 8, 150);
-          reactionMsg = '⏱️ Time Bonus!  +8 seconds!  🌿 Fully Restored!  +$pts pts';
+          reactionMsg = '⏱️ Time Bonus! +8 s  🌿 Fully Restored!  +$pts pts';
           HapticFeedback.heavyImpact();
         }
 
@@ -716,19 +921,42 @@ class LandDegradationGame extends FlameGame
           _patchesSinceResupply = 0;
           _triggerResupply();
         }
+
+        closeSelector = true; // both steps done → close now
       }
     } else {
+      // ── Wrong tool → penalise, keep selector open to retry same step ────────
       wrongTools++;
       erosionIndex = math.min(100, erosionIndex + 3.0);
       ecoPoints    = math.max(0, ecoPoints - 5);
       _breakCombo();
-      reactionMsg  = '❌ Wrong tool for this patch type';
+      final stepNum = stepBeforeApply == RestorationStep.none ? '①' : '②';
+      reactionMsg  = '❌ Wrong tool for Step $stepNum — try another!';
       _triggerReaction(false);
+      // selector stays open (closeSelector = false)
+    }
+
+    if (closeSelector) {
+      pendingFixTarget = null;
+      toolSelectorOpen = false;
+      overlays.remove('toolSelect');
+      // Check if we should advance to phase 2 now that the selector is gone
+      if (scannedCount >= patches.length) {
+        Future.delayed(const Duration(milliseconds: 400), _advanceToPhase2);
+      }
     }
 
     if (erosionIndex <= _targetErosion || patches.every((p) => p.isRestored)) {
       Future.delayed(const Duration(milliseconds: 800), _endLevel);
     }
+    notifyListeners();
+  }
+
+  // ── Cancel tool selector (e.g. player taps ✕) ─────────────────────────────
+  void cancelToolSelector() {
+    toolSelectorOpen = false;
+    pendingFixTarget = null;
+    overlays.remove('toolSelect');
     notifyListeners();
   }
 
@@ -810,12 +1038,12 @@ class LandDegradationGame extends FlameGame
   }
 
   void _spawnChildGully(DegradedPatch parent) {
-    if (patches.length >= 12) return; // cap to avoid overflow
+    if (patches.length >= 24) return; // cap to avoid overflow
     final rng = math.Random();
     final nx  = (parent.hx + (rng.nextDouble() * 80 - 40))
-        .clamp(60.0, size.x - 60);
+        .clamp(60.0, worldW - 60);
     final ny  = (parent.hy + (rng.nextDouble() * 80 - 40))
-        .clamp(60.0, size.y * 0.85 - 60);
+        .clamp(60.0, worldH * 0.85 - 60);
     final child = DegradedPatch(
       game:   this, type: DegradationType.gully,
       worldX: nx,   worldY: ny,
@@ -870,6 +1098,16 @@ class LandDegradationGame extends FlameGame
   }
 
   void _breakCombo() { comboCount = 0; comboTimer = 0; }
+
+  // ── Consciousness helpers ──────────────────────────────────────────────────
+  /// Returns true (show hints) the very FIRST time this type+step is opened.
+  /// Subsequent calls for the same key return false → no highlights / no guide.
+  bool _checkAndMarkHintsSeen(DegradationType type, RestorationStep step) {
+    final key = '${type.index}_${step.index}';
+    if (_seenToolHintKeys.contains(key)) return false;
+    _seenToolHintKeys.add(key);
+    return true;
+  }
 
   bool _isCorrectTool(DegradationType type, RestorationTool tool, RestorationStep step) {
     if (step == RestorationStep.none) {
@@ -947,7 +1185,7 @@ class LandDegradationGame extends FlameGame
   void _checkHints() {
     if (_hintCooldown > 0 || ecoGuideTimer > 0) return;
     if (gamePhase == 1 && _idleTimer > 4.5) {
-      ecoGuideHint = '🛰️ Hover over patches to scan terrain. Quick-scan is faster but earns fewer points!';
+      ecoGuideHint = '🛰️ Fly close to a degraded zone then tap SCAN. Read the issue, then tap FIX IT!';
       ecoGuideTimer = 3.5; _hintCooldown = 12; _idleTimer = 0;
     } else if (gamePhase == 2) {
       if (wrongTools >= 3 && wrongTools > correctTools) {
@@ -980,6 +1218,8 @@ class LandDegradationGame extends FlameGame
       criticalSaves:       criticalSaves,
       gulliesExpanded:     gulliesExpanded,
       resupplyTriggered:   resupplyTriggered,
+      meetsMinimum:        restoredCount >= kMinPatchesRequired,
+      minimumRequired:     kMinPatchesRequired,
     );
     overlays
       ..remove('reactionFx')
@@ -997,7 +1237,12 @@ class LandDegradationGame extends FlameGame
   void setDownKey(bool v)  { isDown  = v; if (v) gameStarted = true; _idleTimer = 0; }
   void setLeftKey(bool v)  { isLeft  = v; if (v) gameStarted = true; _idleTimer = 0; }
   void setRightKey(bool v) { isRight = v; if (v) gameStarted = true; _idleTimer = 0; }
-  void selectTool(RestorationTool t) { selectedTool = t; notifyListeners(); }
+  void selectTool(RestorationTool t) {
+    selectedTool = t;
+    notifyListeners();
+    // Immediately apply after selection when tool selector is open
+    if (toolSelectorOpen) applyTool();
+  }
   void requestToolDialog() {
     if (gamePhase != 2 || levelDone) return;
     toolDialogRequested = true;
@@ -1011,6 +1256,44 @@ class LandDegradationGame extends FlameGame
     reactionPhase   = gamePhase; reactionInRange = inRange;
     reactionTimer   = 1.3;
     overlays.add('reactionFx');
+  }
+
+  // ── Camera follow with edge-scroll hints (mirrors NoisePollutionGame) ─────
+  void _updateCamera(double dt) {
+    final sw = size.x;
+    final sh = size.y;
+    final edgeW = sw * kEdgeFraction;
+    final edgeH = sh * kEdgeFraction;
+
+    // Drone position in screen coords relative to current camera
+    final sx = dronePos.x - camX;
+    final sy = dronePos.y - camY;
+
+    double tx = _targetCamX;
+    double ty = _targetCamY;
+
+    if (sx < edgeW) {
+      tx = dronePos.x - edgeW;
+    } else if (sx > sw - edgeW) {tx = dronePos.x - (sw - edgeW);}
+
+    if (sy < edgeH) {
+      ty = dronePos.y - edgeH;
+    } else if (sy > sh - edgeH) {ty = dronePos.y - (sh - edgeH);}
+
+    _targetCamX = tx.clamp(0.0, worldW - sw);
+    _targetCamY = ty.clamp(0.0, worldH - sh);
+
+    camX += (_targetCamX - camX) * kCameraEase * dt;
+    camY += (_targetCamY - camY) * kCameraEase * dt;
+
+    edgeHintLeft   = (sx < edgeW * 1.5 && camX > 1)
+        ? (1.0 - sx / (edgeW * 1.5)).clamp(0, 1) : 0;
+    edgeHintRight  = (sx > sw - edgeW * 1.5 && camX < worldW - sw - 1)
+        ? ((sx - (sw - edgeW * 1.5)) / (edgeW * 1.5)).clamp(0, 1) : 0;
+    edgeHintTop    = (sy < edgeH * 1.5 && camY > 1)
+        ? (1.0 - sy / (edgeH * 1.5)).clamp(0, 1) : 0;
+    edgeHintBottom = (sy > sh - edgeH * 1.5 && camY < worldH - sh - 1)
+        ? ((sy - (sh - edgeH * 1.5)) / (edgeH * 1.5)).clamp(0, 1) : 0;
   }
 
   // ── Update loop ────────────────────────────────────────────────────────────
@@ -1087,12 +1370,21 @@ class LandDegradationGame extends FlameGame
       }
     }
     dronePos.x = (dronePos.x + (vx * _droneSpeed + activeWindForce.x) * dt)
-        .clamp(30, size.x - 30);
+        .clamp(30, worldW - 30);
     dronePos.y = (dronePos.y + (vy * _droneSpeed + activeWindForce.y) * dt)
-        .clamp(40, size.y * 0.88);
+        .clamp(40, worldH * 0.97);
 
-    // ── Wind direction rotation ──────────────────────────────────────────
-    _windChangeTimer += dt;
+    // ── Camera follow with edge-scroll hints ──────────────────────────────
+    _updateCamera(dt);
+
+    // ── Patch refill timer ────────────────────────────────────────────────
+    _refillTimer += dt;
+    if (_refillTimer >= _refillInterval) {
+      _refillTimer = 0;
+      _tryRefillPatches();
+    }
+
+    // ── Wind direction rotation ──────────────────────────────────────────    _windChangeTimer += dt;
     if (_windChangeTimer >= _windPeriod) {
       _windChangeTimer = 0;
       final rng = math.Random();
@@ -1107,32 +1399,39 @@ class LandDegradationGame extends FlameGame
     inDustCloud = dustClouds.any(
         (dc) => (dc.cloudPos - dronePos).length < dc.radius + 18);
 
-    // ── Phase 1: Proximity hover-scan ────────────────────────────────────
+    // ── Phase 1: User-triggered scan lock (mirrors sonarPing timing logic) ───
     if (gamePhase == 1) {
-      DegradedPatch? nearest; double nearestD = _hoverRange;
+      // Always update nearest target for UI feedback
+      DegradedPatch? nearest; double nearestD = _scanRange;
       for (final p in patches) {
         if (p.isScanned) continue;
         final d = (p.patchPos - dronePos).length;
         if (d < nearestD) { nearestD = d; nearest = p; }
       }
+      _nearestScanTarget = nearest;
 
-      if (nearest != null) {
-        if (activeScanPatch != nearest) {
-          activeScanPatch = nearest; scanHoldTime = 0;
-        }
-        final rate = inDustCloud ? 0.45 : 1.0;
-        scanHoldTime += dt * rate;
-        if (scanHoldTime >= _scanDuration) {
-          scanHoldTime = 0;
-          final p = activeScanPatch!;
+      // Progress the lock-scan timer when active
+      if (scanLockActive && activeScanPatch != null) {
+        // Cancel lock if drone moves out of range
+        final lockDist = (activeScanPatch!.patchPos - dronePos).length;
+        if (lockDist > _scanRange * 1.15) {
+          scanLockActive  = false;
+          _scanLockTimer  = 0;
           activeScanPatch = null;
-          _completePatchScan(p);
+          reactionMsg = '📡 Scan cancelled — too far!';
+          _triggerReaction(false, inRange: false);
+        } else {
+          final rate = inDustCloud ? 0.45 : 1.0;
+          _scanLockTimer += dt * rate;
+          scanHoldTime = _scanLockTimer; // keep backward-compat for render
+          if (_scanLockTimer >= _scanDuration) {
+            final p = activeScanPatch!;
+            _completePatchScan(p);
+          }
         }
-      } else {
-        if (activeScanPatch != null) {
-          scanHoldTime = math.max(0, scanHoldTime - dt * 1.8);
-          if (scanHoldTime == 0) activeScanPatch = null;
-        }
+      } else if (!scanLockActive) {
+        activeScanPatch = null;
+        scanHoldTime = 0;
       }
     }
 
@@ -1238,8 +1537,8 @@ class ErodedLandRenderer extends Component {
   void onLoad() { _initTerrain(); }
 
   void _initTerrain() {
-    final w   = game.size.x;
-    final h   = game.size.y;
+    final w   = game.worldW;
+    final h   = game.worldH;
     final rng = math.Random(77);
 
     // Background hill ridges — silhouette depth
@@ -1327,19 +1626,26 @@ class ErodedLandRenderer extends Component {
   @override
   void update(double dt) {
     _t += dt * 0.28;
-    // Animate dust motes
+    // Animate dust motes across the world
     for (final m in _motes) {
       m.x += m.drift * dt * 12;
       m.y -= m.speed * dt * 0.4;
-      if (m.y < game.size.y * 0.14) m.y = game.size.y * 0.85;
-      if (m.x < 0) m.x = game.size.x;
-      if (m.x > game.size.x) m.x = 0;
+      if (m.y < game.worldH * 0.14) m.y = game.worldH * 0.85;
+      if (m.x < 0) m.x = game.worldW;
+      if (m.x > game.worldW) m.x = 0;
     }
   }
 
   @override
   void render(Canvas canvas) {
-    final w = game.size.x, h = game.size.y;
+    final w  = game.worldW;
+    final h  = game.worldH;
+    final sw = game.size.x;
+    final sh = game.size.y;
+
+    // Shift canvas into world space so all drawing uses world coordinates
+    canvas.save();
+    canvas.translate(-game.camX, -game.camY);
 
     _drawHazySky(canvas, w, h);
     _drawHillRidges(canvas, w, h);
@@ -1355,7 +1661,7 @@ class ErodedLandRenderer extends Component {
     _drawDustMotes(canvas, w, h);
     _drawFooterStrip(canvas, w, h);
 
-    // Restoration progress greening — patches turning area green as restored
+    // Restoration progress greening
     final restoreRatio = game.patches.isEmpty ? 0.0
         : game.restoredCount / game.patches.length;
     if (restoreRatio > 0) {
@@ -1380,6 +1686,34 @@ class ErodedLandRenderer extends Component {
     }
 
     if (game.weatherIntensity > 0) _drawRain(canvas, w, h);
+
+    canvas.restore();
+
+    // ── Edge-scroll vignette hints (screen space — drawn after restore) ─────
+    _drawEdgeHints(canvas, sw, sh);
+  }
+
+  void _drawEdgeHints(Canvas canvas, double sw, double sh) {
+    const hintColor = Color(0xFF8BC34A); // green for land theme
+    void drawVignette(double alpha, Alignment from, Alignment to) {
+      if (alpha < 0.01) return;
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, sw, sh),
+        Paint()
+          ..shader = ui.Gradient.linear(
+            Offset(sw * (from.x + 1) / 2, sh * (from.y + 1) / 2),
+            Offset(sw * (to.x + 1) / 2, sh * (to.y + 1) / 2),
+            [
+              hintColor.withValues(alpha: alpha * 0.35),
+              Colors.transparent,
+            ],
+          ),
+      );
+    }
+    drawVignette(game.edgeHintLeft,   Alignment.centerLeft,   Alignment.center);
+    drawVignette(game.edgeHintRight,  Alignment.centerRight,  Alignment.center);
+    drawVignette(game.edgeHintTop,    Alignment.topCenter,    Alignment.center);
+    drawVignette(game.edgeHintBottom, Alignment.bottomCenter, Alignment.center);
   }
 
   void _drawHazySky(Canvas canvas, double w, double h) {
@@ -1761,8 +2095,8 @@ class DeadVegetationLayer extends Component {
   @override
   void onLoad() {
     final rng = math.Random(123);
-    final w   = game.size.x;
-    final h   = game.size.y;
+    final w   = game.worldW;
+    final h   = game.worldH;
     _trees    = List.generate(12, (i) {
       return _DeadTree(
         x:    rng.nextDouble() * w,
@@ -1779,10 +2113,12 @@ class DeadVegetationLayer extends Component {
 
   @override
   void render(Canvas canvas) {
-    // Only render dead trees behind patches (low z-order already)
+    canvas.save();
+    canvas.translate(-game.camX, -game.camY);
     for (final tree in _trees) {
       _drawDeadTree(canvas, tree);
     }
+    canvas.restore();
   }
 
   void _drawDeadTree(Canvas canvas, _DeadTree tree) {
@@ -1832,6 +2168,13 @@ class RestorationDroneComponent extends Component {
 
   @override
   void render(Canvas canvas) {
+    canvas.save();
+    canvas.translate(-game.camX, -game.camY);
+    _renderWorld(canvas);
+    canvas.restore();
+  }
+
+  void _renderWorld(Canvas canvas) {
     final cx = game.dronePos.x;
     final cy = game.dronePos.y + math.sin(_t * 3.0) * 2.5;
 
@@ -1950,8 +2293,8 @@ class RestorationDroneComponent extends Component {
     )..layout();
     tp.paint(canvas, Offset(-tp.width / 2, 13 - tp.height / 2));
 
-    canvas.restore();
-  }
+    canvas.restore(); // restore the canvas.translate(cx,cy) save
+  } // end _renderWorld
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2003,6 +2346,13 @@ class DegradedPatch extends Component {
 
   @override
   void render(Canvas canvas) {
+    canvas.save();
+    canvas.translate(-game.camX, -game.camY);
+    _renderWorld(canvas);
+    canvas.restore();
+  }
+
+  void _renderWorld(Canvas canvas) {
     final spec  = _specs[type]!;
     final color = spec.$3;
     final pulse = 0.65 + math.sin(_t * 2.8) * 0.22;
@@ -2163,7 +2513,7 @@ class DegradedPatch extends Component {
       )..layout();
       qp.paint(canvas, Offset(hx - qp.width / 2, hy - qp.height / 2));
     }
-  }
+  } // end _renderWorld
 
   // ── Per-type terrain art ───────────────────────────────────────────────────
   void _drawTerrainArt(Canvas canvas, Color color, double pulse) {
@@ -2398,16 +2748,18 @@ class DustCloudComponent extends Component {
     _t += dt;
     cloudPos.x += _dx * speed * dt;
     cloudPos.y += _dy * speed * dt;
-    if (cloudPos.x < radius)                      { cloudPos.x = radius;             _dx = _dx.abs(); }
-    if (cloudPos.x > game.size.x - radius)        { cloudPos.x = game.size.x - radius; _dx = -_dx.abs(); }
-    if (cloudPos.y < radius)                      { cloudPos.y = radius;             _dy = _dy.abs(); }
-    if (cloudPos.y > game.size.y * 0.85 - radius) { cloudPos.y = game.size.y * 0.85 - radius; _dy = -_dy.abs(); }
+    if (cloudPos.x < radius)                         { cloudPos.x = radius;              _dx = _dx.abs(); }
+    if (cloudPos.x > game.worldW - radius)           { cloudPos.x = game.worldW - radius; _dx = -_dx.abs(); }
+    if (cloudPos.y < radius)                         { cloudPos.y = radius;              _dy = _dy.abs(); }
+    if (cloudPos.y > game.worldH * 0.85 - radius)   { cloudPos.y = game.worldH * 0.85 - radius; _dy = -_dy.abs(); }
     final angle = math.atan2(_dy, _dx) + math.sin(_t * 0.4) * 0.016;
     _dx = math.cos(angle); _dy = math.sin(angle);
   }
 
   @override
   void render(Canvas canvas) {
+    canvas.save();
+    canvas.translate(-game.camX, -game.camY);
     final inside = (cloudPos - game.dronePos).length < radius + 20;
     final alpha  = inside ? 0.40 : 0.23;
     for (final (r, a) in [
@@ -2425,6 +2777,7 @@ class DustCloudComponent extends Component {
       )..layout();
       tp.paint(canvas, Offset(cloudPos.x - tp.width / 2, cloudPos.y - 24));
     }
+    canvas.restore();
   }
 }
 
@@ -2443,6 +2796,8 @@ class WindZoneRenderer extends Component {
   @override
   void render(Canvas canvas) {
     if (game.gamePhase != 1) return;
+    canvas.save();
+    canvas.translate(-game.camX, -game.camY);
     final cx = zone.center.x, cy = zone.center.y, r = zone.radius;
     final angle  = math.atan2(zone.force.y, zone.force.x);
     final inZone = (zone.center - game.dronePos).length < r;
@@ -2479,6 +2834,7 @@ class WindZoneRenderer extends Component {
       )..layout();
       tp.paint(canvas, Offset(cx - tp.width / 2, cy - r - 18));
     }
+    canvas.restore();
   }
 }
 
@@ -2535,23 +2891,26 @@ class LandHud extends StatelessWidget {
                   warn ? Colors.red : Colors.white),
               const SizedBox(width: 5),
               _LHTile(Icons.radar_rounded,
-                  game.gamePhase == 1
-                      ? '${game.scannedCount}/$totalPatches'
-                      : '${game.restoredCount}+${game.stabilizedCount}',
-                  game.gamePhase == 1 ? 'SCANNED' : 'DONE/STEP1',
+                  '${game.scannedCount}/$totalPatches',
+                  'SCANNED',
                   const Color(0xFFFFB300)),
               const SizedBox(width: 5),
-              _LHTile(Icons.eco_rounded, '${game.ecoPoints}', 'ECO-PTS', Colors.limeAccent),
+              _LHTile(Icons.restore_rounded,
+                  '${game.restoredCount}/${LandDegradationGame.kMinPatchesRequired}+',
+                  'RESTORED',
+                  game.restoredCount >= LandDegradationGame.kMinPatchesRequired
+                      ? const Color(0xFF69F0AE)
+                      : Colors.white70),
               const SizedBox(width: 5),
               _LHTile(Icons.terrain_rounded, '${game.erosionIndex.toStringAsFixed(0)}%',
                   'EROSION', erosionColor),
             ]),
             const SizedBox(height: 5),
 
-            // Phase 1: scan progress bar
-            if (game.gamePhase == 1 && game.activeScanPatch != null) ...[
+            // Phase 1: scan progress bar (user-triggered lock scan)
+            if (game.gamePhase == 1 && game.scanLockActive) ...[
               Row(children: [
-                const Text('📡', style: TextStyle(fontSize: 12)),
+                const Text('🔒', style: TextStyle(fontSize: 12)),
                 const SizedBox(width: 5),
                 Expanded(child: ClipRRect(
                   borderRadius: BorderRadius.circular(4),
@@ -2563,12 +2922,33 @@ class LandHud extends StatelessWidget {
                   ),
                 )),
                 const SizedBox(width: 6),
-                Text(game.inDustCloud ? '🌫️ Slowed' : 'Scanning…',
+                Text(game.inDustCloud ? '🌫️ Slowed' : 'Locking…',
                     style: TextStyle(
                         color: game.inDustCloud ? const Color(0xFFBCAAA4) : const Color(0xFFFFB300),
                         fontSize: 9, fontWeight: FontWeight.w700)),
               ]),
               const SizedBox(height: 4),
+            ],
+
+            // Phase 1: nudge when a patch is nearby but not scanning
+            if (game.gamePhase == 1 && !game.scanLockActive &&
+                game._nearestScanTarget != null && !game.toolSelectorOpen && !game.scanResultActive) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                margin: const EdgeInsets.only(bottom: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFB300).withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.35)),
+                ),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('📡', style: TextStyle(fontSize: 10)),
+                  SizedBox(width: 5),
+                  Text('Degraded zone nearby — tap SCAN!',
+                      style: TextStyle(color: Color(0xFFFFB300),
+                          fontSize: 9, fontWeight: FontWeight.w700)),
+                ]),
+              ),
             ],
 
             // Phase 1: scan streak indicator
@@ -2736,7 +3116,7 @@ class _LandControlsState extends State<LandControls> {
     if (k == LogicalKeyboardKey.keyD || k == LogicalKeyboardKey.arrowRight) { if (pressed) rt(true); if (released) rt(false); }
     if (k == LogicalKeyboardKey.space && pressed) {
       if (widget.game.gamePhase == 1) {
-        widget.game.triggerQuickScan();
+        widget.game.triggerScan();
       } else {
         widget.game.applyTool();   // SPACE applies the currently selected tool directly
       }
@@ -2821,14 +3201,28 @@ class _LandControlsState extends State<LandControls> {
                       border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.42)),
                     ),
                     child: Text(
-                      widget.game.inDustCloud ? '🌫️ Move out of dust!' : '🛰️ Hold to full scan…',
+                      widget.game.inDustCloud ? '🌫️ Dust slowing scan!' : '🔒 Scanning — stay in range!',
                       style: const TextStyle(color: Color(0xFFFFB300), fontSize: 9, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                if (phase == 1 && widget.game.toolSelectorOpen)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF69F0AE).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF69F0AE).withValues(alpha: 0.42)),
+                    ),
+                    child: const Text(
+                      '🔧 Select restoration tool!',
+                      style: TextStyle(color: Color(0xFF69F0AE), fontSize: 9, fontWeight: FontWeight.bold),
                     ),
                   ),
                 GestureDetector(
                   onTap: () {
                     if (phase == 1) {
-                      widget.game.triggerQuickScan();
+                      widget.game.triggerScan();
                     } else {
                       // Apply the currently selected tool directly — no dialog
                       widget.game.applyTool();
@@ -2844,7 +3238,9 @@ class _LandControlsState extends State<LandControls> {
                       boxShadow: canAct ? [BoxShadow(color: actColor.withValues(alpha: 0.42), blurRadius: 16)] : [],
                     ),
                     child: Center(child: Text(
-                      phase == 1 ? '🛰️\nQUICK\nSCAN' : '✅\nAPPLY',
+                      phase == 1
+                          ? (widget.game.scanLockActive ? '🔒\nLOCK\nING…' : '📡\nSCAN')
+                          : '✅\nAPPLY',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: canAct ? actColor : Colors.white30,
                           fontWeight: FontWeight.w900, fontSize: 8, letterSpacing: 0.3, height: 1.3),
@@ -2870,11 +3266,11 @@ class _ToolSidePanel extends StatelessWidget {
   const _ToolSidePanel({required this.game});
 
   static const _tools = [
-    (RestorationTool.terrace,   '🏗️', 'Terrace',    'Slope ①',  Color(0xFFEF5350)),
-    (RestorationTool.checkDam,  '🧱', 'Check Dam',  'Gully ①',  Color(0xFFFF6D00)),
-    (RestorationTool.coverCrop, '🌱', 'Cover Crop', 'Slope②/Bare①', Color(0xFF69F0AE)),
-    (RestorationTool.biochar,   '⬛', 'Biochar',    'Dry①/Gully②',  Color(0xFFBCAAA4)),
-    (RestorationTool.compost,   '🌿', 'Compost',    'Bare②/Dry②',   Color(0xFF8BC34A)),
+    (RestorationTool.terrace,   '🏗️', 'Terrace',    'Steep Slope (Step 1)',     Color(0xFFEF5350)),
+    (RestorationTool.checkDam,  '🧱', 'Check Dam',  'Erosion Gully (Step 1)',   Color(0xFFFF6D00)),
+    (RestorationTool.coverCrop, '🌱', 'Cover Crop', 'Bare Land①  Slope②',      Color(0xFF69F0AE)),
+    (RestorationTool.biochar,   '⬛', 'Biochar',    'Dry Soil①  Gully②',       Color(0xFFBCAAA4)),
+    (RestorationTool.compost,   '🌿', 'Compost',    'Bare Land②  Dry Soil②',   Color(0xFF8BC34A)),
   ];
 
   @override
@@ -3067,8 +3463,245 @@ class _LDPad extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  PHASE BANNER
+//  LAND TOOL SELECTOR OVERLAY
+//  Opens immediately after a patch is scanned (mirroring NoiseToolSelector).
+//  Player picks the tool → applyTool() fires immediately → overlay closes.
 // ══════════════════════════════════════════════════════════════════════════════
+class LandToolSelector extends StatelessWidget {
+  final LandDegradationGame game;
+  const LandToolSelector(this.game, {super.key});
+
+  static const _tools = [
+    (RestorationTool.terrace,   '🏗️', 'Terrace',    'Steep Slope — Step ① Structural',  Color(0xFFEF5350)),
+    (RestorationTool.checkDam,  '🧱', 'Check Dam',  'Erosion Gully — Step ① Structural', Color(0xFFFF6D00)),
+    (RestorationTool.coverCrop, '🌱', 'Cover Crop', 'Bare Land ①  •  Steep Slope ②',    Color(0xFF69F0AE)),
+    (RestorationTool.biochar,   '⬛', 'Biochar',    'Dry Soil ①  •  Erosion Gully ②',   Color(0xFFBCAAA4)),
+    (RestorationTool.compost,   '🌿', 'Compost',    'Bare Land ②  •  Dry Soil ②',       Color(0xFF8BC34A)),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: game,
+      builder: (_, __) {
+        final target = game.pendingFixTarget;
+        if (target == null) return const SizedBox.shrink();
+
+        final step      = target.step;
+        final typeName  = _patchTypeName(target.type);
+        final isStep2   = step == RestorationStep.stabilized;
+        final stepLabel = isStep2 ? '② Biological step — finish the restoration' : '① Structural step — stabilise the patch';
+        final accent    = isStep2 ? const Color(0xFF69F0AE) : const Color(0xFFFF6D00);
+        // Show correct-tool highlight & labels only when the game is "teaching" this step
+        final showHints = game.toolSelectorShowsHints;
+
+        return Container(
+          color: Colors.black.withValues(alpha: 0.62),
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0A1A08),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: accent.withValues(alpha: 0.55), width: 1.5),
+                boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 20)],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ── Header ────────────────────────────────────────────────
+                  Row(children: [
+                    Text(_patchTypeIcon(target.type), style: const TextStyle(fontSize: 22)),
+                    const SizedBox(width: 10),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(typeName,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text(stepLabel,
+                          style: TextStyle(color: accent, fontSize: 10.5, fontWeight: FontWeight.w700)),
+                    ])),
+                    // Cancel: always shown but styled differently for step 2
+                    GestureDetector(
+                      onTap: game.cancelToolSelector,
+                      child: Container(
+                        width: 32, height: 32,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isStep2
+                              ? accent.withValues(alpha: 0.12)
+                              : Colors.white.withValues(alpha: 0.08),
+                          border: Border.all(
+                              color: isStep2
+                                  ? accent.withValues(alpha: 0.55)
+                                  : Colors.white24),
+                        ),
+                        child: Center(child: Text(
+                          isStep2 ? '⚠️' : '✕',
+                          style: TextStyle(
+                              color: isStep2 ? accent : Colors.white60,
+                              fontSize: isStep2 ? 13 : 14,
+                              fontWeight: FontWeight.bold),
+                        )),
+                      ),
+                    ),
+                  ]),
+
+                  // ── Step-2 mandatory reminder ──────────────────────────────
+                  if (isStep2) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: accent.withValues(alpha: 0.45)),
+                      ),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Text('🌿', style: TextStyle(fontSize: 12)),
+                        const SizedBox(width: 6),
+                        Text('Step ① applied — complete Step ② to fully restore this patch',
+                            style: TextStyle(color: accent, fontSize: 9, fontWeight: FontWeight.w800)),
+                      ]),
+                    ),
+                  ],
+
+                  const SizedBox(height: 4),
+
+                  // ── Issue reminder / "trust memory" banner ─────────────────
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: accent.withValues(alpha: 0.35)),
+                    ),
+                    child: showHints
+                        ? Text(
+                            'Issue: ${game.lastScanResult?.typeName ?? typeName}  •  ${game.lastScanResult?.severity ?? ""}',
+                            style: TextStyle(color: accent, fontSize: 9.5, fontWeight: FontWeight.w700))
+                        : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            const Text('🧠', style: TextStyle(fontSize: 11)),
+                            const SizedBox(width: 5),
+                            Text('Recall from memory — no hints this time!',
+                                style: TextStyle(color: accent, fontSize: 9.5, fontWeight: FontWeight.w700)),
+                          ]),
+                  ),
+                  const SizedBox(height: 10),
+                  Text('Select the correct restoration tool:',
+                      style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
+                  const SizedBox(height: 14),
+
+                  // ── Tool grid ─────────────────────────────────────────────
+                  Wrap(
+                    spacing: 8, runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: _tools.map((spec) {
+                      final (tool, emoji, label, hint, color) = spec;
+                      final uses    = game.toolUses[tool] ?? 0;
+                      final isEmpty = uses == 0;
+                      // Only highlight correct tool when hints are active
+                      final correct = showHints && game._isCorrectTool(target.type, tool, step);
+                      final selColor = correct ? color : Colors.white24;
+
+                      return GestureDetector(
+                        onTap: isEmpty ? null : () {
+                          HapticFeedback.selectionClick();
+                          game.selectTool(tool);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 130),
+                          width: 115,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: isEmpty
+                                ? Colors.black.withValues(alpha: 0.55)
+                                : correct
+                                    ? color.withValues(alpha: 0.20)
+                                    : Colors.black.withValues(alpha: 0.62),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isEmpty ? Colors.white12 : selColor.withValues(alpha: correct ? 0.80 : 0.22),
+                              width: correct ? 2.0 : 1.2,
+                            ),
+                            boxShadow: correct && !isEmpty
+                                ? [BoxShadow(color: color.withValues(alpha: 0.30), blurRadius: 10)]
+                                : [],
+                          ),
+                          child: Column(mainAxisSize: MainAxisSize.min, children: [
+                            Text(emoji, style: TextStyle(fontSize: 22,
+                                color: isEmpty ? const Color(0xFF444444) : null)),
+                            const SizedBox(height: 4),
+                            Text(label,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: isEmpty ? Colors.white24 : correct ? color : Colors.white70,
+                                  fontWeight: FontWeight.w800, fontSize: 10.5,
+                                )),
+                            // Issue label: shown when hints are active, hidden otherwise
+                            if (showHints)
+                              Text(hint,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: isEmpty ? Colors.white12 : color.withValues(alpha: 0.68),
+                                    fontSize: 8,
+                                  ))
+                            else
+                              Text('— apply from memory —',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.white24, fontSize: 7.5)),
+                            const SizedBox(height: 3),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isEmpty
+                                    ? Colors.redAccent.withValues(alpha: 0.14)
+                                    : color.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: Text(
+                                isEmpty ? 'OUT' : '×$uses',
+                                style: TextStyle(
+                                  color: isEmpty ? Colors.redAccent : color,
+                                  fontSize: 7.5, fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ]),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _patchTypeIcon(DegradationType t) {
+    switch (t) {
+      case DegradationType.steepSlope: return '⛰️';
+      case DegradationType.gully:      return '🕳️';
+      case DegradationType.bareLand:   return '🌾';
+      case DegradationType.drySoil:    return '🪨';
+    }
+  }
+
+  String _patchTypeName(DegradationType t) {
+    switch (t) {
+      case DegradationType.steepSlope: return 'Steep Erosion Slope';
+      case DegradationType.gully:      return 'Erosion Gully';
+      case DegradationType.bareLand:   return 'Bare Land';
+      case DegradationType.drySoil:    return 'Dry Soil';
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  PHASE BANNER
 class LandPhaseBanner extends StatelessWidget {
   final LandDegradationGame game;
   const LandPhaseBanner(this.game, {super.key});
@@ -3096,7 +3729,7 @@ class LandPhaseBanner extends StatelessWidget {
         const SizedBox(height: 6),
         Text(
           phase1
-              ? 'Hover over each degraded zone to scan it.\nStay still for a full scan (+10 pts) or quick-tap (+3 pts).\nWatch for wind zones & dust clouds!'
+              ? 'Fly close to a degraded zone, then tap 📡 SCAN.\nA 1.5 s lock starts — stay in range to complete it.\nRead the identified issue, then tap FIX IT to restore!\nDust clouds slow scans · Wind zones push your drone.'
               : 'Apply the correct two-step treatment per patch.\nWatch for critical alerts, gully expansion & rain!',
           textAlign: TextAlign.center,
           style: TextStyle(color: accent.withValues(alpha: 0.85), fontSize: 11.5),
@@ -3121,13 +3754,13 @@ class ScanResultOverlay extends StatefulWidget {
 class _ScanResultOverlayState extends State<ScanResultOverlay>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
-  late Animation<double>   _slide;
+  late Animation<double>   _scale;
 
   @override
   void initState() {
     super.initState();
-    _ctrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 280))..forward();
-    _slide = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack);
+    _ctrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 340))..forward();
+    _scale = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack);
   }
 
   @override
@@ -3141,93 +3774,173 @@ class _ScanResultOverlayState extends State<ScanResultOverlay>
         final result = widget.game.lastScanResult;
         if (result == null) return const SizedBox.shrink();
 
-        final progress = (widget.game.scanResultTimer / LandDegradationGame._scanResultDisplay)
-            .clamp(0.0, 1.0);
-        final pts      = widget.game.lastScanPoints;  // ← dynamic points
+        final rawTimer = widget.game.scanResultTimer;
+        // Use a longer display duration for progress arc
+        final displayDuration = result.hasEcoDiscovery ? 5.5 : 4.0;
+        final progress = (rawTimer / displayDuration).clamp(0.0, 1.0);
+        final pts = widget.game.lastScanPoints;
 
-        return IgnorePointer(
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 10, top: 55),
-              child: SlideTransition(
-                position: Tween<Offset>(begin: const Offset(1.2, 0), end: Offset.zero).animate(_slide),
-                child: Container(
-                  width: 220,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [
-                      result.color.withValues(alpha: 0.20),
-                      const Color(0xFF0A0A0A).withValues(alpha: 0.96),
-                    ], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: result.color.withValues(alpha: 0.62), width: 1.5),
-                    boxShadow: [BoxShadow(color: result.color.withValues(alpha: 0.22), blurRadius: 18)],
+        return Center(
+          child: ScaleTransition(
+            scale: _scale,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 18),
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+              constraints: const BoxConstraints(maxWidth: 340),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF0A0A14),
+                    result.color.withValues(alpha: 0.12),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: result.color.withValues(alpha: 0.70), width: 2.0),
+                boxShadow: [
+                  BoxShadow(color: result.color.withValues(alpha: 0.28), blurRadius: 28),
+                  const BoxShadow(color: Colors.black54, blurRadius: 18),
+                ],
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+
+                // ── Header row ───────────────────────────────────────────────
+                Row(children: [
+                  SizedBox(
+                    width: 22, height: 22,
+                    child: CustomPaint(painter: _ArcCountdownPainter(progress, result.color)),
                   ),
-                  child: Column(mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text('TERRAIN SCAN COMPLETE',
+                        style: TextStyle(color: Colors.white54, fontSize: 9,
+                            fontWeight: FontWeight.w900, letterSpacing: 1.8)),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFB300).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.42)),
+                    ),
+                    child: Text('+$pts pts${pts >= 30 ? " 🌟" : ""}',
+                        style: const TextStyle(color: Color(0xFFFFB300),
+                            fontSize: 9, fontWeight: FontWeight.bold)),
+                  ),
+                ]),
+                const SizedBox(height: 12),
 
+                // ── IDENTIFIED ISSUE — most prominent section ────────────────
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: result.color.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: result.color.withValues(alpha: 0.55), width: 1.8),
+                    boxShadow: [BoxShadow(color: result.color.withValues(alpha: 0.18), blurRadius: 10)],
+                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Row(children: [
-                      const Text('📡', style: TextStyle(fontSize: 14)),
-                      const SizedBox(width: 5),
-                      const Expanded(child: Text('SCAN COMPLETE',
-                          style: TextStyle(color: Colors.white70, fontSize: 9,
-                              fontWeight: FontWeight.w900, letterSpacing: 1.5))),
-                      SizedBox(width: 20, height: 20,
-                          child: CustomPaint(painter: _ArcCountdownPainter(progress, result.color))),
+                      Text(result.icon, style: const TextStyle(fontSize: 28)),
+                      const SizedBox(width: 10),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('ISSUE IDENTIFIED',
+                            style: TextStyle(color: result.color.withValues(alpha: 0.75),
+                                fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                        const SizedBox(height: 2),
+                        Text(result.typeName,
+                            style: TextStyle(color: result.color, fontSize: 16,
+                                fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+                        const SizedBox(height: 2),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: result.color.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(result.severity,
+                              style: TextStyle(color: result.color.withValues(alpha: 0.90),
+                                  fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+                        ),
+                      ])),
                     ]),
                     const SizedBox(height: 8),
-
-                    // Terrain type badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: result.color.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: result.color.withValues(alpha: 0.40)),
-                      ),
-                      child: Row(children: [
-                        Text(result.icon, style: const TextStyle(fontSize: 16)),
-                        const SizedBox(width: 6),
-                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(result.typeName,
-                              style: TextStyle(color: result.color, fontSize: 10, fontWeight: FontWeight.bold)),
-                          Text(result.severity,
-                              style: const TextStyle(color: Colors.white54, fontSize: 8, letterSpacing: 0.5)),
-                        ])),
-                      ]),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Eco-fact
                     Text(result.ecoFact,
-                        style: const TextStyle(color: Colors.white60, fontSize: 9, height: 1.45)),
-                    const SizedBox(height: 8),
-
-                    const Text('TREATMENT',
-                        style: TextStyle(color: Colors.white38, fontSize: 7.5,
-                            fontWeight: FontWeight.w900, letterSpacing: 1.2)),
-                    const SizedBox(height: 4),
-                    _TreatmentRow(step: '①', text: result.step1Tool, color: const Color(0xFFEF5350)),
-                    const SizedBox(height: 3),
-                    _TreatmentRow(step: '②', text: result.step2Tool, color: const Color(0xFF69F0AE)),
-                    const SizedBox(height: 8),
-
-                    // DYNAMIC points badge — shows actual pts earned
-                    Align(alignment: Alignment.centerRight, child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFB300).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.42)),
-                      ),
-                      child: Text('+$pts Eco-Points${pts >= 30 ? "  🌟" : ""}',
-                          style: const TextStyle(color: Color(0xFFFFB300),
-                              fontSize: 9, fontWeight: FontWeight.bold)),
-                    )),
+                        style: const TextStyle(color: Colors.white70, fontSize: 10, height: 1.5)),
                   ]),
                 ),
-              ),
+                const SizedBox(height: 10),
+
+                // ── Treatment guide (first encounter) / Memory prompt (repeat) ──
+                widget.game.scanResultShowsHints
+                    ? Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const Text('REQUIRED TREATMENT',
+                              style: TextStyle(color: Colors.white38, fontSize: 7.5,
+                                  fontWeight: FontWeight.w900, letterSpacing: 1.3)),
+                          const SizedBox(height: 6),
+                          _TreatmentRow(step: '①', text: result.step1Tool, color: const Color(0xFFEF5350)),
+                          const SizedBox(height: 4),
+                          _TreatmentRow(step: '②', text: result.step2Tool, color: const Color(0xFF69F0AE)),
+                        ]),
+                      )
+                    : Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF69F0AE).withValues(alpha: 0.07),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF69F0AE).withValues(alpha: 0.35)),
+                        ),
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          const Text('🧠 YOU KNOW THIS ONE',
+                              style: TextStyle(color: Color(0xFF69F0AE), fontSize: 9.5,
+                                  fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+                          const SizedBox(height: 5),
+                          const Text(
+                            'You\'ve treated this issue before.\nApply the two-step restoration from memory!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.white54, fontSize: 9.5, height: 1.4),
+                          ),
+                        ]),
+                      ),
+                const SizedBox(height: 14),
+
+                // ── FIX IT button — player taps to open tool selector ────────
+                GestureDetector(
+                  onTap: () => widget.game.openToolSelectorForPending(),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      color: result.color.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: result.color, width: 2.0),
+                      boxShadow: [BoxShadow(color: result.color.withValues(alpha: 0.38), blurRadius: 14)],
+                    ),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Text(result.icon, style: const TextStyle(fontSize: 18)),
+                      const SizedBox(width: 8),
+                      Text('FIX IT  →  SELECT TOOL',
+                          style: TextStyle(color: result.color, fontSize: 13,
+                              fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+                    ]),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text('or wait — auto-opens in a moment',
+                    style: TextStyle(color: Colors.white24, fontSize: 8),
+                    textAlign: TextAlign.center),
+              ]),
             ),
           ),
         );
@@ -3452,11 +4165,11 @@ class _ToolSelectionDialogState extends State<_ToolSelectionDialog>
   RestorationTool? _applying;
 
   static const _tools = [
-    (RestorationTool.terrace,   '🏗️', 'Terrace',    'Slope Step ①',   Color(0xFFEF5350)),
-    (RestorationTool.checkDam,  '🧱', 'Check Dam',  'Gully Step ①',   Color(0xFFFF6D00)),
-    (RestorationTool.coverCrop, '🌱', 'Cover Crop', 'Slope ②  Bare ①', Color(0xFF69F0AE)),
-    (RestorationTool.biochar,   '⬛', 'Biochar',    'Dry ①  Gully ②',  Color(0xFFBCAAA4)),
-    (RestorationTool.compost,   '🌿', 'Compost',    'Bare ②  Dry ②',   Color(0xFF8BC34A)),
+    (RestorationTool.terrace,   '🏗️', 'Terrace',    'Steep Slope — Step ① Structural',  Color(0xFFEF5350)),
+    (RestorationTool.checkDam,  '🧱', 'Check Dam',  'Erosion Gully — Step ① Structural', Color(0xFFFF6D00)),
+    (RestorationTool.coverCrop, '🌱', 'Cover Crop', 'Bare Land ①  •  Steep Slope ②',    Color(0xFF69F0AE)),
+    (RestorationTool.biochar,   '⬛', 'Biochar',    'Dry Soil ①  •  Erosion Gully ②',   Color(0xFFBCAAA4)),
+    (RestorationTool.compost,   '🌿', 'Compost',    'Bare Land ②  •  Dry Soil ②',       Color(0xFF8BC34A)),
   ];
 
   @override
@@ -3796,7 +4509,8 @@ class LandResultsOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     final r          = LandDegradationResult.current!;
     final stabilised = r.terrainStabilised;
-    final totalPatches = game.patches.length;   // dynamic — includes child gullies
+    final meetsMin   = r.meetsMinimum;
+    final totalPatches = game.patches.length;
     final restored   = r.patchesRestored;
     final stars      = restored >= totalPatches - 1 ? '★★★'
                      : restored >= (totalPatches * 0.6).ceil() ? '★★☆'
@@ -3957,24 +4671,62 @@ class LandResultsOverlay extends StatelessWidget {
 
           const SizedBox(height: 18),
 
+          // ── Primary action: REPLAY if below minimum, CONTINUE if met ───────
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                game.resumeEngine();
-                game.onLevelComplete();
-              },
-              icon: const Icon(Icons.biotech_rounded),
-              label: const Text('Continue to Soil Remediation  →',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 0.7)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF69F0AE),
-                foregroundColor: Colors.black87,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 8,
-              ),
-            ),
+            child: meetsMin
+                ? ElevatedButton.icon(
+                    onPressed: () {
+                      game.resumeEngine();
+                      game.onLevelComplete();
+                    },
+                    icon: const Icon(Icons.biotech_rounded),
+                    label: const Text('Continue to Soil Remediation  →',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 0.7)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF69F0AE),
+                      foregroundColor: Colors.black87,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 8,
+                    ),
+                  )
+                : Column(children: [
+                    // Replay button (primary action when below minimum)
+                    ElevatedButton.icon(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.replay_rounded),
+                      label: Text(
+                        'Replay  — Restore ${r.minimumRequired - r.patchesRestored} More Patch(es)',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFEF5350),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        minimumSize: const Size(double.infinity, 0),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 8,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // Minimum requirement reminder
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFB300).withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.35)),
+                      ),
+                      child: Text(
+                        '💡 Tip: Fly near a degraded zone and tap SCAN.\n'
+                        'Read the identified issue, tap FIX IT, then pick the right tool.\n'
+                        'Minimum ${r.minimumRequired} fully restored patches needed to advance.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Color(0xFFFFB300), fontSize: 11, height: 1.5),
+                      ),
+                    ),
+                  ]),
           ),
         ]),
       )),
