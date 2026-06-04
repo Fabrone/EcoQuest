@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:ecoquest/game/level5/degraded_land_screen.dart';
+import 'package:ecoquest/game/level5/level5_complete_screen.dart';
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flame/game.dart' hide Matrix4;
 import 'package:flutter/material.dart' hide Matrix4;
@@ -605,7 +606,7 @@ class SoilPollutionGame extends FlameGame
   }
 
   void _advanceToPhase4() {
-    if (levelDone) return;
+    if (levelDone || gamePhase >= 4) return;   // ← guard against re-entry
     gamePhase = 4; bannerTimer = 3.0;
     overlays.add('banner');
     notifyListeners();
@@ -702,7 +703,7 @@ class SoilPollutionGame extends FlameGame
       }
     }
 
-    if (soilHealth >= _targetHealth || zones.every((z) => z.isRemediated)) {
+    if (zones.every((z) => z.isRemediated)) {    
       Future.delayed(const Duration(milliseconds: 800), _endLevel);
     }
     notifyListeners();
@@ -4681,14 +4682,20 @@ Expanded''', Colors.orange),
 
           const SizedBox(height: 18),
 
-          // Primary action
+// Primary action
           SizedBox(
             width: double.infinity,
             child: meetsMin
                 ? ElevatedButton.icon(
                     onPressed: () {
                       game.resumeEngine();
-                      game.navigateToComplete();
+                      game.overlays.remove('results');
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              Level5CompleteScreen(carryOver: game.carryOver),
+                        ),
+                      );
                     },
                     icon: const Icon(Icons.check_circle_rounded),
                     label: const Text('LEVEL COMPLETE  →',
@@ -4703,7 +4710,16 @@ Expanded''', Colors.orange),
                   )
                 : Column(children: [
                     ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: () {
+                        SoilPollutionResult.current = null;  // clear stale result
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute<void>(
+                            builder: (_) => SoilPollutionGameScreen(
+                              carryOver: game.carryOver,
+                            ),
+                          ),
+                        );
+                      },
                       icon: const Icon(Icons.replay_rounded),
                       label: Text(
                         'Replay  - Remediate ' '${r.minimumRequired - r.zonesRemediated} More Zone(s)',
