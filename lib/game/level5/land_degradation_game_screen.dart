@@ -1,36 +1,12 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:ecoquest/game/level5/degraded_land_screen.dart';
-import 'package:ecoquest/game/level5/soil_pollution_screen.dart';
+import 'package:ecoquest/game/level5/soil_pollution_game.dart';
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flame/game.dart' hide Matrix4;
 import 'package:flutter/material.dart' hide Matrix4;
 import 'package:flutter/services.dart';
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  LAND DEGRADATION GAME SCREEN  ·  EcoQuest Level 5  ·  Phase 1 & 2
-//
-//  PHASE 1 — TERRAIN SURVEY
-//   • Drone hovers over degraded zones; proximity hover-scan (1.5 s)
-//   • On completion: animated "SCAN COMPLETE" mini-card at drone position
-//     (non-blocking — drone & game keep moving while card is visible)
-//   • Scan streaks reward rapid multi-patch discovery with bonus pts
-//   • 2 patches carry hidden Eco-Discovery markers (full hover only)
-//   • Wind zones push drone; dust clouds slow scan rate
-//   • Quick-scan tap still available (instant reveal, fewer pts)
-//
-//  PHASE 2 — TERRAIN RESTORATION
-//   • Two-step restoration per patch (structural → biological)
-//   • Tool inventory with combo multiplier and rain events
-//   • Critical Alert events — must treat within 12 s or lose pts + erosion surge
-//   • Gully Expansion — untreated gullies spawn child patches after 35 s
-//   • Wind Strip — high wind phases strip Step-1 progress from bare/dry patches
-//   • 1 patch secretly gives +8 s time bonus when fully restored
-//   • Tool Resupply drops every 4 fully restored patches
-//   • Restoration sparkle particle burst on full completion
-// ══════════════════════════════════════════════════════════════════════════════
-
-// ── Result class passed forward ───────────────────────────────────────────────
 class LandDegradationResult {
   final int    patchesRestored;
   final int    patchesStabilized;
@@ -253,7 +229,7 @@ class _LandDegradationGameScreenState
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) => SoilPollutionScreen(carryOver: widget.carryOver),
+        builder: (_) => SoilPollutionGameScreen(carryOver: widget.carryOver),
       ),
     );
   }

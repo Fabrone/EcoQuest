@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:ecoquest/game/level5/degraded_land_screen.dart';
 import 'package:ecoquest/game/level5/land_degradation_game_screen.dart';
-import 'package:ecoquest/game/level5/soil_pollution_screen.dart';
+import 'package:ecoquest/game/level5/soil_pollution_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -60,11 +60,17 @@ class _Level5CompleteScreenState extends State<Level5CompleteScreen>
   SoilPollutionResult get _soil =>
       SoilPollutionResult.current ??
       const SoilPollutionResult(
-        zonesRemediated: 0, wrongTreatments: 0, ecoPoints: 0,
-        soilHealthFinal: 0, soilGuardianBadge: false,
+        zonesRemediated:   0,
+        zonesPhysical:     0,
+        correctTools:      0,
+        wrongTools:        0,
+        ecoPoints:         0,
+        soilHealth:        0.0,
+        soilGuardianBadge: false,
+        scannedZones:      0,
       );
 
-  int get _totalScore => _land.ecoPoints + _soil.ecoPoints;
+  int get _totalScore => (_land.ecoPoints + _soil.ecoPoints).round();
 
   String get _grade {
     if (_totalScore >= 600) return 'S';
@@ -219,7 +225,7 @@ class _Level5CompleteScreenState extends State<Level5CompleteScreen>
 
                       SizedBox(height: mobile ? 22 : 30),
 
-                      _L5ActionButtons(mobile: mobile),
+                      _L5ActionButtons(mobile: mobile, carryOver: widget.carryOver),
 
                       const SizedBox(height: 24),
                     ]),
@@ -585,12 +591,12 @@ class _L5StatGrid extends StatelessWidget {
           'Eroded patches correctly\nrestored in Phase 1 & 2',
           _Level5CompleteScreenState.soilAmber),
       _L5SD('🌱', 'Soil Health',
-          '${soil.soilHealthFinal.toStringAsFixed(0)}%',
-          'Final soil health level\n(target: ≥ 80%)',
+          '${soil.soilHealth.toStringAsFixed(0)}%',
+          'Final soil health level\n(target: ≥ 75%)',
           _Level5CompleteScreenState.fertileGreen),
       _L5SD('✅', 'Zones Treated',
-          '${soil.zonesRemediated}/10',
-          'Polluted zones correctly\ntreated in Phase 3 & 4',
+          '${soil.zonesRemediated}',
+          'Polluted zones fully\nremediated in Phase 3 & 4',
           const Color(0xFF76FF03)),
       _L5SD('🏜️', 'Erosion Index',
           '${land.erosionIndex.toStringAsFixed(0)}%',
@@ -887,8 +893,9 @@ class _L5BadgeCard extends StatelessWidget {
 //  ACTION BUTTONS
 // ══════════════════════════════════════════════════════════════════════════════
 class _L5ActionButtons extends StatelessWidget {
-  final bool mobile;
-  const _L5ActionButtons({required this.mobile});
+  final bool            mobile;
+  final Level4CarryOver carryOver;
+  const _L5ActionButtons({required this.mobile, required this.carryOver});
 
   void _showComingSoon(BuildContext context) {
     HapticFeedback.lightImpact();
@@ -994,8 +1001,18 @@ class _L5ActionButtons extends StatelessWidget {
       SizedBox(
         width: double.infinity,
         child: OutlinedButton.icon(
-          onPressed: () =>
-              Navigator.of(context).popUntil((r) => r.isFirst),
+          onPressed: () {
+            // Pop the Level5CompleteScreen and everything above the
+            // first route, then push the Level-5 starting screen so the
+            // player replays from Phase 1 with the same carry-over data.
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    DegradedLandScreen(carryOver: carryOver),
+              ),
+              (route) => route.isFirst,
+            );
+          },
           icon: const Icon(Icons.replay_rounded, size: 17),
           label: Text('REPLAY LEVEL 5',
               style: TextStyle(
