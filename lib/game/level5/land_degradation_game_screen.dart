@@ -85,10 +85,6 @@ enum DegradationType  { steepSlope, gully, bareLand, drySoil }
 enum RestorationTool  { terrace, checkDam, coverCrop, biochar, compost }
 enum RestorationStep  { none, stabilized, restored }
 
-/// Three mutually exclusive level outcomes — drives banner visuals + CTA logic.
-/// • failed        → player did not reach kMinPatchesRequired restorations
-/// • moderate      → minimum met but patches remain; can continue
-/// • fullCompletion → every single patch restored
 enum LevelCompletionState { failed, moderate, fullCompletion }
 
 // ── Critical alert event ──────────────────────────────────────────────────────

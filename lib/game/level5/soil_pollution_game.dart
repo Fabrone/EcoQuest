@@ -394,7 +394,7 @@ class SoilPollutionGame extends FlameGame
 
   // ── Phase 3: User-triggered SCAN ──────────────────────────────────────────
   void triggerScan() {
-    if (!gameStarted || levelDone || gamePhase != 3) return;
+     if (!gameStarted || levelDone) return;
     gameStarted = true;
     HapticFeedback.selectionClick();
 
@@ -493,11 +493,6 @@ class SoilPollutionGame extends FlameGame
 
     pendingFixTarget = z;
     notifyListeners();
-
-    // Check if we can advance to Phase 4
-    if (remediatedCount >= kMinZonesRequired) {
-      Future.delayed(const Duration(milliseconds: 600), _advanceToPhase4);
-    }
   }
 
   void openToolSelectorForPending() {
@@ -536,24 +531,6 @@ class SoilPollutionGame extends FlameGame
     }
 
     notifyListeners();
-
-    // Only check for Phase 4 if we have enough remediations
-    if (remediatedCount >= kMinZonesRequired) {
-      Future.delayed(const Duration(milliseconds: 400), _advanceToPhase4);
-    }
-  }
-
-  void _advanceToPhase4() {
-    if (levelDone || gamePhase >= 4) return;
-
-    // NEW LOGIC: Only advance to Phase 4 if minimum restorations reached
-    if (remediatedCount >= kMinZonesRequired) {
-      gamePhase = 4;
-      bannerTimer = 3.0;
-      overlays.add('banner');
-      notifyListeners();
-    }
-    // Otherwise stay in Phase 3 until player remediates enough or time runs out
   }
 
   // ── Phase 4: Apply remediation tool ───────────────────────────────────────
@@ -641,11 +618,6 @@ class SoilPollutionGame extends FlameGame
       pendingFixTarget = null;
       toolSelectorOpen = false;
       overlays.remove('toolSelect');
-      
-      // Check for Phase 4 advancement
-      if (remediatedCount >= kMinZonesRequired) {
-        Future.delayed(const Duration(milliseconds: 400), _advanceToPhase4);
-      }
     }
 
         if (zones.every((z) => z.isRemediated)) {
@@ -1161,7 +1133,7 @@ class SoilPollutionGame extends FlameGame
         .any((h) => (h.hazePos - dronePos).length < h.radius + 18);
 
     // ── Phase 3: scan lock ─────────────────────────────────────────────────
-    if (gamePhase == 3) {
+    {
       SoilContaminationZone? nearest; double nearestD = _scanRange;
       for (final z in zones) {
         if (z.isScanned) continue;
@@ -2950,8 +2922,8 @@ class SoilHud extends StatelessWidget {
               ),
               child: Text(
                 game.gamePhase == 3
-                    ? '🔬  PHASE 3 - SOIL DIAGNOSIS'
-                    : '🌱  PHASE 4 - SOIL REMEDIATION',
+                    ? '🔬 PHASE 3 - SOIL DIAGNOSIS'
+                    : '🌱 PHASE 3 - REMEDIATION ACTIONS',
                 style: const TextStyle(color: Colors.white,
                     fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.1),
               ),
@@ -2981,7 +2953,7 @@ class SoilHud extends StatelessWidget {
             const SizedBox(height: 5),
 
             // Phase 3: scan progress bar
-            if (game.gamePhase == 3 && game.scanLockActive) ...[
+            if (game.scanLockActive) ...[
               Row(children: [
                 const Text('🔒', style: TextStyle(fontSize: 12)),
                 const SizedBox(width: 5),
@@ -3004,7 +2976,7 @@ class SoilHud extends StatelessWidget {
             ],
 
             // Phase 3: nudge when zone nearby but not scanning
-            if (game.gamePhase == 3 && !game.scanLockActive &&
+            if (!game.scanLockActive &&
                 game.nearestScanTarget != null && !game.toolSelectorOpen && !game.scanResultActive) ...[
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -3025,7 +2997,7 @@ class SoilHud extends StatelessWidget {
             ],
 
             // Phase 3: scan streak indicator
-            if (game.gamePhase == 3 && game.scanStreak >= 2)
+            if (game.scanStreak >= 2)
               Align(alignment: Alignment.centerRight,
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 4),
@@ -3189,12 +3161,9 @@ class _SoilControlsState extends State<SoilControls> {
     if (k == LogicalKeyboardKey.keyA || k == LogicalKeyboardKey.arrowLeft)  { if (pressed) lt(true); if (released) lt(false); }
     if (k == LogicalKeyboardKey.keyD || k == LogicalKeyboardKey.arrowRight) { if (pressed) rt(true); if (released) rt(false); }
     if (k == LogicalKeyboardKey.space && pressed) {
-      if (widget.game.gamePhase == 3) {
-        widget.game.triggerScan();
-      } else {
-        widget.game.applyTool();
-      }
+      widget.game.triggerScan();
     }
+    
     if (pressed) {
       if (k == LogicalKeyboardKey.digit1) widget.game.selectTool(RemediationTool.containmentBoom);
       if (k == LogicalKeyboardKey.digit2) widget.game.selectTool(RemediationTool.pHAmendment);
@@ -3215,10 +3184,8 @@ class _SoilControlsState extends State<SoilControls> {
       animation: widget.game,
       builder: (_, __) {
         final phase  = widget.game.gamePhase;
-        final canAct = phase == 3
-            ? widget.game.hasNearbyUnscanned
-            : widget.game.hasNearbyUnremediated;
-        final actColor = phase == 3 ? const Color(0xFFFFB300) : const Color(0xFF69F0AE);
+        final canAct   = widget.game.hasNearbyUnscanned;
+        const actColor = Color(0xFFFFB300);
 
         return KeyboardListener(
           focusNode: _fk,
@@ -3248,35 +3215,23 @@ class _SoilControlsState extends State<SoilControls> {
               ]),
             ))),
 
-            // Phase 4: right-side tool panel
-            if (phase == 4)
-              Align(
-                alignment: Alignment.centerRight,
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _RemediationSidePanel(game: widget.game),
-                  ),
-                ),
-              ),
-
             // Phase 3: layer selector
             if (phase == 3)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: _LayerSelectorPanel(game: widget.game),
-                  ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: _LayerSelectorPanel(game: widget.game),
                 ),
               ),
+            ),
 
             // Action button (bottom-right)
             Align(alignment: Alignment.bottomRight, child: SafeArea(child: Padding(
               padding: const EdgeInsets.only(bottom: 20, right: 14),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                if (phase == 3 && widget.game.activeScanZone != null)
+                if (widget.game.activeScanZone != null)
                   Container(
                     margin: const EdgeInsets.only(bottom: 6),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3290,7 +3245,7 @@ class _SoilControlsState extends State<SoilControls> {
                       style: const TextStyle(color: Color(0xFFFFB300), fontSize: 9, fontWeight: FontWeight.bold),
                     ),
                   ),
-                if (phase == 3 && widget.game.toolSelectorOpen)
+                  if (widget.game.toolSelectorOpen)
                   Container(
                     margin: const EdgeInsets.only(bottom: 6),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3306,11 +3261,7 @@ class _SoilControlsState extends State<SoilControls> {
                   ),
                 GestureDetector(
                   onTap: () {
-                    if (phase == 3) {
-                      widget.game.triggerScan();
-                    } else {
-                      widget.game.applyTool();
-                    }
+                    widget.game.triggerScan();
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 140),
@@ -3322,13 +3273,10 @@ class _SoilControlsState extends State<SoilControls> {
                       boxShadow: canAct ? [BoxShadow(color: actColor.withValues(alpha: 0.42), blurRadius: 16)] : [],
                     ),
                     child: Center(child: Text(
-                      phase == 3
-                          ? (widget.game.scanLockActive ? '''🔒
+                      widget.game.scanLockActive ? '''🔒
 LOCK
 ING…''' : '''🔬
-SCAN''')
-                          : '''✅
-APPLY''',
+SCAN''',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: canAct ? actColor : Colors.white30,
                           fontWeight: FontWeight.w900, fontSize: 8, letterSpacing: 0.3, height: 1.3),
@@ -3454,182 +3402,6 @@ class _LayerSelectorPanel extends StatelessWidget {
     );
   }
 }
-
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  RIGHT-SIDE TOOL PANEL  -  Phase 4 persistent remediation tool selector
-// ══════════════════════════════════════════════════════════════════════════════
-class _RemediationSidePanel extends StatelessWidget {
-  final SoilPollutionGame game;
-  const _RemediationSidePanel({required this.game});
-
-  static const _tools = [
-    (RemediationTool.containmentBoom, '🛢️', 'Containment', 'Oil Spill (Step 1)',     Color(0xFF424242)),
-    (RemediationTool.pHAmendment,     '⚗️', 'pH Amendment', 'Acidic Soil (Step 1)',   Color(0xFFCDDC39)),
-    (RemediationTool.soilExcavation,  '⚙️', 'Excavation',   'Heavy Metals (Step 1)',  Color(0xFF7B1FA2)),
-    (RemediationTool.soilWashing,     '🧪', 'Soil Washing', 'Pesticides (Step 1)',    Color(0xFFFF6D00)),
-    (RemediationTool.aerationTill,    '🪨', 'Aeration',     'Compact Soil (Step 1)',  Color(0xFFBCAAA4)),
-    (RemediationTool.biocharBacteria, '⬛', 'Biochar+Bact.', 'Oil Spill ②',            Color(0xFF69F0AE)),
-    (RemediationTool.limeCompost,     '🌿', 'Lime+Compost', 'Acidic Soil ②',          Color(0xFF8BC34A)),
-    (RemediationTool.phytoPlants,       '🌱', 'Phyto-Plants', 'Heavy Metals ②',         Color(0xFF4CAF50)),
-    (RemediationTool.compostWorms,    '🪱', 'Compost+Worms', 'Pesticides ②',          Color(0xFF795548)),
-    (RemediationTool.mycorrhizae,     '🍄', 'Mycorrhizae',  'Compact Soil ②',         Color(0xFF9C27B0)),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: game,
-      builder: (_, __) {
-        final target  = game.nearestActionable;
-        final step    = target?.step ?? RemediationStep.none;
-
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: _tools.map((spec) {
-            final (tool, emoji, label, hint, color) = spec;
-            final uses     = game.toolUses[tool] ?? 0;
-            final isEmpty  = uses == 0;
-            final selected = game.selectedTool == tool;
-            final correct  = target != null && game.isCorrectTool(target.type, tool, step);
-
-            final borderColor = isEmpty
-                ? Colors.white12
-                : selected
-                    ? color
-                    : correct
-                        ? color.withValues(alpha: 0.60)
-                        : Colors.white.withValues(alpha: 0.12);
-
-            final bgColor = isEmpty
-                ? Colors.black.withValues(alpha: 0.55)
-                : selected
-                    ? color.withValues(alpha: 0.25)
-                    : correct
-                        ? color.withValues(alpha: 0.10)
-                        : Colors.black.withValues(alpha: 0.62);
-
-            return GestureDetector(
-              onTap: isEmpty ? null : () {
-                HapticFeedback.selectionClick();
-                game.selectTool(tool);
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                margin: const EdgeInsets.only(bottom: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-                constraints: const BoxConstraints(minWidth: 130, maxWidth: 150),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: borderColor,
-                    width: (selected || correct) ? 1.8 : 1.1,
-                  ),
-                  boxShadow: selected
-                      ? [BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 10)]
-                      : correct && !isEmpty
-                          ? [BoxShadow(color: color.withValues(alpha: 0.20), blurRadius: 6)]
-                          : [],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 26, height: 26,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isEmpty
-                            ? Colors.white.withValues(alpha: 0.04)
-                            : color.withValues(alpha: 0.18),
-                        border: Border.all(
-                          color: isEmpty ? Colors.white12 : color.withValues(alpha: 0.45),
-                        ),
-                      ),
-                      child: Center(
-                        child: Text(emoji, style: const TextStyle(fontSize: 12)),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            label,
-                            style: TextStyle(
-                              color: isEmpty
-                                  ? Colors.white24
-                                  : selected ? color : Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 9.5,
-                            ),
-                          ),
-                          Text(
-                            hint,
-                            style: TextStyle(
-                              color: isEmpty
-                                  ? Colors.white12
-                                  : color.withValues(alpha: 0.68),
-                              fontSize: 7.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: isEmpty
-                                ? Colors.redAccent.withValues(alpha: 0.14)
-                                : color.withValues(alpha: 0.18),
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(
-                              color: isEmpty
-                                  ? Colors.redAccent.withValues(alpha: 0.42)
-                                  : color.withValues(alpha: 0.38),
-                            ),
-                          ),
-                          child: Text(
-                            isEmpty ? 'OUT' : '×\$uses',
-                            style: TextStyle(
-                              color: isEmpty ? Colors.redAccent : color,
-                              fontSize: 7.5,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        if (correct && !isEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            '✓',
-                            style: TextStyle(
-                              color: color,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-}
-
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  PHASE BANNER
