@@ -29,6 +29,9 @@ class LandDegradationResult {
   // NEW: Clear explanation of why level ended
   final String endReason;
 
+  // Completion state — set by _endLevel, read by banner + results overlay
+  final LevelCompletionState completionState;
+
   const LandDegradationResult({
     required this.patchesRestored,
     required this.patchesStabilized,
@@ -48,6 +51,7 @@ class LandDegradationResult {
     this.meetsMinimum      = false,
     this.minimumRequired   = 9,
     this.endReason         = 'Level completed.',
+    this.completionState   = LevelCompletionState.failed,
   });
 
   int get totalActions  => correctTools + wrongTools;
@@ -80,6 +84,12 @@ class LandDegradationResult {
 enum DegradationType  { steepSlope, gully, bareLand, drySoil }
 enum RestorationTool  { terrace, checkDam, coverCrop, biochar, compost }
 enum RestorationStep  { none, stabilized, restored }
+
+/// Three mutually exclusive level outcomes — drives banner visuals + CTA logic.
+/// • failed        → player did not reach kMinPatchesRequired restorations
+/// • moderate      → minimum met but patches remain; can continue
+/// • fullCompletion → every single patch restored
+enum LevelCompletionState { failed, moderate, fullCompletion }
 
 // ── Critical alert event ──────────────────────────────────────────────────────
 class CriticalAlert {
@@ -247,6 +257,7 @@ class _LandDegradationGameScreenState
           'banner':          (ctx, g) => LandPhaseBanner(g as LandDegradationGame),
           'reactionFx':      (ctx, g) => LandReactionFx(g as LandDegradationGame),
           'results':         (ctx, g) => LandResultsOverlay(g as LandDegradationGame),
+          'completionBanner': (ctx, g) => LandCompletionBanner(g as LandDegradationGame),
           'scanResult':      (ctx, g) => ScanResultOverlay(g as LandDegradationGame),
           'toolSelect':      (ctx, g) => LandToolSelector(g as LandDegradationGame),
           'weatherAlert':    (ctx, g) => WeatherAlertOverlay(g as LandDegradationGame),
@@ -922,10 +933,13 @@ class LandDegradationGame extends FlameGame
       }
     }
 
-    if (erosionIndex <= _targetErosion || 
-        patches.every((p) => p.isRestored) || 
-        restoredCount >= kMinPatchesRequired) {
-      Future.delayed(const Duration(milliseconds: 800), _endLevel);
+    // ── Full-completion trigger (applyTool path) ───────────────────────────
+    // Only stop here when every patch is fully restored (16/16).
+    // • Time-expiry      → _onSecond()
+    // • Tool-depletion   → Phase-2 update block
+    // • Minimum reached  → does NOT end the level; player keeps playing freely
+    if (patches.every((p) => p.isRestored)) {
+      Future.delayed(const Duration(milliseconds: 600), _endLevel);
     }
     notifyListeners();
   }
@@ -1180,35 +1194,55 @@ class LandDegradationGame extends FlameGame
     levelDone = true;
     pauseEngine();
 
-    final meetsMin = restoredCount >= kMinPatchesRequired;
+    final meetsMin    = restoredCount >= kMinPatchesRequired;
     final allRestored = patches.every((p) => p.isRestored);
-    String endReason = '';
 
+    // ── Completion state (drives banner visuals + CTA) ─────────────────────
+    final LevelCompletionState completionState;
+    if (allRestored) {
+      completionState = LevelCompletionState.fullCompletion;
+    } else if (meetsMin) {
+      completionState = LevelCompletionState.moderate;
+    } else {
+      completionState = LevelCompletionState.failed;
+    }
+
+    // ── End reason (shown in LEVEL SUMMARY card on results screen) ─────────
+    String endReason = '';
     if (timeLeft <= 0) {
-      endReason = meetsMin
-          ? '⏰ Time expired — but you reached the minimum $kMinPatchesRequired restorations!'
-          : '⏰ Time ran out before restoring $kMinPatchesRequired patches.';
+      if (allRestored) {
+        endReason = '🌍 All patches restored — and just in time!';
+      } else if (meetsMin) {
+        endReason = '⏰ Time expired — minimum $kMinPatchesRequired restorations met. '
+            'Well done!';
+      } else {
+        endReason = '⏰ Time ran out before restoring $kMinPatchesRequired patches. '
+            'Keep practising!';
+      }
     } else if (allRestored) {
-      endReason = '🌍 All degradation patches fully restored! Outstanding work!';
+      endReason = '🌍 All ${patches.length} degradation patches fully restored! '
+          'Outstanding work!';
     } else if (toolUses.values.every((uses) => uses == 0)) {
-      endReason = '🛠️ All tools were depleted. Use resupply opportunities more effectively next time.';
+      endReason = meetsMin
+          ? '🛠️ Tools depleted — minimum restorations achieved! Continue to the next stage.'
+          : '🛠️ All tools depleted before reaching the $kMinPatchesRequired-patch minimum.';
     } else {
       endReason = meetsMin
-          ? '✅ Minimum restorations achieved before time expired.'
+          ? '✅ Minimum $kMinPatchesRequired restorations achieved — level complete!'
           : 'Level ended with $restoredCount/$kMinPatchesRequired patches restored.';
     }
 
     LandDegradationResult.current = LandDegradationResult(
-      patchesRestored:    restoredCount,
-      patchesStabilized:  stabilizedCount,
-      correctTools:       correctTools,
-      wrongTools:         wrongTools,
-      ecoPoints:          ecoPoints,
-      erosionIndex:       erosionIndex,
-      terrainStabilised:  erosionIndex <= _targetErosion,
-      scannedPatches:     scannedCount,
-      maxCombo:           maxCombo,
-      scanStreakBonus:     totalScanStreak,
+      patchesRestored:     restoredCount,
+      patchesStabilized:   stabilizedCount,
+      correctTools:        correctTools,
+      wrongTools:          wrongTools,
+      ecoPoints:           ecoPoints,
+      erosionIndex:        erosionIndex,
+      terrainStabilised:   erosionIndex <= _targetErosion,
+      scannedPatches:      scannedCount,
+      maxCombo:            maxCombo,
+      scanStreakBonus:      totalScanStreak,
       ecoDiscoveriesFound: ecoDiscoveriesFound,
       timeBonusCollected:  timeBonusCollected,
       criticalSaves:       criticalSaves,
@@ -1217,6 +1251,7 @@ class LandDegradationGame extends FlameGame
       meetsMinimum:        meetsMin,
       minimumRequired:     kMinPatchesRequired,
       endReason:           endReason,
+      completionState:     completionState,
     );
 
     overlays
@@ -1226,7 +1261,7 @@ class LandDegradationGame extends FlameGame
       ..remove('criticalAlert')
       ..remove('ecoDiscovery')
       ..remove('resupply')
-      ..add('results');
+      ..add('completionBanner');   // banner auto-switches to 'results' after 2.6 s
 
     notifyListeners();
   }
@@ -1505,6 +1540,14 @@ class LandDegradationGame extends FlameGame
       if (_windStripTimer <= 0) {
         _windStripTimer = 20.0 + math.Random().nextDouble() * 12.0;
         _applyWindStrip();
+      }
+
+      // ── Tool-depletion end-game check ────────────────────────────────────
+      // All 5 tools at 0 uses AND no resupply currently active → player can
+      // no longer make any progress; end the level now.
+      if (!levelDone && !resupplyActive &&
+          toolUses.values.every((uses) => uses == 0)) {
+        Future.delayed(const Duration(milliseconds: 600), _endLevel);
       }
     }
 
@@ -4486,6 +4529,159 @@ class LandReactionFx extends StatelessWidget {
           )),
         ),
     ]));
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  COMPLETION BANNER  — auto-dismissing popup that shows BEFORE the results
+//  screen.  Three distinct visual states map to LevelCompletionState.
+// ══════════════════════════════════════════════════════════════════════════════
+class LandCompletionBanner extends StatefulWidget {
+  final LandDegradationGame game;
+  const LandCompletionBanner(this.game, {super.key});
+
+  @override
+  State<LandCompletionBanner> createState() => _LandCompletionBannerState();
+}
+
+class _LandCompletionBannerState extends State<LandCompletionBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double>   _scale;
+  late final Animation<double>   _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
+    _scale = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack);
+    _fade  = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
+    _ctrl.forward();
+
+    // After 2.6 s (380 ms scale-in + 2220 ms hold), dismiss and show results.
+    Future.delayed(const Duration(milliseconds: 2600), () {
+      if (!mounted) return;
+      widget.game.overlays
+        ..remove('completionBanner')
+        ..add('results');
+    });
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final r     = LandDegradationResult.current!;
+    final state = r.completionState;
+    final total = widget.game.patches.length;
+
+    // ── Per-state visuals ──────────────────────────────────────────────────
+    final String topEmoji;
+    final String title;
+    final String subtitle;
+    final List<Color> bgGrad;
+    final Color glow;
+
+    switch (state) {
+      case LevelCompletionState.fullCompletion:
+        topEmoji = '🏆';
+        title    = 'FULL RESTORATION!';
+        subtitle = 'All $total patches restored — outstanding fieldwork!';
+        bgGrad   = [const Color(0xFF003D14), const Color(0xFF005A1E)];
+        glow     = const Color(0xFF69F0AE);
+        break;
+      case LevelCompletionState.moderate:
+        topEmoji = '✅';
+        title    = 'MINIMUM ACHIEVED!';
+        subtitle = '${r.patchesRestored}/$total patches restored\n'
+            'Continuing to Soil Remediation…';
+        bgGrad   = [const Color(0xFF3B2600), const Color(0xFF5A3800)];
+        glow     = const Color(0xFFFFB300);
+        break;
+      case LevelCompletionState.failed:
+        topEmoji = '⏰';
+        title    = 'NOT ENOUGH RESTORED';
+        subtitle = '${r.patchesRestored}/${r.minimumRequired} patches restored\n'
+            'Replay to reach the minimum';
+        bgGrad   = [const Color(0xFF3D0000), const Color(0xFF5A0000)];
+        glow     = const Color(0xFFEF5350);
+        break;
+    }
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.75),
+      child: Center(
+        child: FadeTransition(
+          opacity: _fade,
+          child: ScaleTransition(
+            scale: _scale,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 28),
+              padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                    colors: bgGrad,
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight),
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: glow.withValues(alpha: 0.55), width: 2.0),
+                boxShadow: [
+                  BoxShadow(color: glow.withValues(alpha: 0.35),
+                      blurRadius: 36, spreadRadius: 3),
+                ],
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                // Big emoji
+                Text(topEmoji, style: const TextStyle(fontSize: 62)),
+                const SizedBox(height: 12),
+                // State title
+                Text(title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: glow, fontSize: 22,
+                      fontWeight: FontWeight.w900, letterSpacing: 1.4,
+                    )),
+                const SizedBox(height: 10),
+                // Subtitle / reason
+                Text(subtitle,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 13.5, height: 1.55)),
+                const SizedBox(height: 20),
+                // Quick-stats pill
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: glow.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: glow.withValues(alpha: 0.38)),
+                  ),
+                  child: Text(
+                    '🌿 ${r.patchesRestored}/$total Restored  •  '
+                    '⭐ ${r.ecoPoints} pts  •  🎯 ${r.accuracyPct}% acc',
+                    style: TextStyle(
+                        color: glow, fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Auto-dismiss hint
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  SizedBox(
+                    width: 12, height: 12,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 1.5, color: glow.withValues(alpha: 0.5)),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('Loading results…',
+                      style: TextStyle(color: Colors.white38, fontSize: 10.5)),
+                ]),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
