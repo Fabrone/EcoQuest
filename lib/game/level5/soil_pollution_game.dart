@@ -1,13 +1,11 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
-
 import 'package:ecoquest/game/level5/degraded_land_screen.dart';
 import 'package:ecoquest/game/level5/level5_complete_screen.dart';
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flame/game.dart' hide Matrix4;
 import 'package:flutter/material.dart' hide Matrix4;
 import 'package:flutter/services.dart';
-
 import 'package:ecoquest/game/level5/soil_pollution_models.dart';
 
 // ── Critical contamination alert ──────────────────────────────────────────────
@@ -64,7 +62,7 @@ class SoilPollutionResult {
     this.zonesExpanded     = 0,
     this.resupplyTriggered = 0,
     this.meetsMinimum      = false,
-    this.minimumRequired   = 2,
+    this.minimumRequired   = 8,
   });
 
   int get totalActions  => correctTools + wrongTools;
@@ -105,7 +103,7 @@ class SoilPollutionGame extends FlameGame
   SoilPollutionGame({required this.carryOver, required this.onLevelComplete});
 
   // ── Minimum zones required to proceed ─────────────────────────────────────
-  static const int kMinZonesRequired = 2;
+  static const int kMinZonesRequired = 8;   
 
   // ── World / camera (3× screen) ─────────────────────────────────────────────
   static const double kWorldScale   = 3.0;
@@ -564,6 +562,11 @@ class SoilPollutionGame extends FlameGame
 
     pendingFixTarget = z;
     notifyListeners();
+
+    // Check if we can advance to Phase 4
+    if (remediatedCount >= kMinZonesRequired) {
+      Future.delayed(const Duration(milliseconds: 600), _advanceToPhase4);
+    }
   }
 
   void openToolSelectorForPending() {
@@ -593,23 +596,33 @@ class SoilPollutionGame extends FlameGame
     if (!scanResultActive) return;
     scanResultActive = false;
     overlays.remove('scanResult');
+
     if (pendingFixTarget != null && !toolSelectorOpen) {
       toolSelectorOpen = true;
       toolSelectorShowsHints = _checkAndMarkHintsSeen(
           pendingFixTarget!.type, RemediationStep.none);
       overlays.add('toolSelect');
     }
+
     notifyListeners();
-    if (scannedCount >= zones.length && !toolSelectorOpen) {
+
+    // Only check for Phase 4 if we have enough remediations
+    if (remediatedCount >= kMinZonesRequired) {
       Future.delayed(const Duration(milliseconds: 400), _advanceToPhase4);
     }
   }
 
   void _advanceToPhase4() {
-    if (levelDone || gamePhase >= 4) return;   // ← guard against re-entry
-    gamePhase = 4; bannerTimer = 3.0;
-    overlays.add('banner');
-    notifyListeners();
+    if (levelDone || gamePhase >= 4) return;
+
+    // NEW LOGIC: Only advance to Phase 4 if minimum restorations reached
+    if (remediatedCount >= kMinZonesRequired) {
+      gamePhase = 4;
+      bannerTimer = 3.0;
+      overlays.add('banner');
+      notifyListeners();
+    }
+    // Otherwise stay in Phase 3 until player remediates enough or time runs out
   }
 
   // ── Phase 4: Apply remediation tool ───────────────────────────────────────
@@ -697,15 +710,16 @@ class SoilPollutionGame extends FlameGame
       pendingFixTarget = null;
       toolSelectorOpen = false;
       overlays.remove('toolSelect');
-      if (scannedCount >= zones.length) {
-        Future.delayed(
-            const Duration(milliseconds: 400), _advanceToPhase4);
+      
+      // Check for Phase 4 advancement
+      if (remediatedCount >= kMinZonesRequired) {
+        Future.delayed(const Duration(milliseconds: 400), _advanceToPhase4);
       }
     }
 
-    if (zones.every((z) => z.isRemediated)) {    
-      Future.delayed(const Duration(milliseconds: 800), _endLevel);
-    }
+        if (zones.every((z) => z.isRemediated) || remediatedCount >= kMinZonesRequired) {    
+          Future.delayed(const Duration(milliseconds: 800), _endLevel);
+        }
     notifyListeners();
   }
 
@@ -716,14 +730,6 @@ class SoilPollutionGame extends FlameGame
     notifyListeners();
   }
 
-  // ── Level-complete navigation ───────────────────────────────────────────────
-  /// Removes the in-game results overlay and fires the [onLevelComplete]
-  /// callback, which the host screen uses to push [Level5CompleteScreen].
-  ///
-  /// Called by [SoilResultsOverlay] when the player taps "LEVEL COMPLETE"
-  /// and [SoilPollutionResult.current.meetsMinimum] is `true`.
-  ///
-  /// Safe to call from a Flame overlay widget's `onPressed` handler.
   void navigateToComplete() {
     overlays.remove('results');
     onLevelComplete();
@@ -1024,11 +1030,6 @@ class SoilPollutionGame extends FlameGame
       ..remove('wrongLayer')
       ..remove('toolSelect');
 
-    // Always open the in-game results overlay (SoilResultsOverlay).
-    // • meetsMinimum == true  → SoilResultsOverlay shows "LEVEL COMPLETE ✅"
-    //   button which calls game.navigateToComplete()  →  onLevelComplete()
-    //   →  host screen pushes Level5CompleteScreen.
-    // • meetsMinimum == false → SoilResultsOverlay shows "TRY AGAIN" only.
     overlays.add('results');
     notifyListeners();
   }

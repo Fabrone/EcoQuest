@@ -17,16 +17,17 @@ class LandDegradationResult {
   final bool   terrainStabilised;
   final int    scannedPatches;
   final int    maxCombo;
-  // New dynamic fields
   final int    scanStreakBonus;
-  final int    ecoDiscoveriesFound;   // 0–2
+  final int    ecoDiscoveriesFound;
   final bool   timeBonusCollected;
-  final int    criticalSaves;         // critical alerts handled in time
-  final int    gulliesExpanded;       // punitive expansion events triggered
-  final int    resupplyTriggered;     // times tool resupply was earned
-  // Minimum gate
-  final bool   meetsMinimum;          // did player meet the required minimum?
-  final int    minimumRequired;       // minimum patches to restore to advance
+  final int    criticalSaves;
+  final int    gulliesExpanded;
+  final int    resupplyTriggered;
+  final bool   meetsMinimum;
+  final int    minimumRequired;
+
+  // NEW: Clear explanation of why level ended
+  final String endReason;
 
   const LandDegradationResult({
     required this.patchesRestored,
@@ -45,7 +46,8 @@ class LandDegradationResult {
     this.gulliesExpanded   = 0,
     this.resupplyTriggered = 0,
     this.meetsMinimum      = false,
-    this.minimumRequired   = 3,
+    this.minimumRequired   = 9,
+    this.endReason         = 'Level completed.',
   });
 
   int get totalActions  => correctTools + wrongTools;
@@ -269,7 +271,7 @@ class LandDegradationGame extends FlameGame
   LandDegradationGame({required this.carryOver, required this.onLevelComplete});
 
   // ── Minimum patches required to proceed ───────────────────────────────────
-  static const int kMinPatchesRequired = 2;
+  static const int kMinPatchesRequired = 9;
 
   // ── World / camera system (world = 3× screen) ─────────────────────────────
   static const double kWorldScale    = 3.0;
@@ -439,11 +441,7 @@ class LandDegradationGame extends FlameGame
   double  _hintCooldown      = 0;
   double  _idleTimer         = 0;
 
-  // ── "Show-once" consciousness system ──────────────────────────────────────
-  // Scan-card treatment guide shown at most once per issue type.
-  // Tool-hint highlights (correct-tool glow) shown at most once per
-  // (issue-type × restoration-step) pair.  After the first exposure the
-  // player must recall the correct tool from memory — no cues are given.
+  // ── "Show-once" consciousness system ────────────────────────────────
   final Set<DegradationType> _seenScanCardTypes = {};
   final Set<String>          _seenToolHintKeys  = {};
   bool scanResultShowsHints  = true;   // drives ScanResultOverlay treatment guide
@@ -619,10 +617,7 @@ class LandDegradationGame extends FlameGame
     return best;
   }
 
-  // ── Phase 1: User-triggered SCAN (mirrors sonarPing in NoisePollutionGame) ─
-  // Player taps the SCAN button; if a patch is in range, initiates a 1.5s
-  // lock scan. On completion the scan result card appears, then tool selector
-  // opens — identical flow to noise screen's sonarPing → lock → toolSelect.
+  // ── Phase 1: User-triggered SCAN (mirrors sonarPing in NoisePollutionGame)
   void triggerScan() {
     if (!gameStarted || levelDone || gamePhase != 1) return;
     gameStarted = true;
@@ -683,15 +678,19 @@ class LandDegradationGame extends FlameGame
     for (final p in patches) {
       if (p.isScanned) continue;
       if ((p.patchPos - dronePos).length <= _scanRange) {
-        p.isScanned = true; scannedCount++;
+        p.isScanned = true; 
+        scannedCount++;
         const pts = 3;
-        ecoPoints += pts; newly++; lastP = p;
+        ecoPoints += pts; 
+        newly++; 
+        lastP = p;
         p.scanVariant = newly;
         lastScanPoints = pts;
       }
     }
     if (newly > 0) {
-      scanActive = true; scanRadius = 0;
+      scanActive = true; 
+      scanRadius = 0;
       _handleScanStreak();
       if (lastP != null) {
         lastScannedPatch = lastP;
@@ -704,7 +703,9 @@ class LandDegradationGame extends FlameGame
       }
       reactionMsg = '+${newly * 3} pts  •  Quick scan complete';
       _triggerReaction(true);
-      if (scannedCount >= patches.length) {
+
+      // FIXED: Only advance based on restorations, not scan count
+      if (restoredCount >= kMinPatchesRequired) {
         Future.delayed(const Duration(milliseconds: 900), _advanceToPhase2);
       }
     } else {
@@ -714,10 +715,7 @@ class LandDegradationGame extends FlameGame
     notifyListeners();
   }
 
-  // ── Phase 1: Full scan completion — result card first, tool selector after ─
-  // Flow: triggerScan() → 1.5s lock → _completePatchScan() → scanResult card
-  //       (player reads the identified issue) → dismissScanResult()
-  //       → toolSelect opens. Player always KNOWS what was found before picking.
+  // ── Phase 1: Full scan completion
   void _completePatchScan(DegradedPatch p) {
     if (p.isScanned) return;
     final idx            = patches.indexOf(p);
@@ -735,8 +733,6 @@ class LandDegradationGame extends FlameGame
     lastScanResult       = TerrainScanResult.forType(
         p.type, withDiscovery: hasDiscovery, variant: idx);
     scanCardPos          = dronePos.clone();
-    // First time seeing this issue type → show the treatment guide.
-    // Subsequent scans of the same type → hide guide; player recalls from memory.
     final firstScan = !_seenScanCardTypes.contains(p.type);
     if (firstScan) _seenScanCardTypes.add(p.type);
     scanResultShowsHints = firstScan;
@@ -761,14 +757,13 @@ class LandDegradationGame extends FlameGame
       overlays.add('scanResult');
     }
 
-    // Store pending target but DON'T open tool selector yet.
-    // Tool selector opens when player taps "FIX IT" on the scan result card
-    // (or auto-opens when the card auto-dismisses). This ensures the player
-    // always sees and understands the identified issue before choosing a tool.
     pendingFixTarget = p;
-    // toolSelectorOpen set in dismissScanResult() / openToolSelectorForPending()
-
     notifyListeners();
+
+    // Check for Phase 2 advancement only after sufficient restorations
+    if (restoredCount >= kMinPatchesRequired) {
+      Future.delayed(const Duration(milliseconds: 600), _advanceToPhase2);
+    }
   }
 
   // ── Called when player taps "FIX IT" on scan result card ─────────────────
@@ -800,24 +795,32 @@ class LandDegradationGame extends FlameGame
     if (!scanResultActive) return;
     scanResultActive = false;
     overlays.remove('scanResult');
-    // Open tool selector now that player has seen the identified issue
+
     if (pendingFixTarget != null && !toolSelectorOpen) {
       toolSelectorOpen = true;
       toolSelectorShowsHints = _checkAndMarkHintsSeen(
           pendingFixTarget!.type, RestorationStep.none);
       overlays.add('toolSelect');
     }
+
     notifyListeners();
-    if (scannedCount >= patches.length && !toolSelectorOpen) {
+
+    // Only try to advance if we hit the restoration threshold
+    if (restoredCount >= kMinPatchesRequired) {
       Future.delayed(const Duration(milliseconds: 400), _advanceToPhase2);
     }
   }
 
   void _advanceToPhase2() {
-    if (levelDone) return;
-    gamePhase = 2; bannerTimer = 3.0;
-    overlays.add('banner');
-    notifyListeners();
+    if (levelDone || gamePhase >= 2) return;
+
+    // Only advance to Phase 2 after minimum restorations
+    if (restoredCount >= kMinPatchesRequired) {
+      gamePhase = 2;
+      bannerTimer = 3.0;
+      overlays.add('banner');
+      notifyListeners();
+    }
   }
 
   // ── Phase 2: Apply tool ────────────────────────────────────────────────────
@@ -844,9 +847,6 @@ class LandDegradationGame extends FlameGame
     final stepBeforeApply = target.step; // capture before mutation
     final correct = _isCorrectTool(target.type, selectedTool, stepBeforeApply);
 
-    // closeSelector: only close when step 2 completes or player explicitly cancels.
-    // Wrong tools and step-1-success keep the selector open so the player must
-    // finish both restoration steps before moving to the next hotspot.
     bool closeSelector = false;
 
     if (correct) {
@@ -916,13 +916,15 @@ class LandDegradationGame extends FlameGame
       pendingFixTarget = null;
       toolSelectorOpen = false;
       overlays.remove('toolSelect');
-      // Check if we should advance to phase 2 now that the selector is gone
-      if (scannedCount >= patches.length) {
+      
+      if (restoredCount >= kMinPatchesRequired) {
         Future.delayed(const Duration(milliseconds: 400), _advanceToPhase2);
       }
     }
 
-    if (erosionIndex <= _targetErosion || patches.every((p) => p.isRestored)) {
+    if (erosionIndex <= _targetErosion || 
+        patches.every((p) => p.isRestored) || 
+        restoredCount >= kMinPatchesRequired) {
       Future.delayed(const Duration(milliseconds: 800), _endLevel);
     }
     notifyListeners();
@@ -1076,8 +1078,6 @@ class LandDegradationGame extends FlameGame
   void _breakCombo() { comboCount = 0; comboTimer = 0; }
 
   // ── Consciousness helpers ──────────────────────────────────────────────────
-  /// Returns true (show hints) the very FIRST time this type+step is opened.
-  /// Subsequent calls for the same key return false → no highlights / no guide.
   bool _checkAndMarkHintsSeen(DegradationType type, RestorationStep step) {
     final key = '${type.index}_${step.index}';
     if (_seenToolHintKeys.contains(key)) return false;
@@ -1177,7 +1177,27 @@ class LandDegradationGame extends FlameGame
 
   void _endLevel() {
     if (levelDone) return;
-    levelDone = true; pauseEngine();
+    levelDone = true;
+    pauseEngine();
+
+    final meetsMin = restoredCount >= kMinPatchesRequired;
+    final allRestored = patches.every((p) => p.isRestored);
+    String endReason = '';
+
+    if (timeLeft <= 0) {
+      endReason = meetsMin
+          ? '⏰ Time expired — but you reached the minimum $kMinPatchesRequired restorations!'
+          : '⏰ Time ran out before restoring $kMinPatchesRequired patches.';
+    } else if (allRestored) {
+      endReason = '🌍 All degradation patches fully restored! Outstanding work!';
+    } else if (toolUses.values.every((uses) => uses == 0)) {
+      endReason = '🛠️ All tools were depleted. Use resupply opportunities more effectively next time.';
+    } else {
+      endReason = meetsMin
+          ? '✅ Minimum restorations achieved before time expired.'
+          : 'Level ended with $restoredCount/$kMinPatchesRequired patches restored.';
+    }
+
     LandDegradationResult.current = LandDegradationResult(
       patchesRestored:    restoredCount,
       patchesStabilized:  stabilizedCount,
@@ -1194,9 +1214,11 @@ class LandDegradationGame extends FlameGame
       criticalSaves:       criticalSaves,
       gulliesExpanded:     gulliesExpanded,
       resupplyTriggered:   resupplyTriggered,
-      meetsMinimum:        restoredCount >= kMinPatchesRequired,
+      meetsMinimum:        meetsMin,
       minimumRequired:     kMinPatchesRequired,
+      endReason:           endReason,
     );
+
     overlays
       ..remove('reactionFx')
       ..remove('scanResult')
@@ -1205,6 +1227,7 @@ class LandDegradationGame extends FlameGame
       ..remove('ecoDiscovery')
       ..remove('resupply')
       ..add('results');
+
     notifyListeners();
   }
 
@@ -1298,8 +1321,6 @@ class LandDegradationGame extends FlameGame
     if (ecoGuideTimer > 0) { ecoGuideTimer -= dt; if (ecoGuideTimer <= 0) ecoGuideHint = ''; }
     if (_hintCooldown > 0) _hintCooldown -= dt;
 
-    // Scan result overlay: NON-BLOCKING — only counts down the dismiss timer
-    // Game continues normally (no return here anymore)
     if (scanResultActive) {
       scanResultTimer -= dt;
       if (scanResultTimer <= 0) dismissScanResult();
@@ -2872,7 +2893,7 @@ class LandHud extends StatelessWidget {
                   const Color(0xFFFFB300)),
               const SizedBox(width: 5),
               _LHTile(Icons.restore_rounded,
-                  '${game.restoredCount}/${LandDegradationGame.kMinPatchesRequired}+',
+                  '${game.restoredCount}/${LandDegradationGame.kMinPatchesRequired}',
                   'RESTORED',
                   game.restoredCount >= LandDegradationGame.kMinPatchesRequired
                       ? const Color(0xFF69F0AE)
@@ -3234,8 +3255,6 @@ class _LandControlsState extends State<LandControls> {
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  RIGHT-SIDE TOOL PANEL  —  Phase 2 persistent tool selector
-//  Each card is a horizontal row (emoji · name · uses badge) stacked vertically
-//  on the right edge.  Tapping a card selects it; APPLY button or SPACE applies.
 // ══════════════════════════════════════════════════════════════════════════════
 class _ToolSidePanel extends StatelessWidget {
   final LandDegradationGame game;
@@ -3440,8 +3459,6 @@ class _LDPad extends StatelessWidget {
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  LAND TOOL SELECTOR OVERLAY
-//  Opens immediately after a patch is scanned (mirroring NoiseToolSelector).
-//  Player picks the tool → applyTool() fires immediately → overlay closes.
 // ══════════════════════════════════════════════════════════════════════════════
 class LandToolSelector extends StatelessWidget {
   final LandDegradationGame game;
@@ -3716,9 +3733,7 @@ class LandPhaseBanner extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  SCAN RESULT OVERLAY  — compact floating mini-card, NON-BLOCKING
-//  Game continues while this is visible. Auto-dismisses in 1.8 s.
-//  Shows DYNAMIC points earned (not a constant).
+//  SCAN RESULT OVERLAY 
 // ══════════════════════════════════════════════════════════════════════════════
 class ScanResultOverlay extends StatefulWidget {
   final LandDegradationGame game;
@@ -4613,6 +4628,27 @@ class LandResultsOverlay extends StatelessWidget {
                     style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.6)),
               ]),
             ),
+
+          const SizedBox(height: 10),
+
+          // ── Why the level ended (clear feedback) ───────────────────────
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0A1A08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Column(children: [
+              const Text('LEVEL SUMMARY',
+                  style: TextStyle(color: Colors.white54, fontSize: 10,
+                      fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+              const SizedBox(height: 8),
+              Text(r.endReason,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.5)),
+            ]),
+          ),
 
           const SizedBox(height: 10),
 
