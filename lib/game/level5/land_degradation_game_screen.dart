@@ -611,8 +611,8 @@ class LandDegradationGame extends FlameGame
   bool get _hasNearbyUnscanned =>
       patches.any((p) => !p.isScanned && (p.patchPos - dronePos).length <= _scanRange);
 
-  bool get _hasNearbyUnrestored =>
-      patches.any((p) => !p.isRestored && (p.patchPos - dronePos).length <= _applyRange);
+  /*bool get _hasNearbyUnrestored =>
+      patches.any((p) => !p.isRestored && (p.patchPos - dronePos).length <= _applyRange);*/
 
   DegradedPatch? get _nearestActionable {
     DegradedPatch? best; double minD = _applyRange;
@@ -625,8 +625,8 @@ class LandDegradationGame extends FlameGame
   }
 
   // ── Phase 1: User-triggered SCAN (mirrors sonarPing in NoisePollutionGame)
-  void triggerScan() {
-    if (!gameStarted || levelDone || gamePhase != 1) return;
+void triggerScan() {
+  if (!gameStarted || levelDone) return;
     gameStarted = true;
     HapticFeedback.selectionClick();
 
@@ -677,8 +677,8 @@ class LandDegradationGame extends FlameGame
   }
 
   // ── Phase 1: Quick scan (instant, fewer pts) — tap again while locked ─────
-  void triggerQuickScan() {
-    if (!gameStarted || levelDone || gamePhase != 1) return;
+void triggerQuickScan() {
+  if (!gameStarted || levelDone) return;
     HapticFeedback.selectionClick();
     int newly = 0;
     DegradedPatch? lastP;
@@ -711,10 +711,6 @@ class LandDegradationGame extends FlameGame
       reactionMsg = '+${newly * 3} pts  •  Quick scan complete';
       _triggerReaction(true);
 
-      // FIXED: Only advance based on restorations, not scan count
-      if (restoredCount >= kMinPatchesRequired) {
-        Future.delayed(const Duration(milliseconds: 900), _advanceToPhase2);
-      }
     } else {
       reactionMsg = '✈️ No unscanned patch in range';
       _triggerReaction(false, inRange: false);
@@ -767,10 +763,6 @@ class LandDegradationGame extends FlameGame
     pendingFixTarget = p;
     notifyListeners();
 
-    // Check for Phase 2 advancement only after sufficient restorations
-    if (restoredCount >= kMinPatchesRequired) {
-      Future.delayed(const Duration(milliseconds: 600), _advanceToPhase2);
-    }
   }
 
   // ── Called when player taps "FIX IT" on scan result card ─────────────────
@@ -812,13 +804,9 @@ class LandDegradationGame extends FlameGame
 
     notifyListeners();
 
-    // Only try to advance if we hit the restoration threshold
-    if (restoredCount >= kMinPatchesRequired) {
-      Future.delayed(const Duration(milliseconds: 400), _advanceToPhase2);
-    }
   }
 
-  void _advanceToPhase2() {
+  /*void _advanceToPhase2() {
     if (levelDone || gamePhase >= 2) return;
 
     // Only advance to Phase 2 after minimum restorations
@@ -828,7 +816,7 @@ class LandDegradationGame extends FlameGame
       overlays.add('banner');
       notifyListeners();
     }
-  }
+  }*/
 
   // ── Phase 2: Apply tool ────────────────────────────────────────────────────
   void applyTool() {
@@ -924,16 +912,8 @@ class LandDegradationGame extends FlameGame
       toolSelectorOpen = false;
       overlays.remove('toolSelect');
       
-      if (restoredCount >= kMinPatchesRequired) {
-        Future.delayed(const Duration(milliseconds: 400), _advanceToPhase2);
-      }
     }
 
-    // ── Full-completion trigger (applyTool path) ───────────────────────────
-    // Only stop here when every patch is fully restored (16/16).
-    // • Time-expiry      → _onSecond()
-    // • Tool-depletion   → Phase-2 update block
-    // • Minimum reached  → does NOT end the level; player keeps playing freely
     if (patches.every((p) => p.isRestored)) {
       Future.delayed(const Duration(milliseconds: 600), _endLevel);
     }
@@ -1428,7 +1408,7 @@ class LandDegradationGame extends FlameGame
         (dc) => (dc.cloudPos - dronePos).length < dc.radius + 18);
 
     // ── Phase 1: User-triggered scan lock (mirrors sonarPing timing logic) ───
-    if (gamePhase == 1) {
+    {
       // Always update nearest target for UI feedback
       DegradedPatch? nearest; double nearestD = _scanRange;
       for (final p in patches) {
@@ -2943,8 +2923,8 @@ class LandHud extends StatelessWidget {
             ]),
             const SizedBox(height: 5),
 
-            // Phase 1: scan progress bar (user-triggered lock scan)
-            if (game.gamePhase == 1 && game.scanLockActive) ...[
+            // Scan progress bar (user-triggered lock scan)
+            if (game.scanLockActive) ...[
               Row(children: [
                 const Text('🔒', style: TextStyle(fontSize: 12)),
                 const SizedBox(width: 5),
@@ -2966,8 +2946,8 @@ class LandHud extends StatelessWidget {
               const SizedBox(height: 4),
             ],
 
-            // Phase 1: nudge when a patch is nearby but not scanning
-            if (game.gamePhase == 1 && !game.scanLockActive &&
+            // Nudge when a patch is nearby but not scanning
+            if (!game.scanLockActive &&
                 game._nearestScanTarget != null && !game.toolSelectorOpen && !game.scanResultActive) ...[
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -2987,8 +2967,8 @@ class LandHud extends StatelessWidget {
               ),
             ],
 
-            // Phase 1: scan streak indicator
-            if (game.gamePhase == 1 && game.scanStreak >= 2)
+            // Scan streak indicator
+            if (game.scanStreak >= 2)
               Align(alignment: Alignment.centerRight,
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 4),
@@ -3151,11 +3131,7 @@ class _LandControlsState extends State<LandControls> {
     if (k == LogicalKeyboardKey.keyA || k == LogicalKeyboardKey.arrowLeft)  { if (pressed) lt(true); if (released) lt(false); }
     if (k == LogicalKeyboardKey.keyD || k == LogicalKeyboardKey.arrowRight) { if (pressed) rt(true); if (released) rt(false); }
     if (k == LogicalKeyboardKey.space && pressed) {
-      if (widget.game.gamePhase == 1) {
-        widget.game.triggerScan();
-      } else {
-        widget.game.applyTool();   // SPACE applies the currently selected tool directly
-      }
+      widget.game.triggerScan();
     }
     if (pressed) {
       if (k == LogicalKeyboardKey.digit1) widget.game.selectTool(RestorationTool.terrace);
@@ -3171,11 +3147,8 @@ class _LandControlsState extends State<LandControls> {
     return AnimatedBuilder(
       animation: widget.game,
       builder: (_, __) {
-        final phase  = widget.game.gamePhase;
-        final canAct = phase == 1
-            ? widget.game._hasNearbyUnscanned
-            : widget.game._hasNearbyUnrestored;
-        final actColor = phase == 1 ? const Color(0xFFFFB300) : const Color(0xFF69F0AE);
+        final canAct   = widget.game._hasNearbyUnscanned;
+        const actColor = Color(0xFFFFB300);
 
         // toolDialogRequested is no longer used for touch — panel handles selection.
         // Retained only as a no-op to avoid breaking any residual desktop path.
@@ -3211,23 +3184,11 @@ class _LandControlsState extends State<LandControls> {
               ]),
             ))),
 
-            // ── Phase 2: right-side tool panel (always visible, replaces dialog) ──
-            if (phase == 2)
-              Align(
-                alignment: Alignment.centerRight,
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _ToolSidePanel(game: widget.game),
-                  ),
-                ),
-              ),
-
             // ── Action button (bottom-right) ─────────────────────────────────
             Align(alignment: Alignment.bottomRight, child: SafeArea(child: Padding(
               padding: const EdgeInsets.only(bottom: 20, right: 14),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                if (phase == 1 && widget.game.activeScanPatch != null)
+                if (widget.game.activeScanPatch != null)
                   Container(
                     margin: const EdgeInsets.only(bottom: 6),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3241,7 +3202,7 @@ class _LandControlsState extends State<LandControls> {
                       style: const TextStyle(color: Color(0xFFFFB300), fontSize: 9, fontWeight: FontWeight.bold),
                     ),
                   ),
-                if (phase == 1 && widget.game.toolSelectorOpen)
+                if (widget.game.toolSelectorOpen)
                   Container(
                     margin: const EdgeInsets.only(bottom: 6),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3257,12 +3218,7 @@ class _LandControlsState extends State<LandControls> {
                   ),
                 GestureDetector(
                   onTap: () {
-                    if (phase == 1) {
-                      widget.game.triggerScan();
-                    } else {
-                      // Apply the currently selected tool directly — no dialog
-                      widget.game.applyTool();
-                    }
+                    widget.game.triggerScan();
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 140),
@@ -3274,9 +3230,7 @@ class _LandControlsState extends State<LandControls> {
                       boxShadow: canAct ? [BoxShadow(color: actColor.withValues(alpha: 0.42), blurRadius: 16)] : [],
                     ),
                     child: Center(child: Text(
-                      phase == 1
-                          ? (widget.game.scanLockActive ? '🔒\nLOCK\nING…' : '📡\nSCAN')
-                          : '✅\nAPPLY',
+                      widget.game.scanLockActive ? '🔒\nLOCK\nING…' : '📡\nSCAN',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: canAct ? actColor : Colors.white30,
                           fontWeight: FontWeight.w900, fontSize: 8, letterSpacing: 0.3, height: 1.3),
@@ -3286,181 +3240,6 @@ class _LandControlsState extends State<LandControls> {
               ]),
             ))),
           ]),
-        );
-      },
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  RIGHT-SIDE TOOL PANEL  —  Phase 2 persistent tool selector
-// ══════════════════════════════════════════════════════════════════════════════
-class _ToolSidePanel extends StatelessWidget {
-  final LandDegradationGame game;
-  const _ToolSidePanel({required this.game});
-
-  static const _tools = [
-    (RestorationTool.terrace,   '🏗️', 'Terrace',    'Steep Slope (Step 1)',     Color(0xFFEF5350)),
-    (RestorationTool.checkDam,  '🧱', 'Check Dam',  'Erosion Gully (Step 1)',   Color(0xFFFF6D00)),
-    (RestorationTool.coverCrop, '🌱', 'Cover Crop', 'Bare Land①  Slope②',      Color(0xFF69F0AE)),
-    (RestorationTool.biochar,   '⬛', 'Biochar',    'Dry Soil①  Gully②',       Color(0xFFBCAAA4)),
-    (RestorationTool.compost,   '🌿', 'Compost',    'Bare Land②  Dry Soil②',   Color(0xFF8BC34A)),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: game,
-      builder: (_, __) {
-        final target  = game._nearestActionable;
-        final step    = target?.step ?? RestorationStep.none;
-
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: _tools.map((spec) {
-            final (tool, emoji, label, hint, color) = spec;
-            final uses     = game.toolUses[tool] ?? 0;
-            final isEmpty  = uses == 0;
-            final selected = game.selectedTool == tool;
-            final correct  = target != null && game._isCorrectTool(target.type, tool, step);
-
-            // Border / bg logic: selected > correct > normal > empty
-            final borderColor = isEmpty
-                ? Colors.white12
-                : selected
-                    ? color
-                    : correct
-                        ? color.withValues(alpha: 0.60)
-                        : Colors.white.withValues(alpha: 0.12);
-
-            final bgColor = isEmpty
-                ? Colors.black.withValues(alpha: 0.55)
-                : selected
-                    ? color.withValues(alpha: 0.25)
-                    : correct
-                        ? color.withValues(alpha: 0.10)
-                        : Colors.black.withValues(alpha: 0.62);
-
-            return GestureDetector(
-              onTap: isEmpty ? null : () {
-                HapticFeedback.selectionClick();
-                game.selectTool(tool);
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                margin: const EdgeInsets.only(bottom: 5),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                constraints: const BoxConstraints(minWidth: 120, maxWidth: 140),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: borderColor,
-                    width: (selected || correct) ? 1.8 : 1.1,
-                  ),
-                  boxShadow: selected
-                      ? [BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 10)]
-                      : correct && !isEmpty
-                          ? [BoxShadow(color: color.withValues(alpha: 0.20), blurRadius: 6)]
-                          : [],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // ── Emoji icon ────────────────────────────────────────────
-                    Container(
-                      width: 30, height: 30,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isEmpty
-                            ? Colors.white.withValues(alpha: 0.04)
-                            : color.withValues(alpha: 0.18),
-                        border: Border.all(
-                          color: isEmpty ? Colors.white12 : color.withValues(alpha: 0.45),
-                        ),
-                      ),
-                      child: Center(
-                        child: Text(emoji, style: const TextStyle(fontSize: 14)),
-                      ),
-                    ),
-                    const SizedBox(width: 7),
-
-                    // ── Label + hint ──────────────────────────────────────────
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            label,
-                            style: TextStyle(
-                              color: isEmpty
-                                  ? Colors.white24
-                                  : selected ? color : Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 10.5,
-                            ),
-                          ),
-                          Text(
-                            hint,
-                            style: TextStyle(
-                              color: isEmpty
-                                  ? Colors.white12
-                                  : color.withValues(alpha: 0.68),
-                              fontSize: 8,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-
-                    // ── Uses badge / correct tick ────────────────────────────
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: isEmpty
-                                ? Colors.redAccent.withValues(alpha: 0.14)
-                                : color.withValues(alpha: 0.18),
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(
-                              color: isEmpty
-                                  ? Colors.redAccent.withValues(alpha: 0.42)
-                                  : color.withValues(alpha: 0.38),
-                            ),
-                          ),
-                          child: Text(
-                            isEmpty ? 'OUT' : '×$uses',
-                            style: TextStyle(
-                              color: isEmpty ? Colors.redAccent : color,
-                              fontSize: 7.5,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        if (correct && !isEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            '✓',
-                            style: TextStyle(
-                              color: color,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
         );
       },
     );
