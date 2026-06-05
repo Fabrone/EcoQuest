@@ -2,13 +2,12 @@ import 'dart:math' as math;
 import 'package:ecoquest/game/level5/degraded_land_screen.dart';
 import 'package:ecoquest/game/level5/land_degradation_game_screen.dart';
 import 'package:ecoquest/game/level5/soil_pollution_models.dart';
+import 'package:ecoquest/game/level6/degraded_park_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  LEVEL 5 COMPLETE SCREEN  —  Land Degradation & Soil Pollution final summary
-//  Pure Flutter. Zero Flame. Zero image assets.
-//  Reads LandDegradationResult.current & SoilPollutionResult.current.
+//  LEVEL 5 COMPLETE SCREEN
 // ══════════════════════════════════════════════════════════════════════════════
 
 class Level5CompleteScreen extends StatefulWidget {
@@ -40,7 +39,6 @@ class _Level5CompleteScreenState extends State<Level5CompleteScreen>
   static const Color soilAmber    = Color(0xFFFFB300);
   static const Color fertileGreen = Color(0xFF69F0AE);
   static const Color earthOrange  = Color(0xFFFF6D00);
-  //static const Color dustBrown    = Color(0xFFBCAAA4);
   static const Color gold         = Color(0xFFFFD700);
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -225,7 +223,20 @@ class _Level5CompleteScreenState extends State<Level5CompleteScreen>
 
                       SizedBox(height: mobile ? 22 : 30),
 
-                      _L5ActionButtons(mobile: mobile, carryOver: widget.carryOver),
+                      _L5ActionButtons(
+                        mobile: mobile,
+                        level4CarryOver: widget.carryOver,          // kept for Replay button
+                        level5CarryOver: Level5CarryOver(
+                          ecoPoints:        _totalScore,
+                          landEcoPoints:    _land.ecoPoints,
+                          soilEcoPoints:    _soil.ecoPoints,
+                          patchesRestored:  _land.patchesRestored,
+                          zonesRemediated:  _soil.zonesRemediated,
+                          soilHealthFinal:  _soil.soilHealth,
+                          soilGuardianBadge: _soil.soilGuardianBadge,
+                          terrainStabilised: _land.terrainStabilised,
+                        ),
+                      ),
 
                       const SizedBox(height: 24),
                     ]),
@@ -894,59 +905,19 @@ class _L5BadgeCard extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════════════════
 class _L5ActionButtons extends StatelessWidget {
   final bool            mobile;
-  final Level4CarryOver carryOver;
-  const _L5ActionButtons({required this.mobile, required this.carryOver});
+  final Level4CarryOver level4CarryOver;   // replay
+  final Level5CarryOver level5CarryOver;   // proceed
+  const _L5ActionButtons({
+    required this.mobile,
+    required this.level4CarryOver,
+    required this.level5CarryOver,
+  });
 
-  void _showComingSoon(BuildContext context) {
+  void _proceedToLevel6(BuildContext context) {
     HapticFeedback.lightImpact();
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        backgroundColor: const Color(0xFF0A1006),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(
-              color: _Level5CompleteScreenState.fertileGreen
-                  .withValues(alpha: 0.35), width: 1.5),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('🚧', style: TextStyle(fontSize: 48)),
-            const SizedBox(height: 12),
-            const Text('Level 6 Coming Soon!',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold, fontSize: 20)),
-            const SizedBox(height: 10),
-            const Text(
-              'The next adventure is under construction.\n'
-              'Your Level 5 progress has been saved — '
-              'check back soon to continue your eco-journey!',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.white54, fontSize: 13, height: 1.5),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1B3A10),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text('GOT IT',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, letterSpacing: 1)),
-              ),
-            ),
-          ]),
-        ),
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => DegradedParkScreen(carryOver: level5CarryOver),
       ),
     );
   }
@@ -961,7 +932,7 @@ class _L5ActionButtons extends StatelessWidget {
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
-            onTap: () => _showComingSoon(context),
+            onTap: () => _proceedToLevel6(context),
             borderRadius: BorderRadius.circular(16),
             child: Ink(
               padding: EdgeInsets.symmetric(
@@ -1003,12 +974,10 @@ class _L5ActionButtons extends StatelessWidget {
         child: OutlinedButton.icon(
           onPressed: () {
             // Pop the Level5CompleteScreen and everything above the
-            // first route, then push the Level-5 starting screen so the
-            // player replays from Phase 1 with the same carry-over data.
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute<void>(
                 builder: (_) =>
-                    DegradedLandScreen(carryOver: carryOver),
+                    DegradedLandScreen(carryOver: level4CarryOver),
               ),
               (route) => route.isFirst,
             );

@@ -1,17 +1,10 @@
-// ============================================================================
-//  soil_pollution_models.dart
-//  EcoQuest · Level 5 · Soil Pollution
-//
-//  Contains: data classes, enums, result model, SoilScanResult factory,
-//            and LeachZone value object.
-//
-//  Imported by: soil_pollution_game.dart  AND  soil_pollution_overlays.dart
-// ============================================================================
-
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flutter/material.dart' hide Matrix4;
 
-// ── Result class passed forward to Level5CompleteScreen ──────────────────────
+// ── Add/replace in soil_pollution_models.dart ────────────────────────────────
+
+enum SoilLevelCompletionState { failed, moderate, fullRemediation }
+
 class SoilPollutionResult {
   final int    zonesRemediated;
   final int    zonesPhysical;
@@ -30,6 +23,8 @@ class SoilPollutionResult {
   final int    resupplyTriggered;
   final bool   meetsMinimum;
   final int    minimumRequired;
+  final String                   endReason;
+  final SoilLevelCompletionState completionState;
 
   const SoilPollutionResult({
     required this.zonesRemediated,
@@ -41,54 +36,40 @@ class SoilPollutionResult {
     required this.soilGuardianBadge,
     required this.scannedZones,
     this.maxCombo            = 1,
-    this.scanStreakBonus     = 0,
-    this.ecoDiscoveriesFound = 0,
-    this.timeBonusCollected  = false,
-    this.criticalSaves       = 0,
-    this.zonesExpanded       = 0,
-    this.resupplyTriggered   = 0,
-    this.meetsMinimum        = false,
-    this.minimumRequired     = 3,
+    this.scanStreakBonus      = 0,
+    this.ecoDiscoveriesFound  = 0,
+    this.timeBonusCollected   = false,
+    this.criticalSaves        = 0,
+    this.zonesExpanded        = 0,
+    this.resupplyTriggered    = 0,
+    this.meetsMinimum         = false,
+    this.minimumRequired      = 8,
+    this.endReason            = 'Level completed.',
+    this.completionState      = SoilLevelCompletionState.failed,
   });
 
   int get totalActions => correctTools + wrongTools;
-  int get accuracyPct  =>
-      totalActions == 0 ? 0 : ((correctTools / totalActions) * 100).round();
+  int get accuracyPct  => totalActions == 0
+      ? 0 : ((correctTools / totalActions) * 100).round();
 
   String get performanceGrade {
-    if (accuracyPct >= 85 && zonesRemediated >= 7) return 'SOIL RESTORATION EXPERT';
-    if (accuracyPct >= 70 && zonesRemediated >= 5) return 'SKILLED BIOREMEDIATOR';
-    if (accuracyPct >= 50 && zonesRemediated >= 3) return 'FIELD TECHNICIAN';
-    return 'TRAINEE ECOLOGIST';
+    if (accuracyPct >= 85 && zonesRemediated >= 7) return 'EXPERT REMEDIATOR';
+    if (accuracyPct >= 70 && zonesRemediated >= 5) return 'SKILLED SOIL SCIENTIST';
+    if (accuracyPct >= 50 && zonesRemediated >= 3) return 'FIELD TRAINEE';
+    return 'APPRENTICE ECOLOGIST';
   }
 
   String get performanceSummary {
     final lines = <String>[];
-    if (criticalSaves > 0) {
-      lines.add('Contained $criticalSaves critical contamination zone(s)');
-    }
-    if (zonesExpanded > 0) {
-      lines.add('$zonesExpanded zone(s) expanded due to neglect');
-    }
-    if (ecoDiscoveriesFound > 0) {
-      lines.add('Found $ecoDiscoveriesFound hidden Soil Discovery marker(s)');
-    }
-    if (timeBonusCollected) {
-      lines.add('Time Bonus zone remediated — earned +8 s');
-    }
-    if (maxCombo >= 4) {
-      lines.add('$maxCombo-streak combo — 3× point multiplier!');
-    }
-    if (scanStreakBonus > 0) {
-      lines.add('Scan streak bonus: +$scanStreakBonus pts');
-    }
-    return lines.isEmpty
-        ? 'Remediate all zones to maximise your soil health score.'
-        : lines.join('\n');
+    if (criticalSaves > 0)        lines.add('Saved $criticalSaves critical zone(s) before collapse');
+    if (zonesExpanded > 0)        lines.add('$zonesExpanded contamination zone(s) expanded due to neglect');
+    if (ecoDiscoveriesFound > 0)  lines.add('Found $ecoDiscoveriesFound hidden Eco-Discovery marker(s)');
+    if (timeBonusCollected)       lines.add('Time Bonus zone restored - earned +8 s');
+    if (maxCombo >= 4)            lines.add('$maxCombo-streak combo achieved - 3× point multiplier!');
+    if (scanStreakBonus > 0)      lines.add('Scan streak bonus: +$scanStreakBonus pts');
+    return lines.isEmpty ? 'Complete all zones to maximise your score.' : lines.join('\n');
   }
 
-  /// Shared singleton written by [SoilPollutionGame._endLevel] and read by
-  /// [SoilResultsOverlay] and [Level5CompleteScreen].
   static SoilPollutionResult? current;
 }
 

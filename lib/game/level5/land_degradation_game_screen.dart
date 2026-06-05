@@ -4558,8 +4558,8 @@ class _LandCompletionBannerState extends State<LandCompletionBanner>
     _fade  = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
     _ctrl.forward();
 
-    // After 2.6 s (380 ms scale-in + 2220 ms hold), dismiss and show results.
-    Future.delayed(const Duration(milliseconds: 2600), () {
+    // After 5 s (380 ms scale-in + 4620 ms hold), dismiss and show results.
+    Future.delayed(const Duration(milliseconds: 5000), () {
       if (!mounted) return;
       widget.game.overlays
         ..remove('completionBanner')

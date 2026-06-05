@@ -21,75 +21,6 @@ class CriticalContaminationAlert {
   });
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  SOIL POLLUTION RESULT
-// ══════════════════════════════════════════════════════════════════════════════
-class SoilPollutionResult {
-  final int    zonesRemediated;
-  final int    zonesPhysical;
-  final int    correctTools;
-  final int    wrongTools;
-  final int    ecoPoints;
-  final double soilHealth;
-  final bool   soilGuardianBadge;
-  final int    scannedZones;
-  final int    maxCombo;
-  // Dynamic fields
-  final int    scanStreakBonus;
-  final int    ecoDiscoveriesFound;
-  final bool   timeBonusCollected;
-  final int    criticalSaves;
-  final int    zonesExpanded;
-  final int    resupplyTriggered;
-  // Minimum gate
-  final bool   meetsMinimum;
-  final int    minimumRequired;
-
-  const SoilPollutionResult({
-    required this.zonesRemediated,
-    required this.zonesPhysical,
-    required this.correctTools,
-    required this.wrongTools,
-    required this.ecoPoints,
-    required this.soilHealth,
-    required this.soilGuardianBadge,
-    required this.scannedZones,
-    this.maxCombo          = 1,
-    this.scanStreakBonus    = 0,
-    this.ecoDiscoveriesFound = 0,
-    this.timeBonusCollected = false,
-    this.criticalSaves     = 0,
-    this.zonesExpanded     = 0,
-    this.resupplyTriggered = 0,
-    this.meetsMinimum      = false,
-    this.minimumRequired   = 8,
-  });
-
-  int get totalActions  => correctTools + wrongTools;
-  int get accuracyPct   => totalActions == 0
-      ? 0 : ((correctTools / totalActions) * 100).round();
-
-  /// Human-readable performance grade
-  String get performanceGrade {
-    if (accuracyPct >= 85 && zonesRemediated >= 7) return 'EXPERT REMEDIATOR';
-    if (accuracyPct >= 70 && zonesRemediated >= 5) return 'SKILLED SOIL SCIENTIST';
-    if (accuracyPct >= 50 && zonesRemediated >= 3) return 'FIELD TRAINEE';
-    return 'APPRENTICE ECOLOGIST';
-  }
-
-  String get performanceSummary {
-    final lines = <String>[];
-    if (criticalSaves > 0) lines.add('Saved \$criticalSaves critical zone(s) before collapse');
-    if (zonesExpanded > 0) lines.add('\$zonesExpanded contamination zone(s) expanded due to neglect');
-    if (ecoDiscoveriesFound > 0) lines.add('Found \$ecoDiscoveriesFound hidden Eco-Discovery marker(s)');
-    if (timeBonusCollected) lines.add('Time Bonus zone restored - earned +8 s');
-    if (maxCombo >= 4) lines.add('\$maxCombo-streak combo achieved - 3× point multiplier!');
-    if (scanStreakBonus > 0) lines.add('Scan streak bonus: +\$scanStreakBonus pts');
-    return lines.isEmpty ? 'Complete all zones to maximise your score.' : lines.join('\n');
-  }
-
-  static SoilPollutionResult? current;
-}
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  MAIN GAME CLASS
@@ -717,7 +648,7 @@ class SoilPollutionGame extends FlameGame
       }
     }
 
-        if (zones.every((z) => z.isRemediated) || remediatedCount >= kMinZonesRequired) {    
+        if (zones.every((z) => z.isRemediated)) {
           Future.delayed(const Duration(milliseconds: 800), _endLevel);
         }
     notifyListeners();
@@ -997,7 +928,43 @@ class SoilPollutionGame extends FlameGame
     if (levelDone) return;
     levelDone = true; pauseEngine();
 
-    final meetsMin = remediatedCount >= kMinZonesRequired;
+    final meetsMin    = remediatedCount >= kMinZonesRequired;
+    final allRemediated = zones.every((z) => z.isRemediated);
+
+    // ── Completion state (drives banner visuals + CTA) ─────────────────────
+    final SoilLevelCompletionState completionState;
+    if (allRemediated) {
+      completionState = SoilLevelCompletionState.fullRemediation;
+    } else if (meetsMin) {
+      completionState = SoilLevelCompletionState.moderate;
+    } else {
+      completionState = SoilLevelCompletionState.failed;
+    }
+
+    // ── End reason (shown in LEVEL SUMMARY card on results screen) ─────────
+    String endReason = '';
+    if (timeLeft <= 0) {
+      if (allRemediated) {
+        endReason = '🌱 All zones remediated — and just in time!';
+      } else if (meetsMin) {
+        endReason = '⏰ Time expired — minimum $kMinZonesRequired remediations met. '
+            'Well done!';
+      } else {
+        endReason = '⏰ Time ran out before remediating $kMinZonesRequired zones. '
+            'Keep practising!';
+      }
+    } else if (allRemediated) {
+      endReason = '🌱 All ${zones.length} contamination zones fully remediated! '
+          'Outstanding work!';
+    } else if (toolUses.values.every((uses) => uses == 0)) {
+      endReason = meetsMin
+          ? '🛠️ Tools depleted — minimum remediations achieved! Continue to the next stage.'
+          : '🛠️ All tools depleted before reaching the $kMinZonesRequired-zone minimum.';
+    } else {
+      endReason = meetsMin
+          ? '✅ Minimum $kMinZonesRequired remediations achieved — level complete!'
+          : 'Level ended with $remediatedCount/$kMinZonesRequired zones remediated.';
+    }
 
     SoilPollutionResult.current = SoilPollutionResult(
       zonesRemediated:     remediatedCount,
@@ -1017,9 +984,11 @@ class SoilPollutionGame extends FlameGame
       resupplyTriggered:   resupplyTriggered,
       meetsMinimum:        meetsMin,
       minimumRequired:     kMinZonesRequired,
+      endReason:           endReason,
+      completionState:     completionState,
     );
 
-    // Remove every active in-game overlay before the results screen appears.
+    // Remove every active in-game overlay before the completion banner appears.
     overlays
       ..remove('reactionFx')
       ..remove('scanResult')
@@ -1030,7 +999,7 @@ class SoilPollutionGame extends FlameGame
       ..remove('wrongLayer')
       ..remove('toolSelect');
 
-    overlays.add('results');
+    overlays.add('completionBanner');   // banner auto-switches to 'results' after 5 s
     notifyListeners();
   }
 
@@ -2921,18 +2890,19 @@ class _SoilPollutionGameScreenState extends State<SoilPollutionGameScreen> {
       body: GameWidget(
         game: _game,
         overlayBuilderMap: {
-          'hud':             (ctx, g) => SoilHud(g as SoilPollutionGame),
-          'controls':        (ctx, g) => SoilControls(g as SoilPollutionGame),
-          'banner':          (ctx, g) => SoilPhaseBanner(g as SoilPollutionGame),
-          'reactionFx':      (ctx, g) => SoilReactionFx(g as SoilPollutionGame),
-          'results':         (ctx, g) => SoilResultsOverlay(g as SoilPollutionGame),
-          'scanResult':      (ctx, g) => SoilScanResultOverlay(g as SoilPollutionGame),
-          'toolSelect':      (ctx, g) => SoilToolSelector(g as SoilPollutionGame),
-          'leachAlert':      (ctx, g) => AcidLeachingAlertOverlay(g as SoilPollutionGame),
-          'criticalAlert':   (ctx, g) => CriticalContaminationAlertOverlay(g as SoilPollutionGame),
-          'ecoDiscovery':    (ctx, g) => EcoDiscoveryOverlay(g as SoilPollutionGame),
-          'resupply':        (ctx, g) => ResupplyOverlay(g as SoilPollutionGame),
-          'wrongLayer':      (ctx, g) => WrongLayerOverlay(g as SoilPollutionGame),
+          'hud':               (ctx, g) => SoilHud(g as SoilPollutionGame),
+          'controls':          (ctx, g) => SoilControls(g as SoilPollutionGame),
+          'banner':            (ctx, g) => SoilPhaseBanner(g as SoilPollutionGame),
+          'reactionFx':        (ctx, g) => SoilReactionFx(g as SoilPollutionGame),
+          'completionBanner':  (ctx, g) => SoilCompletionBanner(g as SoilPollutionGame),
+          'results':           (ctx, g) => SoilResultsOverlay(g as SoilPollutionGame),
+          'scanResult':        (ctx, g) => SoilScanResultOverlay(g as SoilPollutionGame),
+          'toolSelect':        (ctx, g) => SoilToolSelector(g as SoilPollutionGame),
+          'leachAlert':        (ctx, g) => AcidLeachingAlertOverlay(g as SoilPollutionGame),
+          'criticalAlert':     (ctx, g) => CriticalContaminationAlertOverlay(g as SoilPollutionGame),
+          'ecoDiscovery':      (ctx, g) => EcoDiscoveryOverlay(g as SoilPollutionGame),
+          'resupply':          (ctx, g) => ResupplyOverlay(g as SoilPollutionGame),
+          'wrongLayer':        (ctx, g) => WrongLayerOverlay(g as SoilPollutionGame),
         },
         initialActiveOverlays: const ['hud', 'controls'],
       ),
@@ -4511,6 +4481,165 @@ Apply Step 2 before leaching hits!''',
 
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  COMPLETION BANNER  — auto-dismissing popup that shows BEFORE the results screen
+// ══════════════════════════════════════════════════════════════════════════════
+class SoilCompletionBanner extends StatefulWidget {
+  final SoilPollutionGame game;
+  const SoilCompletionBanner(this.game, {super.key});
+
+  @override
+  State<SoilCompletionBanner> createState() => _SoilCompletionBannerState();
+}
+
+class _SoilCompletionBannerState extends State<SoilCompletionBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double>   _scale;
+  late final Animation<double>   _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
+    _scale = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack);
+    _fade  = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
+    _ctrl.forward();
+
+    // After 5 s (380 ms scale-in + 4620 ms hold), dismiss and show results.
+    Future.delayed(const Duration(milliseconds: 5000), () {
+      if (!mounted) return;
+      widget.game.overlays
+        ..remove('completionBanner')
+        ..add('results');
+    });
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final r     = SoilPollutionResult.current!;
+    final state = r.completionState;
+    final total = widget.game.zones.length;
+
+    // ── Per-state visuals ──────────────────────────────────────────────────
+    final String topEmoji;
+    final String title;
+    final String subtitle;
+    final List<Color> bgGrad;
+    final Color glow;
+
+    switch (state) {
+      case SoilLevelCompletionState.fullRemediation:
+        topEmoji = '🏆';
+        title    = 'FULL REMEDIATION!';
+        subtitle = 'All $total zones remediated — outstanding fieldwork!';
+        bgGrad   = [const Color(0xFF003D14), const Color(0xFF005A1E)];
+        glow     = const Color(0xFF69F0AE);
+        break;
+      case SoilLevelCompletionState.moderate:
+        topEmoji = '✅';
+        title    = 'MINIMUM ACHIEVED!';
+        subtitle = '${r.zonesRemediated}/$total zones remediated\n'
+            'Continuing to the next stage…';
+        bgGrad   = [const Color(0xFF1A2600), const Color(0xFF2A3800)];
+        glow     = const Color(0xFF8BC34A);
+        break;
+      case SoilLevelCompletionState.failed:
+        topEmoji = '⏰';
+        title    = 'NOT ENOUGH REMEDIATED';
+        subtitle = '${r.zonesRemediated}/${r.minimumRequired} zones remediated\n'
+            'Replay to reach the minimum';
+        bgGrad   = [const Color(0xFF3D0000), const Color(0xFF5A0000)];
+        glow     = const Color(0xFFEF5350);
+        break;
+    }
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.75),
+      child: Center(
+        child: FadeTransition(
+          opacity: _fade,
+          child: ScaleTransition(
+            scale: _scale,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 28),
+              padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                    colors: bgGrad,
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight),
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: glow.withValues(alpha: 0.55), width: 2.0),
+                boxShadow: [
+                  BoxShadow(color: glow.withValues(alpha: 0.35),
+                      blurRadius: 36, spreadRadius: 3),
+                ],
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                // Big emoji
+                Text(topEmoji, style: const TextStyle(fontSize: 62)),
+                const SizedBox(height: 12),
+                // State title
+                Text(title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: glow, fontSize: 22,
+                      fontWeight: FontWeight.w900, letterSpacing: 1.4,
+                    )),
+                const SizedBox(height: 10),
+                // Cause of end
+                Text(r.endReason,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 13.5, height: 1.55)),
+                const SizedBox(height: 8),
+                // Subtitle / continuation note
+                Text(subtitle,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: glow.withValues(alpha: 0.80),
+                        fontSize: 12.5, height: 1.45)),
+                const SizedBox(height: 20),
+                // Quick-stats pill
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: glow.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: glow.withValues(alpha: 0.38)),
+                  ),
+                  child: Text(
+                    '🌱 ${r.zonesRemediated}/$total Remediated  •  '
+                    '⭐ ${r.ecoPoints} pts  •  🎯 ${r.accuracyPct}% acc',
+                    style: TextStyle(
+                        color: glow, fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Auto-dismiss hint
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  SizedBox(
+                    width: 12, height: 12,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 1.5, color: glow.withValues(alpha: 0.5)),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('Loading results…',
+                      style: TextStyle(color: Colors.white38, fontSize: 10.5)),
+                ]),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  RESULTS OVERLAY  - fully dynamic
 // ══════════════════════════════════════════════════════════════════════════════
 class SoilResultsOverlay extends StatelessWidget {
@@ -4648,6 +4777,27 @@ Expanded''', Colors.orange),
                     style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.6)),
               ]),
             ),
+
+          const SizedBox(height: 10),
+
+          // ── Why the level ended (clear feedback) ───────────────────────
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0A1A08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Column(children: [
+              const Text('LEVEL SUMMARY',
+                  style: TextStyle(color: Colors.white54, fontSize: 10,
+                      fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+              const SizedBox(height: 8),
+              Text(r.endReason,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.5)),
+            ]),
+          ),
 
           const SizedBox(height: 10),
 
