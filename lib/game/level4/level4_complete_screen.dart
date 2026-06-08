@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:ecoquest/game/level4/air_noise_city_screen.dart';
 import 'package:ecoquest/game/level4/air_pollution_game_screen.dart';
 import 'package:ecoquest/game/level4/noise_pollution_screen.dart';
+import 'package:ecoquest/game/level5/degraded_land_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -242,7 +243,31 @@ class _Level4CompleteScreenState extends State<Level4CompleteScreen>
 
                       SizedBox(height: mobile ? 22 : 30),
 
-                      _L4ActionButtons(mobile: mobile),
+                      _L4ActionButtons(
+                        mobile: mobile,
+                        onProceed: () {
+                          HapticFeedback.mediumImpact();
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => DegradedLandScreen(
+                                carryOver: Level4CarryOver(
+                                  ecoPoints:             _totalScore,
+                                  airEcoPoints:          _air.ecoPoints,
+                                  noiseEcoPoints:        _noise.ecoPoints,
+                                  pollutantsNeutralized: _air.pollutantsNeutralized,
+                                  hotspotsFix:           _noise.hotspotsFix,
+                                  methanol:              _air.methanol,
+                                  gypsum:                _air.gypsum,
+                                  urea:                  _air.urea,
+                                  nitrates:              _air.nitrates,
+                                  peacefulCityBadge:     _noise.peacefulCityBadge,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
 
                       const SizedBox(height: 24),
                     ]),
@@ -964,62 +989,8 @@ class _L4BadgeCard extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════════════════
 class _L4ActionButtons extends StatelessWidget {
   final bool mobile;
-  const _L4ActionButtons({required this.mobile});
-
-  void _showComingSoon(BuildContext context) {
-    HapticFeedback.lightImpact();
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        backgroundColor: const Color(0xFF0A1422),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(
-              color: _Level4CompleteScreenState.calmBlue
-                  .withValues(alpha: 0.35), width: 1.5),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('🚧', style: TextStyle(fontSize: 48)),
-            const SizedBox(height: 12),
-            const Text('Level 5 Coming Soon!',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20)),
-            const SizedBox(height: 10),
-            const Text(
-              'The next adventure is under construction.\n'
-              'Your Level 4 progress has been saved — '
-              'check back soon to continue your eco-journey!',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.white54, fontSize: 13, height: 1.5),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF003050),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text('GOT IT',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, letterSpacing: 1)),
-              ),
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
+  final VoidCallback onProceed;
+  const _L4ActionButtons({required this.mobile, required this.onProceed});
 
   @override
   Widget build(BuildContext context) {
@@ -1032,7 +1003,7 @@ class _L4ActionButtons extends StatelessWidget {
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
-            onTap: () => _showComingSoon(context),
+            onTap: onProceed,
             borderRadius: BorderRadius.circular(16),
             child: Ink(
               padding: EdgeInsets.symmetric(
