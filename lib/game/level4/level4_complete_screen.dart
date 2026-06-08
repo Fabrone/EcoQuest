@@ -74,7 +74,7 @@ class _Level4CompleteScreenState extends State<Level4CompleteScreen>
         windEvades: 0,
         scanComboMax: 0,
         meetsMinimum: false,
-        minimumRequired: 3,
+        minimumRequired: 6,                 // ← updated fallback
       );
 
   int get _totalScore => _air.ecoPoints + _noise.ecoPoints;
@@ -637,9 +637,10 @@ class _L4StatGrid extends StatelessWidget {
           '${noise.noiseMeterFinal.toStringAsFixed(0)} dB',
           'Final city noise level\n(target: < 40 dB)',
           _Level4CompleteScreenState.calmBlue),
+      // ← changed from hard-coded /8 to dynamic minimumRequired
       _L4SD('✅', 'Hotspots Fixed',
-          '${noise.hotspotsFix}/8',
-          'Noise hotspots correctly\ntreated in Phase 3 & 4',
+          '${noise.hotspotsFix}/${noise.minimumRequired}',
+          'Noise hotspots correctly\ntreated (minimum met)',
           _Level4CompleteScreenState.acidGreen),
       _L4SD('⚗️', 'By-Products',
           '$byProducts',

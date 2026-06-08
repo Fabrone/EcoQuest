@@ -20,6 +20,10 @@ class NoiseResult {
   final int scanComboMax;
   final bool meetsMinimum;
   final int minimumRequired;
+  final int scannedCount;
+  final int maxCombo;
+  final String endReason;
+  final LevelCompletionState completionState;
 
   const NoiseResult({
     required this.hotspotsFix,
@@ -31,6 +35,10 @@ class NoiseResult {
     required this.scanComboMax,
     required this.meetsMinimum,
     required this.minimumRequired,
+    this.scannedCount = 0,
+    this.maxCombo = 1,
+    this.endReason = 'Level completed.',
+    this.completionState = LevelCompletionState.failed,
   });
 
   static NoiseResult? current;
@@ -39,17 +47,37 @@ class NoiseResult {
 // ══════════════════════════════════════════════════════════════════════════════
 //  ENUMS
 // ══════════════════════════════════════════════════════════════════════════════
-enum NoiseType { traffic, construction, loudspeaker, vegetation }
+enum NoiseType { 
+  traffic, 
+  construction, 
+  loudspeaker, 
+  vegetation,
+  industrial,
+  aircraft,
+  railway,
+  nightclub,
+}
 
-enum NoiseTool { electricMuffler, silentMachinery, silentZone, treeBarrier }
+enum NoiseTool { 
+  electricMuffler, 
+  silentMachinery, 
+  silentZone, 
+  treeBarrier,
+  noiseBarrier,
+  flightPath,
+  trackDampener,
+  soundInsulation,
+}
 
 enum WindIntensity { light, moderate, heavy }
+
+enum LevelCompletionState { failed, moderate, fullCompletion }
 
 enum ReactionKind {
   scanLocked,
   scanMiss,
   scanPartial,
-  windBlock,
+  windSlow,
   noCharge,
   windEvade,
   fixCorrect,
@@ -57,34 +85,115 @@ enum ReactionKind {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  SONAR LOCK STATE
+//  SCAN RESULT  — shows once, then memory only
 // ══════════════════════════════════════════════════════════════════════════════
-class SonarLock {
-  final NoiseHotspot target;
-  double lockProgress = 0.0;
-  int pulseHits = 0;
-  bool locked = false;
+class NoiseScanResult {
+  final String icon;
+  final String typeName;
+  final String dbLevel;
+  final Color color;
+  final String ecoFact;
+  final String requiredTool;
+  final String requiredToolEmoji;
 
-  SonarLock(this.target);
+  const NoiseScanResult({
+    required this.icon,
+    required this.typeName,
+    required this.dbLevel,
+    required this.color,
+    required this.ecoFact,
+    required this.requiredTool,
+    required this.requiredToolEmoji,
+  });
 
-  static double freqFor(NoiseType t) {
-    switch (t) {
+  factory NoiseScanResult.forType(NoiseType type) {
+    switch (type) {
       case NoiseType.traffic:
-        return 1.1;
+        return const NoiseScanResult(
+          icon: '🚗',
+          typeName: 'Vehicle Honking',
+          dbLevel: '85 dB',
+          color: Color(0xFFEF5350),
+          ecoFact: 'Traffic noise above 80 dB causes chronic stress. Electric mufflers reduce engine noise by up to 70%.',
+          requiredTool: 'Electric Muffler',
+          requiredToolEmoji: '⚡',
+        );
       case NoiseType.construction:
-        return 0.65;
+        return const NoiseScanResult(
+          icon: '🏗️',
+          typeName: 'Construction Site',
+          dbLevel: '90 dB',
+          color: Color(0xFFFF6D00),
+          ecoFact: 'Construction noise peaks at 90+ dB. Silent machinery enclosures cut noise by 15–20 dB without slowing work.',
+          requiredTool: 'Silent Machinery',
+          requiredToolEmoji: '🔕',
+        );
       case NoiseType.loudspeaker:
-        return 0.90;
+        return const NoiseScanResult(
+          icon: '📢',
+          typeName: 'Loud Speaker',
+          dbLevel: '78 dB',
+          color: Color(0xFFCE93D8),
+          ecoFact: 'Unregulated loudspeakers disrupt wildlife communication. Silent zones restore acoustic ecology.',
+          requiredTool: 'Silent Zone',
+          requiredToolEmoji: '🚫',
+        );
       case NoiseType.vegetation:
-        return 0.50;
+        return const NoiseScanResult(
+          icon: '🌿',
+          typeName: 'Sparse Vegetation',
+          dbLevel: '72 dB',
+          color: Color(0xFF78909C),
+          ecoFact: 'Dense tree barriers absorb 6–10 dB of noise. Native species create natural sound corridors.',
+          requiredTool: 'Tree Barrier',
+          requiredToolEmoji: '🌲',
+        );
+      case NoiseType.industrial:
+        return const NoiseScanResult(
+          icon: '🏭',
+          typeName: 'Industrial Plant',
+          dbLevel: '95 dB',
+          color: Color(0xFF8D6E63),
+          ecoFact: 'Industrial noise from factories can reach 95 dB. Noise barriers absorb and deflect sound waves effectively.',
+          requiredTool: 'Noise Barrier',
+          requiredToolEmoji: '🧱',
+        );
+      case NoiseType.aircraft:
+        return const NoiseScanResult(
+          icon: '✈️',
+          typeName: 'Aircraft Overflight',
+          dbLevel: '88 dB',
+          color: Color(0xFF5C6BC0),
+          ecoFact: 'Aircraft noise at 88 dB disrupts sleep patterns. Optimized flight paths reduce community exposure.',
+          requiredTool: 'Flight Path',
+          requiredToolEmoji: '🛫',
+        );
+      case NoiseType.railway:
+        return const NoiseScanResult(
+          icon: '🚆',
+          typeName: 'Railway Noise',
+          dbLevel: '82 dB',
+          color: Color(0xFF26A69A),
+          ecoFact: 'Railway noise at 82 dB vibrates through foundations. Track dampeners reduce vibration transmission.',
+          requiredTool: 'Track Dampener',
+          requiredToolEmoji: '🛤️',
+        );
+      case NoiseType.nightclub:
+        return const NoiseScanResult(
+          icon: '🎵',
+          typeName: 'Nightclub District',
+          dbLevel: '92 dB',
+          color: Color(0xFFAB47BC),
+          ecoFact: 'Nightclub districts hit 92 dB at night. Sound insulation in buildings protects residents while allowing nightlife.',
+          requiredTool: 'Sound Insulation',
+          requiredToolEmoji: '🏠',
+        );
     }
   }
-
-  static const int pingsRequired = 2;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  WIND ZONE  (Phase hazard)
+//  WIND ZONE  (Phase hazard — now only slows scanning)
 // ══════════════════════════════════════════════════════════════════════════════
 class WindZone {
   double cx, cy;
@@ -107,7 +216,6 @@ class WindZone {
     required this.lifetime,
   }) : maxLifetime = lifetime;
 
-  // update using world coords — world is [0..worldW] x [0..worldH]
   void update(double dt, double worldW, double worldH) {
     if (!isActive) return;
     animT += dt;
@@ -159,15 +267,15 @@ class WindZone {
     }
   }
 
-  bool blocksAt(Vector2 p, math.Random rng) {
-    if (!containsPoint(p)) return false;
+  /// NEW: Wind only slows scan rate, never blocks
+  double get scanSlowFactor {
     switch (intensity) {
       case WindIntensity.light:
-        return false; // Light wind never blocks — only cosmetic drift
+        return 0.85;  // 15% slower
       case WindIntensity.moderate:
-        return rng.nextDouble() < 0.35; // Was 0.72 — much lighter disruption
+        return 0.60;  // 40% slower
       case WindIntensity.heavy:
-        return rng.nextDouble() < 0.65; // Was always true — now 65% chance
+        return 0.35;  // 65% slower
     }
   }
 
@@ -234,9 +342,11 @@ class _NoisePollutionScreenState extends State<NoisePollutionScreen> {
           'hud': (ctx, g) => NoiseHud(g as NoisePollutionGame),
           'controls': (ctx, g) => NoiseControls(g as NoisePollutionGame),
           'banner': (ctx, g) => NoisePhaseBanner(g as NoisePollutionGame),
+          'scanResult': (ctx, g) => NoiseScanResultOverlay(g as NoisePollutionGame),
           'toolSelect': (ctx, g) => NoiseToolSelector(g as NoisePollutionGame),
           'reactionFx': (ctx, g) => NoiseReactionFx(g as NoisePollutionGame),
           'results': (ctx, g) => NoiseResultsOverlay(g as NoisePollutionGame),
+          'completionBanner': (ctx, g) => NoiseCompletionBanner(g as NoisePollutionGame),
           'liveMetrics': (ctx, g) => NoiseLiveMetrics(g as NoisePollutionGame),
         },
         initialActiveOverlays: const ['hud', 'controls', 'liveMetrics'],
@@ -248,25 +358,14 @@ class _NoisePollutionScreenState extends State<NoisePollutionScreen> {
 // ══════════════════════════════════════════════════════════════════════════════
 //  WORLD CONSTANTS
 // ══════════════════════════════════════════════════════════════════════════════
-//  The city extends 3× the device screen in both axes.
-//  The drone navigates freely; the camera follows with soft clamping at the
-//  world boundary.  Edge-scroll is triggered automatically when the drone
-//  approaches within 20% of the viewport edges.
 class _World {
-  static const double kScale = 3.0; // world = 3× screen
-  static const double kEdgeFraction = 0.22; // scroll trigger zone
-  static const double kCameraEase = 5.0; // lerp speed
+  static const double kScale = 3.0;
+  static const double kEdgeFraction = 0.22;
+  static const double kCameraEase = 5.0;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  MAIN GAME CLASS  —  Single unified scan-and-fix phase
-//  Key design changes:
-//    • No two-phase split — scanning a hotspot immediately opens tool picker
-//      and the player applies the fix in one flow.
-//    • Hotspots are randomly scattered across the full 3× world.
-//    • World scrolls as drone approaches edges, hinting at more content.
-//    • Hotspot pool refills (new ones spawn in unexplored regions) so there
-//      is always something to find — session ends on timer or player choice.
+//  MAIN GAME CLASS
 // ══════════════════════════════════════════════════════════════════════════════
 class NoisePollutionGame extends FlameGame
     with HasCollisionDetection, ChangeNotifier {
@@ -275,9 +374,12 @@ class NoisePollutionGame extends FlameGame
 
   NoisePollutionGame({required this.carryOver, required this.onLevelComplete});
 
+  // ── Minimum hotspots required to proceed (like land degradation) ───────────
+  static const int kMinSolutionsRequired = 8;
+
   // ── Core state ────────────────────────────────────────────────────────────
   bool gameStarted = false;
-  double timeLeft = 180.0; // 3 minutes — more time for exploration
+  double timeLeft = 180.0;
   bool levelDone = false;
 
   // ── Score ─────────────────────────────────────────────────────────────────
@@ -293,27 +395,24 @@ class NoisePollutionGame extends FlameGame
   static const double _wrongPenalty = 2.0;
 
   // ── World / camera ────────────────────────────────────────────────────────
-  // World size is set in onLoad once we know screen size.
   double worldW = 0;
   double worldH = 0;
-  // Camera offset in world-space (top-left corner of the viewport in world)
   double camX = 0;
   double camY = 0;
-  // Target camera position (lerped to)
   double _targetCamX = 0;
   double _targetCamY = 0;
-  // Edge-scroll hint strength (0..1, used by renderer to draw vignette)
   double edgeHintLeft = 0;
   double edgeHintRight = 0;
   double edgeHintTop = 0;
   double edgeHintBottom = 0;
 
   // ── Range constants (world units) ─────────────────────────────────────────
-  static const double _sonarZoneRadius = 135.0;
+  static const double _scanRange = 155.0;
   static const double _applyRange = 130.0;
+  static const double _scanMaxRadius = 180.0;
 
   // ── Drone physics (world coords) ──────────────────────────────────────────
-  late Vector2 dronePos; // world position
+  late Vector2 dronePos;
   bool isUp = false, isDown = false, isLeft = false, isRight = false;
   static const double _droneSpeed = 200.0;
 
@@ -322,22 +421,24 @@ class NoisePollutionGame extends FlameGame
 
   // ── Tool selection ─────────────────────────────────────────────────────────
   NoiseTool selectedTool = NoiseTool.electricMuffler;
-  // When a hotspot is scanned the tool selector pops open on top of it
-  NoiseHotspot? pendingFixTarget; // scanned but not yet fixed
+  NoiseHotspot? pendingFixTarget;
   bool toolSelectorOpen = false;
 
   // ── Wind zones ────────────────────────────────────────────────────────────
   final List<WindZone> windZones = [];
   double _windSpawnTimer = 0;
-  double _windSpawnCooldown = 8.0; // Was 4.5 — give player more breathing room early
+  double _windSpawnCooldown = 8.0;
   final _rng = math.Random();
 
-  bool get isInBlockingWind => windZones.any(
-    (z) =>
-        z.isActive &&
-        z.intensity != WindIntensity.light &&
-        z.containsPoint(dronePos),
-  );
+  /// NEW: Wind only slows scanning, never blocks
+  double get currentWindSlowFactor {
+    double factor = 1.0;
+    for (final z in windZones) {
+      if (!z.isActive || !z.containsPoint(dronePos)) continue;
+      factor = math.min(factor, z.scanSlowFactor);
+    }
+    return factor;
+  }
 
   bool get isInAnyWind =>
       windZones.any((z) => z.isActive && z.containsPoint(dronePos));
@@ -360,13 +461,29 @@ class NoisePollutionGame extends FlameGame
   int windEvades = 0;
   double _evadeShowTimer = 0;
 
-  // ── Sonar lock ────────────────────────────────────────────────────────────
-  SonarLock? activeLock;
-  double sonarGlobalT = 0;
+  // ── NEW: Scan lock system (like LandDegradation) ─────────────────────────
+  NoiseHotspot? activeScanTarget;
+  bool scanLockActive = false;
+  double _scanLockTimer = 0;
+  static const double _scanDuration = 1.5;
+  bool scanActive = false;
+  double scanRadius = 0;
+  double scanHoldTime = 0;
+
+  // ── Show-once hint system (like land) ──────────────────────────────────────
+  final Set<NoiseType> _seenNoiseTypes = {};
+  bool toolSelectorShowsHints = true;
+  bool scanResultShowsHints = true;
+  bool scanResultActive = false;
+  NoiseScanResult? lastScanResult;
+  double scanResultTimer = 0;
+  static const double _scanResultDisplay = 4.0;
+  NoiseHotspot? lastScannedHotspot;
+  int lastScanPoints = 0;
 
   // ── Combo ─────────────────────────────────────────────────────────────────
   int scanCombo = 0;
-  int scanComboMax = 0;
+  int scanComboMax = 1;
   double _comboDecayTimer = 0;
   static const double _comboWindow = 9.0;
 
@@ -388,9 +505,11 @@ class NoisePollutionGame extends FlameGame
   // ── Components ────────────────────────────────────────────────────────────
   late EcoDroneComponent drone;
   final List<NoiseHotspot> hotspots = [];
-  // Hotspot spawn refill timer
   double _refillTimer = 0;
-  static const double _refillInterval = 18.0; // spawn new batch every 18s
+  static const double _refillInterval = 18.0;
+
+  // ── Nearest target for UI hint ────────────────────────────────────────────
+  NoiseHotspot? _nearestScanTarget;
 
   // ── Mini-map explored fraction ────────────────────────────────────────────
   double get exploredFraction {
@@ -402,7 +521,7 @@ class NoisePollutionGame extends FlameGame
   // ── Hotspot helpers (world coords) ───────────────────────────────────────
   NoiseHotspot? get _nearestSonarTarget {
     NoiseHotspot? best;
-    double bestD = _sonarZoneRadius;
+    double bestD = _scanRange;
     for (final h in hotspots) {
       if (h.isScanned || h.isFixed) continue;
       final d = (h.hotspotPos - dronePos).length;
@@ -428,20 +547,16 @@ class NoisePollutionGame extends FlameGame
     return target;
   }
 
-  // ── Screen → world and world → screen helpers ─────────────────────────────
   Vector2 screenToWorld(Vector2 s) => Vector2(s.x + camX, s.y + camY);
   Vector2 worldToScreen(Vector2 w) => Vector2(w.x - camX, w.y - camY);
-  // Drone in screen coords
   Vector2 get droneScreen => worldToScreen(dronePos);
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
-    // World is _World.kScale × screen
     worldW = size.x * _World.kScale;
     worldH = size.y * _World.kScale;
 
-    // Start drone near center of world, camera centered on it
     dronePos = Vector2(worldW * 0.50, worldH * 0.50);
     _centerCamOn(dronePos);
     _targetCamX = camX;
@@ -463,19 +578,15 @@ class NoisePollutionGame extends FlameGame
     camY = (pos.y - size.y / 2).clamp(0.0, worldH - size.y);
   }
 
-  // Seed the 3×3 grid of world cells around the drone start
   void _seedInitialHotspots() {
-    // Divide world into a 6×6 grid of cells and scatter hotspots in them
     _spawnHotspotBatch(
       dronePos,
       radius: worldW * 0.45,
-      count: 14,
+      count: 16,
       batchSeed: 0,
     );
   }
 
-  // Spawn `count` hotspots randomly within `radius` of `centre`
-  // avoids placing too close to existing hotspots
   void _spawnHotspotBatch(
     Vector2 centre, {
     required double radius,
@@ -493,7 +604,6 @@ class NoisePollutionGame extends FlameGame
       final wy = (centre.y + math.sin(angle) * dist).clamp(80.0, worldH - 80.0);
       final candidate = Vector2(wx, wy);
 
-      // Min spacing between hotspots
       final tooClose = hotspots.any(
         (h) => (h.hotspotPos - candidate).length < 110,
       );
@@ -513,12 +623,9 @@ class NoisePollutionGame extends FlameGame
     }
   }
 
-  // Refill: if drone explores far from existing unscanned hotspots, spawn more
   void _tryRefillHotspots() {
-    // Count unscanned hotspots
     final remaining = hotspots.where((h) => !h.isFixed).length;
     if (remaining < 4) {
-      // Spawn a new batch ahead of the drone
       _spawnHotspotBatch(
         dronePos,
         radius: worldW * 0.30,
@@ -538,7 +645,6 @@ class NoisePollutionGame extends FlameGame
     notifyListeners();
   }
 
-  // ── Wind spawning ─────────────────────────────────────────────────────────
   void _spawnWindZone() {
     final edge = _rng.nextInt(3);
     double cx, cy, angle;
@@ -561,19 +667,16 @@ class NoisePollutionGame extends FlameGame
     final progress = fixedCount / math.max(1, hotspots.length).toDouble();
     WindIntensity intensity;
     if (progress < 0.40) {
-      // Early game: mostly light, rarely moderate
       intensity = _rng.nextDouble() < 0.70
           ? WindIntensity.light
           : WindIntensity.moderate;
     } else if (progress < 0.70) {
-      // Mid game: mix of light and moderate, rarely heavy
       intensity = _rng.nextDouble() < 0.45
           ? WindIntensity.light
           : _rng.nextDouble() < 0.70
           ? WindIntensity.moderate
           : WindIntensity.heavy;
     } else {
-      // Late game: moderate and heavy mix
       intensity = _rng.nextBool() ? WindIntensity.moderate : WindIntensity.heavy;
     }
     windZones.add(
@@ -587,103 +690,132 @@ class NoisePollutionGame extends FlameGame
         lifetime: 6.5 + _rng.nextDouble() * 6.0,
       ),
     );
-    _windSpawnCooldown = math.max(4.0, 8.0 - progress * 4.5); // Was max(2.2, 4.5 - ...)
+    _windSpawnCooldown = math.max(4.0, 8.0 - progress * 4.5);
   }
 
-  // ── Minimum solutions required to proceed to next phase ───────────────────
-  static const int kMinSolutionsRequired = 3; // Player must fix at least 3
-
-  // ── SONAR PING — initiates lock; on full lock opens tool selector ──────────
-  void sonarPing() {
+  // ── NEW: User-triggered SCAN (like LandDegradation.triggerScan) ────────────
+  void triggerScan() {
     if (!gameStarted || levelDone) return;
     gameStarted = true;
     HapticFeedback.selectionClick();
 
-    // Wind disruption
-    for (final z in windZones) {
-      if (!z.isActive) continue;
-      if (z.blocksAt(dronePos, _rng)) {
-        scanRings.add(ScanRing(radius: 0, alpha: 0.55, disrupted: true));
-        if (z.intensity == WindIntensity.heavy) activeLock = null;
-        HapticFeedback.vibrate();
-        _triggerReaction(ReactionKind.windBlock);
-        notifyListeners();
-        return;
-      }
-    }
-
-    // If tool selector is open, pinging does NOT dismiss it —
-    // player must select a tool or tap the explicit ✕ close button.
-    // This is the core fix: previously a stray ping would close the dialog.
+    // If tool selector is open, scanning should not dismiss it
     if (toolSelectorOpen) {
-      // Remind player they need to select a tool first
       _triggerReaction(ReactionKind.noCharge);
       notifyListeners();
       return;
     }
 
-    final target = _nearestSonarTarget;
-    if (target == null) {
-      activeLock = null;
+    // If scan lock already active, do nothing (let it complete)
+    if (scanLockActive) {
+      _triggerReaction(ReactionKind.scanPartial);
+      notifyListeners();
+      return;
+    }
+
+    // Find nearest unscanned hotspot in range
+    NoiseHotspot? nearest;
+    double nearestD = _scanRange;
+    for (final h in hotspots) {
+      if (h.isScanned || h.isFixed) continue;
+      final d = (h.hotspotPos - dronePos).length;
+      if (d < nearestD) {
+        nearestD = d;
+        nearest = h;
+      }
+    }
+
+    if (nearest == null) {
+      scanActive = true;
+      scanRadius = 0;
       _triggerReaction(ReactionKind.scanMiss);
       notifyListeners();
       return;
     }
 
-    // Establish or continue lock
-    if (activeLock == null || activeLock!.target != target) {
-      activeLock = SonarLock(target);
-    }
-
-    final lock = activeLock!;
-    final freq = SonarLock.freqFor(target.type);
-    final periodT = (sonarGlobalT * freq) % 1.0;
-    final inWindow = periodT >= 0.70 && periodT <= 1.0;
-
-    if (inWindow) {
-      lock.pulseHits++;
-      lock.lockProgress = lock.pulseHits / 3.0;
-      HapticFeedback.lightImpact();
-      scanRings.add(ScanRing(radius: 0, alpha: 0.85, disrupted: false));
-
-      if (lock.pulseHits >= 3) {
-        // ── SONAR LOCK ACHIEVED — immediately open tool picker ──────────
-        lock.locked = true;
-        target.reveal(); // mark as scanned (shows icon + dB label)
-        scannedCount++;
-        scanCombo++;
-        if (scanCombo > scanComboMax) scanComboMax = scanCombo;
-        _comboDecayTimer = _comboWindow;
-        ecoPoints += 5 + scanCombo * 3;
-        HapticFeedback.heavyImpact();
-        _triggerReaction(ReactionKind.scanLocked, combo: scanCombo);
-        activeLock = null;
-
-        // Open inline tool selector anchored to this hotspot
-        pendingFixTarget = target;
-        toolSelectorOpen = true;
-        overlays.add('toolSelect');
-      } else {
-        _triggerReaction(ReactionKind.scanPartial);
-      }
-    } else {
-      if (lock.pulseHits > 0) lock.pulseHits--;
-      lock.lockProgress = lock.pulseHits / 3.0;
-      HapticFeedback.selectionClick();
-      scanRings.add(ScanRing(radius: 0, alpha: 0.40, disrupted: true));
-      scanCombo = 0;
-      _comboDecayTimer = 0;
-      _triggerReaction(ReactionKind.windBlock);
-    }
-
+    // Begin 1.5s lock-scan on this hotspot
+    activeScanTarget = nearest;
+    scanLockActive = true;
+    _scanLockTimer = 0;
+    scanHoldTime = 0;
+    scanActive = true;
+    scanRadius = 0;
+    _triggerReaction(ReactionKind.scanPartial);
+    HapticFeedback.lightImpact();
     notifyListeners();
   }
 
-  // ── APPLY TOOL — called after user taps a tool button in the selector ──────
+  // ── NEW: Complete scan (like LandDegradation._completePatchScan) ─────────
+  void _completeHotspotScan(NoiseHotspot h) {
+    if (h.isScanned) return;
+
+    h.isScanned = true;
+    scannedCount++;
+
+    final pts = 10;
+    ecoPoints += pts;
+    lastScanPoints = pts;
+    scanActive = true;
+    scanRadius = 0;
+    lastScannedHotspot = h;
+    lastScanResult = NoiseScanResult.forType(h.type);
+
+    // Show-once hint logic
+    final firstScan = !_seenNoiseTypes.contains(h.type);
+    if (firstScan) _seenNoiseTypes.add(h.type);
+    scanResultShowsHints = firstScan;
+    toolSelectorShowsHints = firstScan;
+
+    scanResultTimer = _scanResultDisplay;
+    scanResultActive = true;
+
+    // Handle combo
+    scanCombo++;
+    if (scanCombo > scanComboMax) scanComboMax = scanCombo;
+    _comboDecayTimer = _comboWindow;
+    if (scanCombo >= 3) {
+      final bonus = (scanCombo - 2) * 5;
+      ecoPoints += bonus;
+    }
+
+    HapticFeedback.heavyImpact();
+
+    // Reset lock state
+    scanLockActive = false;
+    _scanLockTimer = 0;
+    activeScanTarget = null;
+
+    overlays.add('scanResult');
+    pendingFixTarget = h;
+    notifyListeners();
+  }
+
+  // ── Called when player taps "FIX IT" on scan result card ─────────────────
+  void openToolSelectorForPending() {
+    if (pendingFixTarget == null || toolSelectorOpen) return;
+    toolSelectorOpen = true;
+    overlays.remove('scanResult');
+    scanResultActive = false;
+    overlays.add('toolSelect');
+    notifyListeners();
+  }
+
+  void dismissScanResult() {
+    if (!scanResultActive) return;
+    scanResultActive = false;
+    overlays.remove('scanResult');
+
+    if (pendingFixTarget != null && !toolSelectorOpen) {
+      toolSelectorOpen = true;
+      overlays.add('toolSelect');
+    }
+    notifyListeners();
+  }
+
+  // ── APPLY TOOL ────────────────────────────────────────────────────────────
   void applyTool() {
     if (!gameStarted || levelDone) return;
 
-    // Use pending target (just-scanned) or nearest scanned unfixed within range
     final target = pendingFixTarget ?? _nearestScannedUnfixed;
     if (target == null) {
       _triggerReaction(ReactionKind.scanMiss);
@@ -706,12 +838,10 @@ class NoisePollutionGame extends FlameGame
       _triggerReaction(ReactionKind.fixWrong);
     }
 
-    // Close tool selector regardless of outcome
     pendingFixTarget = null;
     toolSelectorOpen = false;
     overlays.remove('toolSelect');
 
-    // Check win condition — noise below target (no hard hotspot limit)
     if (noiseMeter <= _targetNoise) {
       Future.delayed(const Duration(milliseconds: 800), _endLevel);
     }
@@ -729,14 +859,28 @@ class NoisePollutionGame extends FlameGame
         return tool == NoiseTool.silentZone;
       case NoiseType.vegetation:
         return tool == NoiseTool.treeBarrier;
+      case NoiseType.industrial:
+        return tool == NoiseTool.noiseBarrier;
+      case NoiseType.aircraft:
+        return tool == NoiseTool.flightPath;
+      case NoiseType.railway:
+        return tool == NoiseTool.trackDampener;
+      case NoiseType.nightclub:
+        return tool == NoiseTool.soundInsulation;
     }
   }
 
   void selectTool(NoiseTool t) {
     selectedTool = t;
     notifyListeners();
-    // Immediately apply after selection when tool selector is open
     if (toolSelectorOpen) applyTool();
+  }
+
+  void cancelToolSelector() {
+    toolSelectorOpen = false;
+    pendingFixTarget = null;
+    overlays.remove('toolSelect');
+    notifyListeners();
   }
 
   // ── Input ─────────────────────────────────────────────────────────────────
@@ -773,16 +917,47 @@ class NoisePollutionGame extends FlameGame
     reactionPhase = 1;
     reactionInRange = kind != ReactionKind.scanMiss;
     reactionTimer =
-        kind == ReactionKind.windEvade || kind == ReactionKind.scanPartial
+        kind == ReactionKind.windEvade || kind == ReactionKind.scanPartial || kind == ReactionKind.windSlow
         ? 0.7
         : 1.2;
     overlays.add('reactionFx');
   }
 
+  // ── NEW: End level with completion states (like LandDegradation) ──────────
   void _endLevel() {
     if (levelDone) return;
     levelDone = true;
     pauseEngine();
+
+    final meetsMin = fixedCount >= kMinSolutionsRequired;
+    final allFixed = hotspots.every((h) => h.isFixed);
+
+    final LevelCompletionState completionState;
+    if (allFixed) {
+      completionState = LevelCompletionState.fullCompletion;
+    } else if (meetsMin) {
+      completionState = LevelCompletionState.moderate;
+    } else {
+      completionState = LevelCompletionState.failed;
+    }
+
+    String endReason = '';
+    if (timeLeft <= 0) {
+      if (allFixed) {
+        endReason = '🌍 All hotspots fixed — and just in time!';
+      } else if (meetsMin) {
+        endReason = '⏰ Time expired — minimum $kMinSolutionsRequired fixes met. Well done!';
+      } else {
+        endReason = '⏰ Time ran out before fixing $kMinSolutionsRequired hotspots. Keep practising!';
+      }
+    } else if (allFixed) {
+      endReason = '🌍 All ${hotspots.length} noise hotspots fully resolved! Outstanding work!';
+    } else {
+      endReason = meetsMin
+          ? '✅ Minimum $kMinSolutionsRequired fixes achieved — level complete!'
+          : 'Level ended with $fixedCount/$kMinSolutionsRequired hotspots fixed.';
+    }
+
     NoiseResult.current = NoiseResult(
       hotspotsFix: fixedCount,
       wrongTools: wrongTools,
@@ -791,33 +966,29 @@ class NoisePollutionGame extends FlameGame
       peacefulCityBadge: noiseMeter < _targetNoise,
       windEvades: windEvades,
       scanComboMax: scanComboMax,
-      meetsMinimum: fixedCount >= kMinSolutionsRequired,
+      meetsMinimum: meetsMin,
       minimumRequired: kMinSolutionsRequired,
+      scannedCount: scannedCount,
+      maxCombo: scanComboMax,
+      endReason: endReason,
+      completionState: completionState,
     );
+
     overlays
       ..remove('reactionFx')
       ..remove('toolSelect')
+      ..remove('scanResult')
       ..remove('liveMetrics')
-      ..add('results');
+      ..add('completionBanner');
     notifyListeners();
   }
 
-  // ── Finish early button (player can call it) ──────────────────────────────
   void finishEarly() => _endLevel();
-
-  // ── Cancel / close the tool selector from outside the game class ──────────
-  void cancelToolSelector() {
-    toolSelectorOpen = false;
-    pendingFixTarget = null;
-    overlays.remove('toolSelect');
-    notifyListeners();
-  }
 
   // ── Update ────────────────────────────────────────────────────────────────
   @override
   void update(double dt) {
     super.update(dt);
-    sonarGlobalT += dt;
 
     if (bannerTimer > 0) {
       bannerTimer -= dt;
@@ -831,7 +1002,20 @@ class NoisePollutionGame extends FlameGame
       }
     }
 
-    // Scan ripple rings
+    // Scan result auto-dismiss
+    if (scanResultActive) {
+      scanResultTimer -= dt;
+      if (scanResultTimer <= 0) {
+        dismissScanResult();
+      }
+    }
+
+    // Scan radius animation
+    if (scanActive) {
+      scanRadius += dt * 230;
+      if (scanRadius >= _scanMaxRadius) scanActive = false;
+    }
+
     for (final ring in scanRings) {
       ring.radius += dt * 190;
       ring.alpha = math.max(0, ring.alpha - dt * 0.72);
@@ -851,7 +1035,6 @@ class NoisePollutionGame extends FlameGame
     }
     windZones.removeWhere((z) => !z.isActive);
 
-    // Wind drift on drone
     final dom = dominantWindZone;
     if (dom != null) {
       final i = dom.intensityAt(dronePos);
@@ -872,7 +1055,6 @@ class NoisePollutionGame extends FlameGame
       droneWindTiltY *= math.pow(0.85, dt * 60) as double;
     }
 
-    // Wind evasion bonus
     final nowInWind = isInAnyWind;
     if (_wasInWind && !nowInWind && gameStarted) {
       windEvades++;
@@ -883,13 +1065,46 @@ class NoisePollutionGame extends FlameGame
     _wasInWind = nowInWind;
     if (_evadeShowTimer > 0) _evadeShowTimer -= dt;
 
-    // Cancel lock if drone moves away from target
-    if (activeLock != null) {
-      final d = (activeLock!.target.hotspotPos - dronePos).length;
-      if (d > _sonarZoneRadius * 1.1) activeLock = null;
+    // ── NEW: Scan lock progress (like LandDegradation) ───────────────────
+    {
+      // Always update nearest target for UI feedback
+      NoiseHotspot? nearest;
+      double nearestD = _scanRange;
+      for (final h in hotspots) {
+        if (h.isScanned || h.isFixed) continue;
+        final d = (h.hotspotPos - dronePos).length;
+        if (d < nearestD) {
+          nearestD = d;
+          nearest = h;
+        }
+      }
+      _nearestScanTarget = nearest;
+
+      // Progress the lock-scan timer when active
+      if (scanLockActive && activeScanTarget != null) {
+        // Cancel lock if drone moves out of range
+        final lockDist = (activeScanTarget!.hotspotPos - dronePos).length;
+        if (lockDist > _scanRange * 1.15) {
+          scanLockActive = false;
+          _scanLockTimer = 0;
+          activeScanTarget = null;
+          _triggerReaction(ReactionKind.scanMiss);
+        } else {
+          // Wind only slows, never blocks
+          final rate = currentWindSlowFactor;
+          _scanLockTimer += dt * rate;
+          scanHoldTime = _scanLockTimer;
+          if (_scanLockTimer >= _scanDuration) {
+            final h = activeScanTarget!;
+            _completeHotspotScan(h);
+          }
+        }
+      } else if (!scanLockActive) {
+        activeScanTarget = null;
+        scanHoldTime = 0;
+      }
     }
 
-    // Combo decay
     if (_comboDecayTimer > 0) {
       _comboDecayTimer -= dt;
       if (_comboDecayTimer <= 0) scanCombo = 0;
@@ -904,10 +1119,8 @@ class NoisePollutionGame extends FlameGame
     dronePos.x = (dronePos.x + vx * _droneSpeed * dt).clamp(30, worldW - 30);
     dronePos.y = (dronePos.y + vy * _droneSpeed * dt).clamp(40, worldH * 0.97);
 
-    // ── Camera follow with edge-scroll hints ──────────────────────────────
     _updateCamera(dt);
 
-    // ── Hotspot refill ────────────────────────────────────────────────────
     _refillTimer += dt;
     if (_refillTimer >= _refillInterval) {
       _refillTimer = 0;
@@ -923,22 +1136,18 @@ class NoisePollutionGame extends FlameGame
     final edgeW = sw * _World.kEdgeFraction;
     final edgeH = sh * _World.kEdgeFraction;
 
-    // Drone position in screen coords (relative to current camera)
     final sx = dronePos.x - camX;
     final sy = dronePos.y - camY;
 
-    // Push camera toward drone when drone approaches viewport edges
     double tx = _targetCamX;
     double ty = _targetCamY;
 
-    // Horizontal
     if (sx < edgeW) {
       tx = dronePos.x - edgeW;
     } else if (sx > sw - edgeW) {
       tx = dronePos.x - (sw - edgeW);
     }
 
-    // Vertical
     if (sy < edgeH) {
       ty = dronePos.y - edgeH;
     } else if (sy > sh - edgeH) {
@@ -948,11 +1157,9 @@ class NoisePollutionGame extends FlameGame
     _targetCamX = tx.clamp(0.0, worldW - sw);
     _targetCamY = ty.clamp(0.0, worldH - sh);
 
-    // Smooth lerp
     camX += (_targetCamX - camX) * _World.kCameraEase * dt;
     camY += (_targetCamY - camY) * _World.kCameraEase * dt;
 
-    // Edge hint strengths (0..1) — drive the vignette renderer
     edgeHintLeft = (sx < edgeW * 1.5 && camX > 1)
         ? (1.0 - sx / (edgeW * 1.5)).clamp(0, 1)
         : 0;
@@ -966,12 +1173,13 @@ class NoisePollutionGame extends FlameGame
         ? ((sy - (sh - edgeH * 1.5)) / (edgeH * 1.5)).clamp(0, 1)
         : 0;
   }
+
+  double get scanHoldProgress =>
+      scanLockActive ? (_scanLockTimer / _scanDuration).clamp(0.0, 1.0) : 0.0;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  NOISE CITY RENDERER  — scrollable world-space city background
-//  The canvas is translated by (-camX, -camY) so all world drawing uses
-//  world coordinates directly.
+//  NOISE CITY RENDERER
 // ════════════════════════════════════════════════════════════════════════════
 class NoiseCityRenderer extends Component {
   final NoisePollutionGame game;
@@ -988,7 +1196,6 @@ class NoiseCityRenderer extends Component {
     final sw = game.size.x;
     final sh = game.size.y;
 
-    // Shift canvas into world space
     canvas.save();
     canvas.translate(-game.camX, -game.camY);
 
@@ -999,7 +1206,6 @@ class NoiseCityRenderer extends Component {
       noiseRatio,
     )!;
 
-    // Sky — fill entire world
     canvas.drawRect(
       Rect.fromLTWH(0, 0, w, h),
       Paint()
@@ -1015,7 +1221,6 @@ class NoiseCityRenderer extends Component {
         ),
     );
 
-    // Noise haze
     if (noiseRatio > 0.2) {
       canvas.drawRect(
         Rect.fromLTWH(0, 0, w, h),
@@ -1029,7 +1234,6 @@ class NoiseCityRenderer extends Component {
     _drawBuildings(canvas, w, h, noiseRatio);
     _drawStreetDetails(canvas, w, h);
 
-    // Ground strip at bottom of world
     canvas.drawRect(
       Rect.fromLTWH(0, h * 0.96, w, h * 0.04),
       Paint()..color = const Color(0xFF050810),
@@ -1037,7 +1241,6 @@ class NoiseCityRenderer extends Component {
 
     canvas.restore();
 
-    // ── Edge-scroll vignette hints (screen space — no translate) ──────────
     _drawEdgeHints(canvas, sw, sh);
   }
 
@@ -1056,7 +1259,6 @@ class NoiseCityRenderer extends Component {
           )
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1),
       );
-      // Arrow hint
     }
 
     drawVignette(game.edgeHintLeft, Alignment.centerLeft, Alignment.center);
@@ -1064,7 +1266,6 @@ class NoiseCityRenderer extends Component {
     drawVignette(game.edgeHintTop, Alignment.topCenter, Alignment.center);
     drawVignette(game.edgeHintBottom, Alignment.bottomCenter, Alignment.center);
 
-    // Arrow chevrons at edges
     final paint = Paint()
       ..color = hintColor.withValues(alpha: 0.70)
       ..style = PaintingStyle.stroke
@@ -1132,7 +1333,6 @@ class NoiseCityRenderer extends Component {
       ..color = const Color(0xFF1E3040).withValues(alpha: 0.7)
       ..strokeWidth = 1.5;
 
-    // More roads to fill the larger world
     for (final ry in [0.12, 0.24, 0.36, 0.48, 0.60, 0.72, 0.84]) {
       canvas.drawRect(Rect.fromLTWH(0, h * ry - 16, w, 32), roadPaint);
       double x = 0;
@@ -1160,7 +1360,6 @@ class NoiseCityRenderer extends Component {
 
   void _drawBuildings(Canvas canvas, double w, double h, double noiseRatio) {
     final rng = math.Random(66);
-    // Fill world with city blocks using a grid pattern
     const cols = 8;
     const rows = 8;
     for (int r = 0; r < rows; r++) {
@@ -1244,7 +1443,7 @@ class NoiseCityRenderer extends Component {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WIND ZONE RENDERER  — rendered in world space
+//  WIND ZONE RENDERER
 // ════════════════════════════════════════════════════════════════════════════
 class WindZoneRenderer extends Component {
   final NoisePollutionGame game;
@@ -1332,12 +1531,12 @@ class WindZoneRenderer extends Component {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  NOISE HOTSPOT COMPONENT  — world-space, rendered via camera transform
+//  NOISE HOTSPOT COMPONENT
 // ════════════════════════════════════════════════════════════════════════════
 class NoiseHotspot extends Component {
   final NoisePollutionGame game;
   final NoiseType type;
-  double hx, hy; // world coords
+  double hx, hy;
   final int seed;
   bool isScanned = false;
   bool isFixed = false;
@@ -1354,7 +1553,7 @@ class NoiseHotspot extends Component {
     required this.seed,
   }) : hx = worldX,
        hy = worldY,
-       _drifts = type == NoiseType.traffic {
+       _drifts = type == NoiseType.traffic || type == NoiseType.aircraft {
     final rng = math.Random(seed);
     _driftDir = rng.nextDouble() * math.pi * 2;
   }
@@ -1368,20 +1567,24 @@ class NoiseHotspot extends Component {
   }
 
   static const _specs = {
-    NoiseType.traffic: ('🚗', 'Vehicle\nHonking', Color(0xFFEF5350), '85 dB'),
+    NoiseType.traffic: ('🚗', 'Vehicle Honking', Color(0xFFEF5350), '85 dB'),
     NoiseType.construction: (
       '🏗️',
-      'Construction\nSite',
+      'Construction Site',
       Color(0xFFFF6D00),
       '90 dB',
     ),
-    NoiseType.loudspeaker: ('📢', 'Loud\nSpeaker', Color(0xFFCE93D8), '78 dB'),
+    NoiseType.loudspeaker: ('📢', 'Loud Speaker', Color(0xFFCE93D8), '78 dB'),
     NoiseType.vegetation: (
       '🌿',
-      'Sparse\nVegetation',
+      'Sparse Vegetation',
       Color(0xFF78909C),
       '72 dB',
     ),
+    NoiseType.industrial: ('🏭', 'Industrial Plant', Color(0xFF8D6E63), '95 dB'),
+    NoiseType.aircraft: ('✈️', 'Aircraft Overflight', Color(0xFF5C6BC0), '88 dB'),
+    NoiseType.railway: ('🚆', 'Railway Noise', Color(0xFF26A69A), '82 dB'),
+    NoiseType.nightclub: ('🎵', 'Nightclub District', Color(0xFFAB47BC), '92 dB'),
   };
 
   @override
@@ -1399,10 +1602,8 @@ class NoiseHotspot extends Component {
 
   @override
   void render(Canvas canvas) {
-    // Convert world position to screen
     final sx = hx - game.camX;
     final sy = hy - game.camY;
-    // Only render if on-screen (with a generous margin)
     if (sx < -160 ||
         sx > game.size.x + 160 ||
         sy < -160 ||
@@ -1431,15 +1632,15 @@ class NoiseHotspot extends Component {
     dynamic spec,
     Color color,
   ) {
-    final freq = SonarLock.freqFor(type);
-    final periodT = (game.sonarGlobalT * freq) % 1.0;
+    // NEW: Simple pulsing rings (like land degradation) instead of frequency-based
+    final pulse = 0.60 + math.sin(_t * 2.8) * 0.25;
 
     for (int wave = 0; wave < 3; wave++) {
-      final waveT = (periodT + wave / 3.0) % 1.0;
-      final waveR = 18.0 + waveT * NoisePollutionGame._sonarZoneRadius * 0.9;
+      final waveT = ((_t * 0.8 + wave / 3.0) % 1.0);
+      final waveR = 18.0 + waveT * NoisePollutionGame._scanRange * 0.9;
       final waveAlpha = (1.0 - waveT) * 0.35;
       final droneD = (game.dronePos - hotspotPos).length;
-      final visible = droneD < NoisePollutionGame._sonarZoneRadius * 1.6;
+      final visible = droneD < NoisePollutionGame._scanRange * 1.6;
 
       if (visible && waveAlpha > 0.02) {
         canvas.drawCircle(
@@ -1449,7 +1650,7 @@ class NoiseHotspot extends Component {
             ..color = color.withValues(
               alpha:
                   waveAlpha *
-                  (1 - droneD / (NoisePollutionGame._sonarZoneRadius * 2))
+                  (1 - droneD / (NoisePollutionGame._scanRange * 2))
                       .clamp(0, 1),
             )
             ..style = PaintingStyle.stroke
@@ -1458,7 +1659,6 @@ class NoiseHotspot extends Component {
       }
     }
 
-    final pulse = 0.60 + math.sin(_t * 2.8) * 0.25;
     canvas.drawCircle(
       Offset(sx, sy),
       26 * pulse,
@@ -1480,13 +1680,9 @@ class NoiseHotspot extends Component {
         ..strokeWidth = 1.8,
     );
 
-    final droneD = (game.dronePos - hotspotPos).length;
-    final inZone = droneD < NoisePollutionGame._sonarZoneRadius;
-
-    final lock = game.activeLock;
-    final isLocking = lock != null && lock.target == this;
-    if (isLocking) {
-      final prog = lock.lockProgress;
+    // NEW: Scan progress arc when actively scanning this hotspot
+    if (game.activeScanTarget == this && game.scanLockActive) {
+      final prog = game.scanHoldProgress;
       canvas.drawArc(
         Rect.fromCircle(center: Offset(sx, sy), radius: 26),
         -math.pi / 2,
@@ -1498,21 +1694,29 @@ class NoiseHotspot extends Component {
           ..strokeWidth = 3.0
           ..strokeCap = StrokeCap.round,
       );
-      for (int p = 0; p < 3; p++) {
-        final a = -math.pi / 2 + (p / 3.0) * math.pi * 2;
-        final filled = p < lock.pulseHits;
-        canvas.drawCircle(
-          Offset(sx + math.cos(a) * 26, sy + math.sin(a) * 26),
-          3.5,
-          Paint()..color = filled ? color : color.withValues(alpha: 0.25),
-        );
-      }
+      // Percentage label
+      final pct = (prog * 100).toInt();
+      final tp = TextPainter(
+        text: TextSpan(
+          text: '$pct%',
+          style: TextStyle(
+            color: color,
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(sx - tp.width / 2, sy - 62));
     }
 
-    if (droneD < NoisePollutionGame._sonarZoneRadius * 1.4 && !isLocking) {
+    final droneD = (game.dronePos - hotspotPos).length;
+    final inZone = droneD < NoisePollutionGame._scanRange;
+
+    if (droneD < NoisePollutionGame._scanRange * 1.4 && game.activeScanTarget != this) {
       canvas.drawCircle(
         Offset(sx, sy),
-        NoisePollutionGame._sonarZoneRadius,
+        NoisePollutionGame._scanRange,
         Paint()
           ..color = color.withValues(alpha: inZone ? 0.18 : 0.07)
           ..style = PaintingStyle.stroke
@@ -1612,7 +1816,6 @@ class NoiseHotspot extends Component {
     )..layout();
     dp.paint(canvas, Offset(sx - dp.width / 2, sy + 14));
 
-    // "APPLY TOOL" prompt
     final ap = TextPainter(
       text: TextSpan(
         text: '→ SELECT TOOL',
@@ -1658,7 +1861,7 @@ class NoiseHotspot extends Component {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  ECO-DRONE COMPONENT  — always in screen coords (centred on droneScreen)
+//  ECO-DRONE COMPONENT
 // ════════════════════════════════════════════════════════════════════════════
 class EcoDroneComponent extends Component {
   final NoisePollutionGame game;
@@ -1676,7 +1879,15 @@ class EcoDroneComponent extends Component {
     final cx = baseCx + game.droneWindTiltX * 0.35;
     final cy = baseCy + game.droneWindTiltY * 0.35;
 
-    // Scan ripple rings
+    // Scan pulse ring
+    if (game.scanActive) {
+      final alpha = (1.0 - game.scanRadius / NoisePollutionGame._scanMaxRadius) * 0.32;
+      canvas.drawCircle(Offset(cx, cy), game.scanRadius,
+          Paint()
+            ..color = const Color(0xFF29B6F6).withValues(alpha: alpha)
+            ..style = PaintingStyle.stroke..strokeWidth = 2.8);
+    }
+
     for (final ring in game.scanRings) {
       if (ring.disrupted) {
         _drawDisruptedRing(canvas, cx, cy, ring);
@@ -1694,17 +1905,15 @@ class EcoDroneComponent extends Component {
       }
     }
 
-    // Sonar approach indicator — points to nearest unscanned hotspot in world
     final target = game._nearestSonarTarget;
     if (target != null && !game.toolSelectorOpen) {
       final dist = (target.hotspotPos - game.dronePos).length;
-      final inZone = dist < NoisePollutionGame._sonarZoneRadius;
+      final inZone = dist < NoisePollutionGame._scanRange;
       final rangeColor = inZone
           ? const Color(0xFF29B6F6)
           : const Color(0xFF78909C);
 
       if (!inZone) {
-        // Arrow pointing toward hotspot (in screen-space direction)
         final worldDir = (target.hotspotPos - game.dronePos).normalized();
         final arrowX = cx + worldDir.x * 55;
         final arrowY = cy + worldDir.y * 55;
@@ -1720,18 +1929,63 @@ class EcoDroneComponent extends Component {
       }
     }
 
+    // Range indicator
+    final rangeColor = const Color(0xFF29B6F6);
+    canvas.drawCircle(Offset(cx, cy), NoisePollutionGame._scanRange,
+        Paint()
+          ..color = rangeColor.withValues(alpha: 0.065)
+          ..style = PaintingStyle.stroke..strokeWidth = 1.2);
+
+    // Dashed hover-range
+    final dashPaint = Paint()
+      ..color = const Color(0xFFFFFFFF).withValues(alpha: 0.09)
+      ..style = PaintingStyle.stroke..strokeWidth = 1.0..strokeCap = StrokeCap.round;
+    const double r = 110.0; // hover range
+    const int segments = 28;
+    const double dashFrac = 0.55;
+    for (int seg = 0; seg < segments; seg++) {
+      final startAngle = (seg / segments) * math.pi * 2 + _t * 0.65;
+      final sweep = (math.pi * 2 / segments) * dashFrac;
+      canvas.drawArc(
+        Rect.fromCenter(center: Offset(cx, cy), width: r * 2, height: r * 2),
+        startAngle, sweep, false, dashPaint,
+      );
+    }
+
+    // Scan progress glow when locking
+    if (game.scanLockActive && game.activeScanTarget != null) {
+      final prog = game.scanHoldProgress;
+      final glow = 0.6 + prog * 0.35;
+      canvas.drawCircle(Offset(cx, cy), 12 + prog * 8,
+          Paint()
+            ..color = const Color(0xFF29B6F6).withValues(alpha: glow * prog * 0.3)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
+    }
+
+    // Wind deflection arrow
+    final dom = game.dominantWindZone;
+    if (dom != null) {
+      final wf = Vector2(math.cos(dom.angle) * dom.strengthFactor, 
+                        math.sin(dom.angle) * dom.strengthFactor);
+      final ang = math.atan2(wf.y, wf.x);
+      final arrowLen = math.min(wf.length * 50, 30.0);
+      final ex = cx + math.cos(ang) * arrowLen;
+      final ey = cy + math.sin(ang) * arrowLen;
+      canvas.drawLine(Offset(cx, cy), Offset(ex, ey),
+          Paint()..color = dom.color.withValues(alpha: 0.70)
+            ..strokeWidth = 2.0..strokeCap = StrokeCap.round);
+    }
+
     canvas.save();
     final tiltAngle = game.droneWindTiltX * 0.018;
     canvas.translate(cx, cy);
     canvas.rotate(tiltAngle);
 
-    // Shadow
     canvas.drawOval(
       Rect.fromCenter(center: const Offset(0, 14), width: 38, height: 9),
       Paint()..color = Colors.black.withValues(alpha: 0.28),
     );
 
-    // Arms
     final armPaint = Paint()
       ..color = const Color(0xFF1C3A5C)
       ..strokeWidth = 3.0
@@ -1744,7 +1998,6 @@ class EcoDroneComponent extends Component {
       );
     }
 
-    // Propellers
     final propSpeed = 1.0 + (game.dominantWindZone?.strengthFactor ?? 0) * 2.5;
     final propPaint = Paint()
       ..color = const Color(
@@ -1771,7 +2024,6 @@ class EcoDroneComponent extends Component {
       );
     }
 
-    // Body
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(-13, -10, 26, 20),
@@ -1780,9 +2032,9 @@ class EcoDroneComponent extends Component {
       Paint()..color = const Color(0xFF1E3A5F),
     );
 
-    // Lock progress arc
-    if (game.activeLock != null) {
-      final prog = game.activeLock!.lockProgress;
+    // Scan lock progress arc on drone
+    if (game.scanLockActive) {
+      final prog = game.scanHoldProgress;
       const arcR = 18.0;
       canvas.drawArc(
         Rect.fromCenter(center: Offset.zero, width: arcR * 2, height: arcR * 2),
@@ -1807,14 +2059,11 @@ class EcoDroneComponent extends Component {
       );
     }
 
-    // Glow
-    final glowColor = game.isInBlockingWind
-        ? const Color(0xFFEF5350)
-        : game.isInAnyWind
-        ? const Color(0xFFFFB300)
+    final glowColor = game.isInAnyWind
+        ? (game.currentWindSlowFactor < 0.5 ? const Color(0xFFEF5350) : const Color(0xFFFFB300))
         : game.toolSelectorOpen
         ? const Color(0xFF69F0AE)
-        : game.activeLock != null
+        : game.scanLockActive
         ? const Color(0xFF29B6F6)
         : const Color(0xFF546E7A);
     canvas.drawCircle(
@@ -1830,12 +2079,11 @@ class EcoDroneComponent extends Component {
       Paint()..color = Colors.white.withValues(alpha: 0.95),
     );
 
-    // Mode icon
     final tp = TextPainter(
       text: TextSpan(
         text: game.toolSelectorOpen
             ? '🔧'
-            : game.activeLock != null
+            : game.scanLockActive
             ? '🔒'
             : '📡',
         style: const TextStyle(fontSize: 8),
@@ -1844,7 +2092,6 @@ class EcoDroneComponent extends Component {
     )..layout();
     tp.paint(canvas, Offset(-tp.width / 2, 13 - tp.height / 2));
 
-    // Combo badge
     if (game.scanCombo >= 2) _drawComboBadge(canvas, game.scanCombo);
 
     canvas.restore();
@@ -1906,7 +2153,7 @@ class EcoDroneComponent extends Component {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  HUD  (top bar)
+//  HUD
 // ════════════════════════════════════════════════════════════════════════════
 class NoiseHud extends StatelessWidget {
   final NoisePollutionGame game;
@@ -1931,7 +2178,6 @@ class NoiseHud extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Phase badge
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
@@ -1962,7 +2208,6 @@ class NoiseHud extends StatelessWidget {
                 ),
                 const SizedBox(height: 7),
 
-                // Stat tiles
                 Row(
                   children: [
                     _HTile(
@@ -2005,7 +2250,58 @@ class NoiseHud extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
 
-                // Noise bar
+                // NEW: Scan progress bar (like land degradation)
+                if (game.scanLockActive) ...[
+                  Row(children: [
+                    const Text('🔒', style: TextStyle(fontSize: 12)),
+                    const SizedBox(width: 5),
+                    Expanded(child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: game.scanHoldProgress,
+                        backgroundColor: Colors.white12,
+                        valueColor: const AlwaysStoppedAnimation(Color(0xFF29B6F6)),
+                        minHeight: 7,
+                      ),
+                    )),
+                    const SizedBox(width: 6),
+                    Text(
+                      game.currentWindSlowFactor < 1.0 ? '💨 Slowed' : 'Locking…',
+                      style: TextStyle(
+                        color: game.currentWindSlowFactor < 1.0
+                            ? const Color(0xFFFFB300)
+                            : const Color(0xFF29B6F6),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 4),
+                ],
+
+                // Nudge when hotspot nearby but not scanning
+                if (!game.scanLockActive &&
+                    game._nearestScanTarget != null &&
+                    !game.toolSelectorOpen &&
+                    !game.scanResultActive) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    margin: const EdgeInsets.only(bottom: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF29B6F6).withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.35)),
+                    ),
+                    child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text('📡', style: TextStyle(fontSize: 10)),
+                      SizedBox(width: 5),
+                      Text('Noise source nearby — tap SCAN!',
+                          style: TextStyle(color: Color(0xFF29B6F6),
+                              fontSize: 9, fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
+                ],
+
                 Row(
                   children: [
                     const Text('🔊', style: TextStyle(fontSize: 13)),
@@ -2037,12 +2333,9 @@ class NoiseHud extends StatelessWidget {
                   ],
                 ),
 
-                // Bottom sub-row: lock status + wind + combo
                 const SizedBox(height: 5),
                 Row(
                   children: [
-                    _SonarLockBar(game: game),
-                    const SizedBox(width: 7),
                     _WindStatusPill(game: game),
                     const SizedBox(width: 7),
                     if (game.scanCombo >= 2) _ComboBadge(combo: game.scanCombo),
@@ -2057,130 +2350,49 @@ class NoiseHud extends StatelessWidget {
   }
 }
 
-class _SonarLockBar extends StatelessWidget {
-  final NoisePollutionGame game;
-  const _SonarLockBar({required this.game});
-
-  @override
-  Widget build(BuildContext context) {
-    final lock = game.activeLock;
-    final hasLock = lock != null;
-    final prog = hasLock ? lock.lockProgress : 0.0;
-    final hits = hasLock ? lock.pulseHits : 0;
-    final color = hasLock ? const Color(0xFF29B6F6) : const Color(0xFF546E7A);
-    final label = game.toolSelectorOpen
-        ? '🔧 PICK A TOOL — panel is waiting!'
-        : hasLock
-        ? (hits == 0
-              ? '🔊 TIMING PING…'
-              : hits == 1
-              ? '🔊 PING ×1  —  2 more!'
-              : '🔊 PING ×2  —  LOCK!')
-        : '📡 Navigate to source & PING';
-
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.72),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withValues(alpha: 0.38)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 8,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.7,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: LinearProgressIndicator(
-                      value: prog,
-                      backgroundColor: Colors.white10,
-                      valueColor: AlwaysStoppedAnimation(color),
-                      minHeight: 5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 6),
-            Row(
-              children: List.generate(
-                3,
-                (i) => Padding(
-                  padding: const EdgeInsets.only(left: 3),
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: i < hits ? color : Colors.white12,
-                      border: Border.all(
-                        color: color.withValues(alpha: 0.4),
-                        width: 0.8,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _WindStatusPill extends StatelessWidget {
   final NoisePollutionGame game;
   const _WindStatusPill({required this.game});
 
   @override
   Widget build(BuildContext context) {
-    final inBlocking = game.isInBlockingWind;
     final inAny = game.isInAnyWind;
+    final slowFactor = game.currentWindSlowFactor;
     final Color color;
     final String label;
-    if (inBlocking) {
-      color = const Color(0xFFEF5350);
-      label = '🌪️ EVADE!';
-    } else if (inAny) {
-      color = const Color(0xFFFFB300);
-      label = '💨 LIGHT';
-    } else {
+    if (!inAny) {
       color = const Color(0xFF69F0AE);
       label = '🌬️ CLEAR';
+    } else if (slowFactor >= 0.8) {
+      color = const Color(0xFF80DEEA);
+      label = '💨 LIGHT';
+    } else if (slowFactor >= 0.5) {
+      color = const Color(0xFFFFB300);
+      label = '💨 MODERATE';
+    } else {
+      color = const Color(0xFFEF5350);
+      label = '🌪️ HEAVY';
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.50)),
-        boxShadow: inBlocking
-            ? [BoxShadow(color: color.withValues(alpha: 0.25), blurRadius: 8)]
-            : [],
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 9,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.6,
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.50)),
+          boxShadow: inAny && slowFactor < 0.5
+              ? [BoxShadow(color: color.withValues(alpha: 0.25), blurRadius: 8)]
+              : [],
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.6,
+          ),
         ),
       ),
     );
@@ -2259,8 +2471,7 @@ class _HTile extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  LIVE METRICS OVERLAY  — right-side animated stats panel
-//  Updates every frame via AnimatedBuilder + ChangeNotifier
+//  LIVE METRICS OVERLAY
 // ════════════════════════════════════════════════════════════════════════════
 class NoiseLiveMetrics extends StatelessWidget {
   final NoisePollutionGame game;
@@ -2282,7 +2493,6 @@ class NoiseLiveMetrics extends StatelessWidget {
             ? game.fixedCount / totalHotspots
             : 0.0;
 
-        // Mini-map: draw explored world quadrant progress
         final camFracX = game.worldW > 0
             ? (game.camX / (game.worldW - game.size.x)).clamp(0.0, 1.0)
             : 0.0;
@@ -2317,7 +2527,6 @@ class NoiseLiveMetrics extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Section: METRICS header
                     Text(
                       'LIVE',
                       style: const TextStyle(
@@ -2329,7 +2538,6 @@ class NoiseLiveMetrics extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
 
-                    // Noise level animated arc
                     _MetricArc(
                       value: 1.0 - noiseRatio,
                       color: noiseColor,
@@ -2338,7 +2546,6 @@ class NoiseLiveMetrics extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
 
-                    // Fixed progress bar
                     _MiniBar(
                       value: fixedFrac,
                       color: const Color(0xFF69F0AE),
@@ -2346,7 +2553,6 @@ class NoiseLiveMetrics extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
 
-                    // Eco points animated counter
                     _MetricPill(
                       icon: '⭐',
                       value: '${game.ecoPoints}',
@@ -2355,7 +2561,6 @@ class NoiseLiveMetrics extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
 
-                    // Wrong tools counter
                     _MetricPill(
                       icon: '❌',
                       value: '${game.wrongTools}',
@@ -2364,7 +2569,6 @@ class NoiseLiveMetrics extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
 
-                    // Wind evades
                     _MetricPill(
                       icon: '💨',
                       value: '${game.windEvades}',
@@ -2373,7 +2577,6 @@ class NoiseLiveMetrics extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
 
-                    // Mini world-map
                     _MiniWorldMap(
                       camFracX: camFracX,
                       camFracY: camFracY,
@@ -2389,7 +2592,6 @@ class NoiseLiveMetrics extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
 
-                    // Finish early button
                     GestureDetector(
                       onTap: () => game.finishEarly(),
                       child: Container(
@@ -2434,9 +2636,8 @@ class NoiseLiveMetrics extends StatelessWidget {
   }
 }
 
-// ── Animated arc gauge ─────────────────────────────────────────────────────
 class _MetricArc extends StatelessWidget {
-  final double value; // 0..1
+  final double value;
   final Color color;
   final String label, sublabel;
   const _MetricArc({
@@ -2485,7 +2686,6 @@ class _ArcPainter extends CustomPainter {
     final cx = size.width / 2;
     final cy = size.height / 2;
     final r = (math.min(cx, cy) - 4).clamp(4.0, 30.0);
-    // Track
     canvas.drawCircle(
       Offset(cx, cy),
       r,
@@ -2494,7 +2694,6 @@ class _ArcPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 4,
     );
-    // Value
     canvas.drawArc(
       Rect.fromCircle(center: Offset(cx, cy), radius: r),
       -math.pi / 2,
@@ -2513,7 +2712,6 @@ class _ArcPainter extends CustomPainter {
       old.value != value || old.color != color;
 }
 
-// ── Mini bar ───────────────────────────────────────────────────────────────
 class _MiniBar extends StatelessWidget {
   final double value;
   final Color color;
@@ -2552,7 +2750,6 @@ class _MiniBar extends StatelessWidget {
   );
 }
 
-// ── Metric pill ───────────────────────────────────────────────────────────
 class _MetricPill extends StatelessWidget {
   final String icon, value, label;
   final Color color;
@@ -2605,7 +2802,6 @@ class _MetricPill extends StatelessWidget {
   );
 }
 
-// ── Mini world map ─────────────────────────────────────────────────────────
 class _MiniWorldMap extends StatelessWidget {
   final double camFracX, camFracY;
   final List<NoiseHotspot> hotspots;
@@ -2664,7 +2860,6 @@ class _MapPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Viewport rectangle on mini-map
     final vpW = size.width * viewportFracW;
     final vpH = size.height * viewportFracH;
     final vpX = camFracX * (size.width - vpW);
@@ -2684,7 +2879,6 @@ class _MapPainter extends CustomPainter {
         ..strokeWidth = 0.8,
     );
 
-    // Hotspot dots
     if (worldW > 0 && worldH > 0) {
       for (final h in hotspots) {
         final dx = (h.hx / worldW) * size.width;
@@ -2702,7 +2896,6 @@ class _MapPainter extends CustomPainter {
       }
     }
 
-    // "MAP" label
     final tp = TextPainter(
       text: const TextSpan(
         text: 'MAP',
@@ -2718,7 +2911,7 @@ class _MapPainter extends CustomPainter {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  NOISE CONTROLS  — D-pad + action button
+//  NOISE CONTROLS
 // ════════════════════════════════════════════════════════════════════════════
 class NoiseControls extends StatefulWidget {
   final NoisePollutionGame game;
@@ -2793,7 +2986,19 @@ class _NoiseControlsState extends State<NoiseControls>
       if (released) rt(false);
     }
 
-    if (k == LogicalKeyboardKey.space && pressed) widget.game.sonarPing();
+    if (k == LogicalKeyboardKey.space && pressed) widget.game.triggerScan();
+
+    // Tool hotkeys
+    if (pressed) {
+      if (k == LogicalKeyboardKey.digit1) widget.game.selectTool(NoiseTool.electricMuffler);
+      if (k == LogicalKeyboardKey.digit2) widget.game.selectTool(NoiseTool.silentMachinery);
+      if (k == LogicalKeyboardKey.digit3) widget.game.selectTool(NoiseTool.silentZone);
+      if (k == LogicalKeyboardKey.digit4) widget.game.selectTool(NoiseTool.treeBarrier);
+      if (k == LogicalKeyboardKey.digit5) widget.game.selectTool(NoiseTool.noiseBarrier);
+      if (k == LogicalKeyboardKey.digit6) widget.game.selectTool(NoiseTool.flightPath);
+      if (k == LogicalKeyboardKey.digit7) widget.game.selectTool(NoiseTool.trackDampener);
+      if (k == LogicalKeyboardKey.digit8) widget.game.selectTool(NoiseTool.soundInsulation);
+    }
   }
 
   @override
@@ -2802,8 +3007,9 @@ class _NoiseControlsState extends State<NoiseControls>
       animation: widget.game,
       builder: (_, __) {
         final toolOpen = widget.game.toolSelectorOpen;
-        final inBlockingWind = widget.game.isInBlockingWind;
-        final hasLock = widget.game.activeLock != null;
+        final inWind = widget.game.isInAnyWind;
+        final hasLock = widget.game.scanLockActive;
+        final canScan = widget.game._nearestSonarTarget != null;
 
         final String btnLabel;
         final Color btnColor;
@@ -2811,27 +3017,27 @@ class _NoiseControlsState extends State<NoiseControls>
         final bool btnPulse;
 
         if (toolOpen) {
-          btnLabel = '🔧\nSELECT\nTOOL';
+          btnLabel = '🔧SELECT TOOL';
           btnColor = const Color(0xFF69F0AE);
-          btnEnabled = false; // Ping disabled while tool selector is open
-          btnPulse = true;
-        } else if (inBlockingWind) {
-          btnLabel = '🌪️\nEVADE!';
-          btnColor = const Color(0xFFEF5350);
           btnEnabled = false;
           btnPulse = true;
+        } else if (inWind && widget.game.currentWindSlowFactor < 0.8) {
+          btnLabel = '💨 SLOWED';
+          btnColor = const Color(0xFFFFB300);
+          btnEnabled = true;
+          btnPulse = true;
         } else if (hasLock) {
-          btnLabel = '🔊\nPING!';
+          btnLabel = '🔒 LOCKING…';
           btnColor = const Color(0xFF29B6F6);
           btnEnabled = true;
           btnPulse = true;
-        } else if (widget.game._nearestSonarTarget != null) {
-          btnLabel = '📡\nPING';
+        } else if (canScan) {
+          btnLabel = '📡 SCAN';
           btnColor = const Color(0xFF29B6F6).withValues(alpha: 0.75);
           btnEnabled = true;
           btnPulse = false;
         } else {
-          btnLabel = '📡\nSEEK';
+          btnLabel = '📡 SEEK';
           btnColor = const Color(0xFF546E7A);
           btnEnabled = false;
           btnPulse = false;
@@ -2842,7 +3048,6 @@ class _NoiseControlsState extends State<NoiseControls>
           onKeyEvent: _onKey,
           child: Stack(
             children: [
-              // D-pad (bottom-left)
               Align(
                 alignment: Alignment.bottomLeft,
                 child: SafeArea(
@@ -2916,12 +3121,11 @@ class _NoiseControlsState extends State<NoiseControls>
                 ),
               ),
 
-              // Action button (bottom-right)
               Align(
                 alignment: Alignment.bottomRight,
                 child: SafeArea(
                   child: Padding(
-                    padding: const EdgeInsets.only(bottom: 22, right: 96),
+                    padding: const EdgeInsets.only(bottom: 22, right: 14),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -2955,12 +3159,44 @@ class _NoiseControlsState extends State<NoiseControls>
                             ),
                           ),
 
+                        if (widget.game.scanLockActive)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.70),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.42)),
+                            ),
+                            child: Text(
+                              widget.game.currentWindSlowFactor < 1.0
+                                  ? '💨 Wind slowing scan!'
+                                  : '🔒 Scanning — stay in range!',
+                              style: const TextStyle(color: Color(0xFF29B6F6), fontSize: 9, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+
+                        if (widget.game.toolSelectorOpen)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF69F0AE).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFF69F0AE).withValues(alpha: 0.42)),
+                            ),
+                            child: const Text(
+                              '🔧 Select noise solution!',
+                              style: TextStyle(color: Color(0xFF69F0AE), fontSize: 9, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+
                         AnimatedBuilder(
                           animation: _pulseCtrl,
                           builder: (_, __) {
                             final pulse = btnPulse ? _pulseCtrl.value : 0.0;
                             return GestureDetector(
-                              onTap: () => widget.game.sonarPing(),
+                              onTap: () => widget.game.triggerScan(),
                               child: Stack(
                                 alignment: Alignment.center,
                                 children: [
@@ -3094,264 +3330,432 @@ class _DPad extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  NOISE TOOL SELECTOR  — appears immediately after sonar lock
-//  Anchored to the scanned hotspot's screen position, tapping a tool
-//  directly calls game.selectTool() → game.applyTool() in one step
+//  NOISE SCAN RESULT OVERLAY  (like LandDegradation ScanResultOverlay)
+// ════════════════════════════════════════════════════════════════════════════
+class NoiseScanResultOverlay extends StatefulWidget {
+  final NoisePollutionGame game;
+  const NoiseScanResultOverlay(this.game, {super.key});
+  @override
+  State<NoiseScanResultOverlay> createState() => _NoiseScanResultOverlayState();
+}
+
+class _NoiseScanResultOverlayState extends State<NoiseScanResultOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 340))..forward();
+    _scale = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack);
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.game,
+      builder: (_, __) {
+        final result = widget.game.lastScanResult;
+        if (result == null) return const SizedBox.shrink();
+
+        final rawTimer = widget.game.scanResultTimer;
+        const displayDuration = 4.0;
+        final progress = (rawTimer / displayDuration).clamp(0.0, 1.0);
+        final pts = widget.game.lastScanPoints;
+
+        return Center(
+          child: ScaleTransition(
+            scale: _scale,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 18),
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+              constraints: const BoxConstraints(maxWidth: 340),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF0A0A14),
+                    result.color.withValues(alpha: 0.12),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: result.color.withValues(alpha: 0.70), width: 2.0),
+                boxShadow: [
+                  BoxShadow(color: result.color.withValues(alpha: 0.28), blurRadius: 28),
+                  const BoxShadow(color: Colors.black54, blurRadius: 18),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header row
+                  Row(children: [
+                    SizedBox(
+                      width: 22, height: 22,
+                      child: CustomPaint(painter: _ArcCountdownPainter(progress, result.color)),
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('SONAR SCAN COMPLETE',
+                          style: TextStyle(color: Colors.white54, fontSize: 9,
+                              fontWeight: FontWeight.w900, letterSpacing: 1.8)),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFB300).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFFFFB300).withValues(alpha: 0.42)),
+                      ),
+                      child: Text('+$pts pts${pts >= 30 ? " 🌟" : ""}',
+                          style: const TextStyle(color: Color(0xFFFFB300),
+                              fontSize: 9, fontWeight: FontWeight.bold)),
+                    ),
+                  ]),
+                  const SizedBox(height: 12),
+
+                  // Identified issue
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: result.color.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: result.color.withValues(alpha: 0.55), width: 1.8),
+                      boxShadow: [BoxShadow(color: result.color.withValues(alpha: 0.18), blurRadius: 10)],
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text(result.icon, style: const TextStyle(fontSize: 28)),
+                        const SizedBox(width: 10),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('SOURCE IDENTIFIED',
+                              style: TextStyle(color: result.color.withValues(alpha: 0.75),
+                                  fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                          const SizedBox(height: 2),
+                          Text(result.typeName,
+                              style: TextStyle(color: result.color, fontSize: 16,
+                                  fontWeight: FontWeight.w900)),
+                          const SizedBox(height: 2),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: result.color.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(result.dbLevel,
+                                style: TextStyle(color: result.color.withValues(alpha: 0.90),
+                                    fontSize: 9, fontWeight: FontWeight.w700)),
+                          ),
+                        ])),
+                      ]),
+                      const SizedBox(height: 8),
+                      Text(result.ecoFact,
+                          style: const TextStyle(color: Colors.white70, fontSize: 10, height: 1.5)),
+                    ]),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Show-once hint / memory prompt
+                  widget.game.scanResultShowsHints
+                      ? Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.white12),
+                          ),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            const Text('REQUIRED SOLUTION',
+                                style: TextStyle(color: Colors.white38, fontSize: 7.5,
+                                    fontWeight: FontWeight.w900, letterSpacing: 1.3)),
+                            const SizedBox(height: 6),
+                            Row(children: [
+                              Container(width: 16, height: 16, alignment: Alignment.center,
+                                decoration: BoxDecoration(color: result.color.withValues(alpha: 0.15), shape: BoxShape.circle,
+                                    border: Border.all(color: result.color.withValues(alpha: 0.50))),
+                                child: Text('①', style: TextStyle(color: result.color, fontSize: 8, fontWeight: FontWeight.bold)),
+                              ),
+                              const SizedBox(width: 6),
+                              Text('${result.requiredToolEmoji} ${result.requiredTool}',
+                                  style: const TextStyle(color: Colors.white70, fontSize: 9, height: 1.3)),
+                            ]),
+                          ]),
+                        )
+                      : Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF69F0AE).withValues(alpha: 0.07),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFF69F0AE).withValues(alpha: 0.35)),
+                          ),
+                          child: const Column(mainAxisSize: MainAxisSize.min, children: [
+                            Text('🧠 YOU KNOW THIS ONE',
+                                style: TextStyle(color: Color(0xFF69F0AE), fontSize: 9.5,
+                                    fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+                            SizedBox(height: 5),
+                            Text(
+                              'You have identified this noise source before. Apply the correct solution from memory!',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.white54, fontSize: 9.5, height: 1.4),
+                            ),
+                          ]),
+                        ),
+                  const SizedBox(height: 14),
+
+                  // FIX IT button
+                  GestureDetector(
+                    onTap: () => widget.game.openToolSelectorForPending(),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: result.color.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: result.color, width: 2.0),
+                        boxShadow: [BoxShadow(color: result.color.withValues(alpha: 0.38), blurRadius: 14)],
+                      ),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Text(result.icon, style: const TextStyle(fontSize: 18)),
+                        const SizedBox(width: 8),
+                        Text('FIX IT  →  SELECT TOOL',
+                            style: TextStyle(color: result.color, fontSize: 13,
+                                fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text('or wait — auto-opens in a moment',
+                      style: TextStyle(color: Colors.white24, fontSize: 8),
+                      textAlign: TextAlign.center),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ArcCountdownPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  const _ArcCountdownPainter(this.progress, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2; final cy = size.height / 2;
+    final r = math.min(cx, cy) - 1.5;
+    canvas.drawCircle(Offset(cx, cy), r,
+        Paint()..color = Colors.white12..style = PaintingStyle.stroke..strokeWidth = 2.0);
+    canvas.drawArc(Rect.fromCenter(center: Offset(cx, cy), width: r * 2, height: r * 2),
+        -math.pi / 2, math.pi * 2 * progress, false,
+        Paint()..color = color.withValues(alpha: 0.80)
+          ..style = PaintingStyle.stroke..strokeWidth = 2.5..strokeCap = StrokeCap.round);
+  }
+
+  @override
+  bool shouldRepaint(_ArcCountdownPainter old) => old.progress != progress;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NOISE TOOL SELECTOR  (like LandToolSelector)
 // ════════════════════════════════════════════════════════════════════════════
 class NoiseToolSelector extends StatelessWidget {
   final NoisePollutionGame game;
   const NoiseToolSelector(this.game, {super.key});
 
   static const _tools = [
-    (
-      NoiseTool.electricMuffler,
-      '⚡',
-      'Electric\nMuffler',
-      Color(0xFF29B6F6),
-      'Traffic',
-    ),
-    (
-      NoiseTool.silentMachinery,
-      '🔕',
-      'Silent\nMachine',
-      Color(0xFFFF6D00),
-      'Construct.',
-    ),
-    (
-      NoiseTool.silentZone,
-      '🚫',
-      'Silent\nZone',
-      Color(0xFFCE93D8),
-      'Loudspeaker',
-    ),
-    (
-      NoiseTool.treeBarrier,
-      '🌲',
-      'Tree\nBarrier',
-      Color(0xFF69F0AE),
-      'Vegetation',
-    ),
-  ];
+    (NoiseTool.electricMuffler,  '⚡', 'Electric Muffler',   Color(0xFFEF5350), 'Traffic'),
+    (NoiseTool.silentMachinery,  '🔕', 'Silent Machine',     Color(0xFFFF6D00), 'Construct.'),
+    (NoiseTool.silentZone,       '🚫', 'Silent Zone',        Color(0xFFCE93D8), 'Loudspeaker'),
+    (NoiseTool.treeBarrier,      '🌲', 'Tree Barrier',       Color(0xFF69F0AE), 'Vegetation'),
+    (NoiseTool.noiseBarrier,     '🧱', 'Noise Barrier',      Color(0xFF8D6E63), 'Industrial'),
+    (NoiseTool.flightPath,       '🛫', 'Flight Path',        Color(0xFF5C6BC0), 'Aircraft'),
+    (NoiseTool.trackDampener,    '🛤️', 'Track Dampener',     Color(0xFF26A69A), 'Railway'),
+    (NoiseTool.soundInsulation,  '🏠', 'Sound Insulation',   Color(0xFFAB47BC), 'Nightclub'),  ];
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: game,
       builder: (_, __) {
-        if (!game.toolSelectorOpen) return const SizedBox.shrink();
+        final target = game.pendingFixTarget;
+        if (target == null) return const SizedBox.shrink();
 
-        // Position the panel near the pending hotspot in screen coords,
-        // but clamp to ensure it stays fully on screen.
-        Widget panel = Container(
-          width: 230,
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: const Color(0xFF060E1C).withValues(alpha: 0.97),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: const Color(0xFF69F0AE).withValues(alpha: 0.55),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF69F0AE).withValues(alpha: 0.20),
-                blurRadius: 20,
+        final typeName = _sourceLabel(target.type);
+        final showHints = game.toolSelectorShowsHints;
+
+        return Container(
+          color: Colors.black.withValues(alpha: 0.62),
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0A1A2E),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.55), width: 1.5),
+                boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 20)],
               ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('🔧', style: TextStyle(fontSize: 14)),
-                  const SizedBox(width: 6),
-                  const Expanded(
-                    child: Text(
-                      'SELECT SOLUTION',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.0,
+                  // Header
+                  Row(children: [
+                    Text(_sourceIcon(target.type), style: const TextStyle(fontSize: 22)),
+                    const SizedBox(width: 10),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(typeName,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text('Select the correct noise solution',
+                          style: TextStyle(color: const Color(0xFF29B6F6), fontSize: 10.5, fontWeight: FontWeight.w700)),
+                    ])),
+                    GestureDetector(
+                      onTap: game.cancelToolSelector,
+                      child: Container(
+                        width: 32, height: 32,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withValues(alpha: 0.08),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: const Center(child: Text('✕',
+                            style: TextStyle(color: Colors.white60, fontSize: 14, fontWeight: FontWeight.bold))),
                       ),
                     ),
-                  ),
-                  GestureDetector(
-                    onTap: () => game.cancelToolSelector(),
-                    child: const Icon(
-                      Icons.close_rounded,
-                      color: Colors.white38,
-                      size: 16,
+                  ]),
+
+                  const SizedBox(height: 4),
+
+                  // Issue reminder
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF29B6F6).withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF29B6F6).withValues(alpha: 0.35)),
                     ),
+                    child: showHints
+                        ? Text(
+                            'Issue: $typeName  •  ${game.lastScanResult?.dbLevel ?? ""}',
+                            style: TextStyle(color: const Color(0xFF29B6F6), fontSize: 9.5, fontWeight: FontWeight.w700))
+                        : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            const Text('🧠', style: TextStyle(fontSize: 11)),
+                            const SizedBox(width: 5),
+                            Text('Recall from memory — no hints this time!',
+                                style: TextStyle(color: const Color(0xFF29B6F6), fontSize: 9.5, fontWeight: FontWeight.w700)),
+                          ]),
+                  ),
+                  const SizedBox(height: 10),
+                  Text('Select the correct solution tool:',
+                      style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
+                  const SizedBox(height: 14),
+
+                  // Tool grid
+                  Wrap(
+                    spacing: 8, runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: _tools.map((spec) {
+                      final (tool, emoji, label, color, targetHint) = spec;
+                      // Only highlight correct tool when hints are active
+                      final correct = showHints && game._isCorrectTool(target.type, tool);
+                      //final selColor = correct ? color : Colors.white24;
+
+                      return GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          game.selectTool(tool);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 130),
+                          width: 100,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: correct
+                                ? color.withValues(alpha: 0.20)
+                                : Colors.black.withValues(alpha: 0.62),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: correct ? color.withValues(alpha: 0.80) : Colors.white.withValues(alpha: 0.22),
+                              width: correct ? 2.0 : 1.2,
+                            ),
+                            boxShadow: correct
+                                ? [BoxShadow(color: color.withValues(alpha: 0.30), blurRadius: 10)]
+                                : [],
+                          ),
+                          child: Column(mainAxisSize: MainAxisSize.min, children: [
+                            Text(emoji, style: const TextStyle(fontSize: 20)),
+                            const SizedBox(height: 4),
+                            Text(label,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: correct ? color : Colors.white70,
+                                  fontWeight: FontWeight.w800, fontSize: 9.5,
+                                )),
+                            // Issue label: shown when hints are active
+                            if (showHints)
+                              Text(targetHint,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: color.withValues(alpha: 0.68),
+                                    fontSize: 7.5,
+                                  ))
+                            else
+                              Text('— apply from memory —',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.white24, fontSize: 7)),
+                          ]),
+                        ),
+                      );
+                    }).toList(),
                   ),
                 ],
               ),
-              if (game.pendingFixTarget != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Source: ${_sourceLabel(game.pendingFixTarget!.type)}',
-                  style: const TextStyle(color: Colors.white54, fontSize: 9),
-                ),
-              ],
-              const SizedBox(height: 8),
-
-              // Tool buttons in a 2×2 grid
-              Row(
-                children: [
-                  _buildTool(_tools[0]),
-                  const SizedBox(width: 6),
-                  _buildTool(_tools[1]),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  _buildTool(_tools[2]),
-                  const SizedBox(width: 6),
-                  _buildTool(_tools[3]),
-                ],
-              ),
-
-              const SizedBox(height: 8),
-              const Text(
-                'Tap the correct tool to apply instantly',
-                style: TextStyle(color: Colors.white30, fontSize: 8),
-              ),
-            ],
+            ),
           ),
-        );
-
-        // Center the selector on the scanned hotspot, clamped on screen
-        double left = 20;
-        double top = 160;
-        if (game.pendingFixTarget != null) {
-          final hs = game.worldToScreen(game.pendingFixTarget!.hotspotPos);
-          left = (hs.x - 115).clamp(10.0, game.size.x - 240.0);
-          top = (hs.y - 80).clamp(160.0, game.size.y - 260.0);
-        }
-
-        return Stack(
-          children: [Positioned(left: left, top: top, child: panel)],
         );
       },
     );
   }
 
-  Widget _buildTool((NoiseTool, String, String, Color, String) t) {
-    final (tool, emoji, label, color, target) = t;
-    final isPending = game.pendingFixTarget;
-    // Highlight the correct tool for this noise type
-    final isCorrect = isPending != null && _isCorrectTool(isPending.type, tool);
-
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => game.selectTool(tool),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-          decoration: BoxDecoration(
-            color: isCorrect
-                ? color.withValues(alpha: 0.20)
-                : Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isCorrect ? color : Colors.white12,
-              width: isCorrect ? 2.0 : 1.0,
-            ),
-            boxShadow: isCorrect
-                ? [
-                    BoxShadow(
-                      color: color.withValues(alpha: 0.35),
-                      blurRadius: 10,
-                    ),
-                  ]
-                : [],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(emoji, style: const TextStyle(fontSize: 22)),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: isCorrect ? color : Colors.white54,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 7.5,
-                  height: 1.2,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: isCorrect
-                      ? color.withValues(alpha: 0.20)
-                      : Colors.white10,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  target,
-                  style: TextStyle(
-                    color: isCorrect
-                        ? color.withValues(alpha: 0.85)
-                        : Colors.white38,
-                    fontSize: 6.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              if (isCorrect) ...[
-                const SizedBox(height: 3),
-                Text(
-                  '✓ CORRECT',
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 6.5,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static String _sourceLabel(NoiseType t) {
+  String _sourceIcon(NoiseType t) {
     switch (t) {
-      case NoiseType.traffic:
-        return 'Vehicle Honking (85 dB)';
-      case NoiseType.construction:
-        return 'Construction Site (90 dB)';
-      case NoiseType.loudspeaker:
-        return 'Loud Speaker (78 dB)';
-      case NoiseType.vegetation:
-        return 'Sparse Vegetation (72 dB)';
+      case NoiseType.traffic: return '🚗';
+      case NoiseType.construction: return '🏗️';
+      case NoiseType.loudspeaker: return '📢';
+      case NoiseType.vegetation: return '🌿';
+      case NoiseType.industrial: return '🏭';
+      case NoiseType.aircraft: return '✈️';
+      case NoiseType.railway: return '🚆';
+      case NoiseType.nightclub: return '🎵';
     }
   }
 
-  static bool _isCorrectTool(NoiseType t, NoiseTool tool) {
+  String _sourceLabel(NoiseType t) {
     switch (t) {
-      case NoiseType.traffic:
-        return tool == NoiseTool.electricMuffler;
-      case NoiseType.construction:
-        return tool == NoiseTool.silentMachinery;
-      case NoiseType.loudspeaker:
-        return tool == NoiseTool.silentZone;
-      case NoiseType.vegetation:
-        return tool == NoiseTool.treeBarrier;
+      case NoiseType.traffic: return 'Vehicle Honking';
+      case NoiseType.construction: return 'Construction Site';
+      case NoiseType.loudspeaker: return 'Loud Speaker';
+      case NoiseType.vegetation: return 'Sparse Vegetation';
+      case NoiseType.industrial: return 'Industrial Plant';
+      case NoiseType.aircraft: return 'Aircraft Overflight';
+      case NoiseType.railway: return 'Railway Noise';
+      case NoiseType.nightclub: return 'Nightclub District';
     }
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  PHASE BANNER  (intro)
+//  PHASE BANNER
 // ════════════════════════════════════════════════════════════════════════════
 class NoisePhaseBanner extends StatelessWidget {
   final NoisePollutionGame game;
@@ -3398,14 +3802,14 @@ class NoisePhaseBanner extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Fly close to noise sources — sonar rings pulse outward.\n'
-                'Watch the ring expand, then tap 🔊 PING just as it returns.\n'
-                '3 timed pings = Sonar Lock! A tool panel opens immediately.\n'
-                'Tap the correct solution — the panel stays until you pick one!\n'
-                '💡 Fix at least ${NoisePollutionGame.kMinSolutionsRequired} hotspots to advance to the next phase.',
+              Text(
+                'Fly close to noise sources and tap 📡 SCAN.'
+                'A 1.5 s lock starts — stay in range to complete it.'
+                'Read the identified source, then tap FIX IT to resolve!'
+                'Wind slows scans · First scan shows hints, next requires memory.'
+                '💡 Fix at least ${NoisePollutionGame.kMinSolutionsRequired} hotspots to advance.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 11.5,
                   height: 1.55,
@@ -3418,17 +3822,17 @@ class NoisePhaseBanner extends StatelessWidget {
                 children: [
                   _WindLegendDot(
                     color: Color(0xFF80DEEA),
-                    label: 'Light wind — safe',
+                    label: 'Light wind — 15% slower',
                   ),
                   SizedBox(width: 12),
                   _WindLegendDot(
                     color: Color(0xFFFFB300),
-                    label: 'Moderate — risky',
+                    label: 'Moderate — 40% slower',
                   ),
                   SizedBox(width: 12),
                   _WindLegendDot(
                     color: Color(0xFFEF5350),
-                    label: 'Heavy — blocked',
+                    label: 'Heavy — 65% slower',
                   ),
                 ],
               ),
@@ -3480,10 +3884,10 @@ class NoiseReactionFx extends StatelessWidget {
     final Color accent;
 
     switch (game.reactionKind) {
-      case ReactionKind.windBlock:
-        title = '🌪️  SIGNAL DISRUPTED!';
-        sub = 'Wind broke your ping — escape then retry';
-        accent = const Color(0xFFEF5350);
+      case ReactionKind.windSlow:
+        title = '💨  WIND SLOWING SCAN';
+        sub = 'Scan progress reduced — hold position longer!';
+        accent = const Color(0xFFFFB300);
         break;
       case ReactionKind.scanMiss:
         title = '📡  OUT OF RANGE!';
@@ -3494,24 +3898,21 @@ class NoiseReactionFx extends StatelessWidget {
         final toolOpen = game.toolSelectorOpen;
         title = toolOpen ? '🔧  SELECT A TOOL FIRST!' : '⚡  NOT READY';
         sub = toolOpen
-            ? 'Pick the correct solution from the panel above'
+            ? 'Pick the correct solution from the panel'
             : 'Navigate into a noise source zone';
         accent = const Color(0xFFFFB300);
         break;
       case ReactionKind.scanPartial:
-        final h = game.activeLock?.pulseHits ?? 0;
-        title = h == 0 ? '⚠️  MISSED TIMING!' : '🔊  PING ×$h  —  Keep going!';
-        sub = h == 0
-            ? 'Watch the ring — ping when it peaks!'
-            : '${3 - h} more pings to lock the source';
+        title = '🔊  SCANNING…';
+        sub = 'Hold position — stay in range to complete!';
         accent = const Color(0xFFFFB300);
         break;
       case ReactionKind.scanLocked:
         final c = game.reactionCombo;
-        title = c >= 3 ? '🔥  COMBO ×$c  —  SOURCE LOCKED!' : '🔒  SONAR LOCK!';
+        title = c >= 3 ? '🔥  COMBO ×$c  —  SCAN COMPLETE!' : '🔒  SCAN COMPLETE!';
         sub = c >= 3
-            ? '+${5 + c * 3} Eco-Points  •  Now pick your tool!'
-            : '+${5 + c * 3} Eco-Points  •  Select a solution now!';
+            ? '+${10 + c * 5} Eco-Points  •  Now pick your tool!'
+            : '+10 Eco-Points  •  Select a solution now!';
         accent = const Color(0xFF29B6F6);
         break;
       case ReactionKind.windEvade:
@@ -3534,7 +3935,8 @@ class NoiseReactionFx extends StatelessWidget {
     final isPositive = game.reactionCorrect;
 
     if (game.reactionKind == ReactionKind.windEvade ||
-        game.reactionKind == ReactionKind.scanPartial) {
+        game.reactionKind == ReactionKind.scanPartial ||
+        game.reactionKind == ReactionKind.windSlow) {
       return IgnorePointer(
         child: Align(
           alignment: Alignment.topCenter,
@@ -3651,7 +4053,152 @@ class NoiseReactionFx extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  NOISE RESULTS OVERLAY
+//  COMPLETION BANNER  (like LandCompletionBanner)
+// ════════════════════════════════════════════════════════════════════════════
+class NoiseCompletionBanner extends StatefulWidget {
+  final NoisePollutionGame game;
+  const NoiseCompletionBanner(this.game, {super.key});
+
+  @override
+  State<NoiseCompletionBanner> createState() => _NoiseCompletionBannerState();
+}
+
+class _NoiseCompletionBannerState extends State<NoiseCompletionBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+  late final Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
+    _scale = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack);
+    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
+    _ctrl.forward();
+
+    Future.delayed(const Duration(milliseconds: 5000), () {
+      if (!mounted) return;
+      widget.game.overlays
+        ..remove('completionBanner')
+        ..add('results');
+    });
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = NoiseResult.current!;
+    final state = r.completionState;
+    final total = widget.game.hotspots.length;
+
+    final String topEmoji;
+    final String title;
+    final String subtitle;
+    final List<Color> bgGrad;
+    final Color glow;
+
+    switch (state) {
+      case LevelCompletionState.fullCompletion:
+        topEmoji = '🏆';
+        title = 'FULL RESTORATION!';
+        subtitle = 'All $total hotspots resolved — outstanding fieldwork!';
+        bgGrad = [const Color(0xFF003D14), const Color(0xFF005A1E)];
+        glow = const Color(0xFF69F0AE);
+        break;
+      case LevelCompletionState.moderate:
+        topEmoji = '✅';
+        title = 'MINIMUM ACHIEVED!';
+        subtitle = '${r.hotspotsFix}/$total hotspots fixed'
+            'Continuing to Level Complete…';
+        bgGrad = [const Color(0xFF3B2600), const Color(0xFF5A3800)];
+        glow = const Color(0xFFFFB300);
+        break;
+      case LevelCompletionState.failed:
+        topEmoji = '⏰';
+        title = 'NOT ENOUGH FIXED';
+        subtitle = '${r.hotspotsFix}/${r.minimumRequired} hotspots fixed'
+            'Replay to reach the minimum';
+        bgGrad = [const Color(0xFF3D0000), const Color(0xFF5A0000)];
+        glow = const Color(0xFFEF5350);
+        break;
+    }
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.75),
+      child: Center(
+        child: FadeTransition(
+          opacity: _fade,
+          child: ScaleTransition(
+            scale: _scale,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 28),
+              padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                    colors: bgGrad,
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight),
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: glow.withValues(alpha: 0.55), width: 2.0),
+                boxShadow: [
+                  BoxShadow(color: glow.withValues(alpha: 0.35),
+                      blurRadius: 36, spreadRadius: 3),
+                ],
+              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Text(topEmoji, style: const TextStyle(fontSize: 62)),
+                const SizedBox(height: 12),
+                Text(title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: glow, fontSize: 22,
+                      fontWeight: FontWeight.w900, letterSpacing: 1.4,
+                    )),
+                const SizedBox(height: 10),
+                Text(subtitle,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 13.5, height: 1.55)),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: glow.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: glow.withValues(alpha: 0.38)),
+                  ),
+                  child: Text(
+                    '🔊 ${r.hotspotsFix}/$total Fixed  •  '
+                    '⭐ ${r.ecoPoints} pts  •  🎯 ${r.scanComboMax}× combo',
+                    style: TextStyle(
+                        color: glow, fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  SizedBox(
+                    width: 12, height: 12,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 1.5, color: glow.withValues(alpha: 0.5)),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('Loading results…',
+                      style: TextStyle(color: Colors.white38, fontSize: 10.5)),
+                ]),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NOISE RESULTS OVERLAY  (updated with retry mechanism like land)
 // ════════════════════════════════════════════════════════════════════════════
 class NoiseResultsOverlay extends StatelessWidget {
   final NoisePollutionGame game;
@@ -3663,6 +4210,7 @@ class NoiseResultsOverlay extends StatelessWidget {
     final peaceful = result.peacefulCityBadge;
     final meetsMin = result.meetsMinimum;
     final dbFinal = result.noiseMeterFinal.toStringAsFixed(0);
+    final totalHotspots = game.hotspots.length;
 
     return Container(
       color: Colors.black.withValues(alpha: 0.94),
@@ -3671,7 +4219,6 @@ class NoiseResultsOverlay extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           child: Column(
             children: [
-              // Title card
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
@@ -3712,13 +4259,12 @@ class NoiseResultsOverlay extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      meetsMin
-                          ? 'Noise Pollution Investigation Results'
-                          : 'You need to fix at least ${result.minimumRequired} hotspots to proceed',
+                      result.endReason,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: meetsMin ? Colors.white70 : const Color(0xFFFF8A65),
                         fontSize: 13,
+                        height: 1.5,
                       ),
                     ),
                     if (!meetsMin) ...[
@@ -3742,7 +4288,7 @@ class NoiseResultsOverlay extends StatelessWidget {
                             const SizedBox(width: 8),
                             Flexible(
                               child: Text(
-                                'Fixed: ${result.hotspotsFix} / ${result.minimumRequired} required\n'
+                                'Fixed: ${result.hotspotsFix} / ${result.minimumRequired} required'
                                 'Replay to fix ${result.minimumRequired - result.hotspotsFix} more hotspot(s)',
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
@@ -3797,7 +4343,6 @@ class NoiseResultsOverlay extends StatelessWidget {
 
               const SizedBox(height: 16),
 
-              // Core stats
               _NRCard(
                 children: [
                   _NRBig(
@@ -3810,7 +4355,7 @@ class NoiseResultsOverlay extends StatelessWidget {
                   ),
                   _NRBig(
                     '✅',
-                    '${result.hotspotsFix}',
+                    '${result.hotspotsFix}/$totalHotspots',
                     'Fixed',
                     Colors.limeAccent,
                   ),
@@ -3826,7 +4371,6 @@ class NoiseResultsOverlay extends StatelessWidget {
 
               const SizedBox(height: 10),
 
-              // Sonar stats
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
@@ -3867,9 +4411,9 @@ class NoiseResultsOverlay extends StatelessWidget {
                           const Color(0xFFFF6D00),
                         ),
                         _NRBig(
-                          '🔒',
-                          '${result.hotspotsFix}',
-                          'Locked+Fixed',
+                          '🛰️',
+                          '${result.scannedCount}',
+                          'Scanned',
                           const Color(0xFF29B6F6),
                         ),
                       ],
@@ -3880,7 +4424,6 @@ class NoiseResultsOverlay extends StatelessWidget {
 
               const SizedBox(height: 10),
 
-              // Interventions applied
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -3916,13 +4459,32 @@ class NoiseResultsOverlay extends StatelessWidget {
                       'Vegetation Zones',
                       '🌿 Tree lines & barriers planted',
                     ),
+                    _NRRow(
+                      '🏭',
+                      'Industrial Plants',
+                      '🧱 Noise barriers installed',
+                    ),
+                    _NRRow(
+                      '✈️',
+                      'Aircraft Overflight',
+                      '🛫 Optimized flight paths',
+                    ),
+                    _NRRow(
+                      '🚆',
+                      'Railway Noise',
+                      '🛤️ Track dampeners deployed',
+                    ),
+                    _NRRow(
+                      '🎵',
+                      'Nightclub Districts',
+                      '🏠 Sound insulation applied',
+                    ),
                   ],
                 ),
               ),
 
               const SizedBox(height: 20),
 
-              // ── Primary action button: REPLAY if below minimum, CONTINUE if met ──
               SizedBox(
                 width: double.infinity,
                 child: meetsMin
@@ -3952,10 +4514,8 @@ class NoiseResultsOverlay extends StatelessWidget {
                       )
                     : Column(
                         children: [
-                          // Replay button (primary action when below minimum)
                           ElevatedButton.icon(
                             onPressed: () {
-                              // Pop back to restart the noise pollution screen
                               Navigator.of(context).pop();
                             },
                             icon: const Icon(Icons.replay_rounded),
@@ -3979,7 +4539,6 @@ class NoiseResultsOverlay extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 10),
-                          // Minimum requirement reminder
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 12,
@@ -3993,8 +4552,8 @@ class NoiseResultsOverlay extends StatelessWidget {
                               ),
                             ),
                             child: Text(
-                              '💡 Tip: Fly close to noise sources, ping 3×\n'
-                              'to sonar-lock them, then pick the correct tool.\n'
+                              '💡 Tip: Fly close to noise sources and tap SCAN.'
+                              'Hold position for 1.5s to complete the scan.'
                               'Minimum ${result.minimumRequired} fixes needed to advance.',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
