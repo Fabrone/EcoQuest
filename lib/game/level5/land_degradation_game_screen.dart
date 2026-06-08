@@ -1198,14 +1198,9 @@ void triggerQuickScan() {
     } else if (allRestored) {
       endReason = '🌍 All ${patches.length} degradation patches fully restored! '
           'Outstanding work!';
-    } else if (toolUses.values.every((uses) => uses == 0)) {
-      endReason = meetsMin
-          ? '🛠️ Tools depleted — minimum restorations achieved! Continue to the next stage.'
-          : '🛠️ All tools depleted before reaching the $kMinPatchesRequired-patch minimum.';
     } else {
-      endReason = meetsMin
-          ? '✅ Minimum $kMinPatchesRequired restorations achieved — level complete!'
-          : 'Level ended with $restoredCount/$kMinPatchesRequired patches restored.';
+      // This path is reached via finishEarly() when not all restored
+      endReason = 'Level ended with $restoredCount/$kMinPatchesRequired patches restored.';
     }
 
     LandDegradationResult.current = LandDegradationResult(

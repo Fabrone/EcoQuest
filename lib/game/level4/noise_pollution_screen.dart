@@ -842,7 +842,8 @@ class NoisePollutionGame extends FlameGame
     toolSelectorOpen = false;
     overlays.remove('toolSelect');
 
-    if (noiseMeter <= _targetNoise) {
+    // Only auto-complete when ALL hotspots are fixed (not at minimum)
+    if (hotspots.isNotEmpty && hotspots.every((h) => h.isFixed)) {
       Future.delayed(const Duration(milliseconds: 800), _endLevel);
     }
 
@@ -953,9 +954,8 @@ class NoisePollutionGame extends FlameGame
     } else if (allFixed) {
       endReason = '🌍 All ${hotspots.length} noise hotspots fully resolved! Outstanding work!';
     } else {
-      endReason = meetsMin
-          ? '✅ Minimum $kMinSolutionsRequired fixes achieved — level complete!'
-          : 'Level ended with $fixedCount/$kMinSolutionsRequired hotspots fixed.';
+      // This path should only be reached via finishEarly() when not all fixed
+      endReason = 'Level ended with $fixedCount/$kMinSolutionsRequired hotspots fixed.';
     }
 
     NoiseResult.current = NoiseResult(
