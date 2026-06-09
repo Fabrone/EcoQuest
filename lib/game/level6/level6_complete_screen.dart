@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:ecoquest/game/level6/degraded_park_screen.dart';
 import 'package:ecoquest/game/level6/habitat_cleanup_game_screen.dart';
+import 'package:ecoquest/game/level6/pond_cleaning_game_screen.dart';
 import 'package:ecoquest/game/level6/wildlife_rescue_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -47,8 +48,14 @@ class _Level6CompleteScreenState extends State<Level6CompleteScreen>
   HabitatCleanupResult get _cleanup =>
       HabitatCleanupResult.current ??
       const HabitatCleanupResult(
-        litterCollected: 0, correctSorts: 0,
-        pondsClean: 0, ecoPoints: 0, waterPurity: 0,
+        litterCollected: 0, correctSorts: 0, ecoPoints: 0,
+      );
+
+  PondCleaningResult get _pondResult =>
+      PondCleaningResult.current ??
+      const PondCleaningResult(
+        pondsClean: 0, correctTreatments: 0, wrongTreatments: 0,
+        ecoPoints: 0, waterPurity: 0,
       );
 
   WildlifeRescueResult get _rescue =>
@@ -59,7 +66,7 @@ class _Level6CompleteScreenState extends State<Level6CompleteScreen>
         guardianOfNatureBadge: false,
       );
 
-  int get _totalScore => _cleanup.ecoPoints + _rescue.ecoPoints;
+  int get _totalScore => _cleanup.ecoPoints + _pondResult.ecoPoints + _rescue.ecoPoints;
 
   String get _grade {
     if (_totalScore >= 600) return 'S';
@@ -182,6 +189,7 @@ class _Level6CompleteScreenState extends State<Level6CompleteScreen>
                       _L6StatGrid(
                         stagger:  _staggerCtrl,
                         cleanup:  _cleanup,
+                        pond:     _pondResult,
                         rescue:   _rescue,
                         mobile:   mobile,
                       ),
@@ -537,12 +545,13 @@ class _L6ScoreBanner extends StatelessWidget {
 class _L6StatGrid extends StatelessWidget {
   final AnimationController stagger;
   final HabitatCleanupResult cleanup;
+  final PondCleaningResult   pond;
   final WildlifeRescueResult  rescue;
   final bool mobile;
 
   const _L6StatGrid({
     required this.stagger, required this.cleanup,
-    required this.rescue,  required this.mobile,
+    required this.pond,    required this.rescue,  required this.mobile,
   });
 
   @override
@@ -553,7 +562,7 @@ class _L6StatGrid extends StatelessWidget {
           'Waste items collected &\nsorted in Phase 1',
           _Level6CompleteScreenState.wildlifeGold),
       _L6SD('💧', 'Water Purity',
-          '${cleanup.waterPurity.toStringAsFixed(0)}%',
+          '${pond.waterPurity.toStringAsFixed(0)}%',
           'Final water purity\nacross all ponds',
           _Level6CompleteScreenState.waterTeal),
       _L6SD('🦓', 'Animals Rescued',

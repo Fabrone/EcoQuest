@@ -1,106 +1,72 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:ecoquest/game/level6/degraded_park_screen.dart';
-import 'package:ecoquest/game/level6/wildlife_rescue_screen.dart';
+import 'package:ecoquest/game/level6/pond_cleaning_game_screen.dart';
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flame/game.dart' hide Matrix4;
 import 'package:flutter/material.dart' hide Matrix4;
 import 'package:flutter/services.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  HABITAT CLEANUP GAME SCREEN  ·  EcoQuest Level 6  ·  Phase 1 & 2
-//
-//  PHASE 1 — WASTE COLLECTION
-//   • Drone hovers over litter; proximity hold-scan (1.5 s) identifies item
-//   • Non-blocking "LITTER IDENTIFIED" mini-card at drone position on completion
-//   • Card shows eco-fact + sort recommendation (first encounter only)
-//   • "SORT IT" → sort mini-game; wrong sort keeps mini-game open to retry
-//   • Scan streaks reward rapid multi-item discovery with bonus pts
-//   • 2 litter items carry hidden Eco-Discovery markers (cultural eco-facts)
-//   • 1 litter item secretly gives +8 s time bonus when correctly sorted
-//
-//  PHASE 2 — WATER PURIFICATION
-//   • Scan ponds (1.5 s hold) → result card shows type + eco-fact + treatment guide
-//   • Instant treatment on selection; wrong treatment keeps selector open to retry
-//   • Treatment inventory — 3 uses each; right-side panel always visible
-//   • Critical Pond Alerts — treat within 12 s or lose pts + pollution surge
-//   • Algae Spread — untreated algae blooms spawn child ponds after 30 s
-//   • Acid Rain events — threatens purity of partially-cleaned ponds
-//   • Treatment Resupply drops every 3 fully cleaned ponds
-//   • Sparkle burst on pond clean + combo multiplier for consecutive correct actions
+//  HABITAT CLEANUP — Phase 1 only (Waste Collection)
+//  10 litter types · 4-bin sort · First-hint / Memory-recall · Minimum gate
+//  Completes → PondCleaningGameScreen
 // ══════════════════════════════════════════════════════════════════════════════
 
-// ── Result class ──────────────────────────────────────────────────────────────
 class HabitatCleanupResult {
   final int    litterCollected;
   final int    correctSorts;
-  final int    pondsClean;
   final int    ecoPoints;
-  final double waterPurity;
   final int    maxCombo;
   final int    scanStreakBonus;
   final int    ecoDiscoveriesFound;
   final bool   timeBonusCollected;
-  final int    criticalSaves;
-  final int    pondsSpread;
-  final int    resupplyTriggered;
   final bool   meetsMinimum;
   final int    minimumLitterRequired;
-  final int    minimumPondsRequired;
+  final String endReason;
+  final LevelCompletionState completionState;
 
   const HabitatCleanupResult({
     required this.litterCollected,
     required this.correctSorts,
-    required this.pondsClean,
     required this.ecoPoints,
-    required this.waterPurity,
     this.maxCombo              = 1,
     this.scanStreakBonus        = 0,
     this.ecoDiscoveriesFound   = 0,
     this.timeBonusCollected    = false,
-    this.criticalSaves         = 0,
-    this.pondsSpread           = 0,
-    this.resupplyTriggered     = 0,
     this.meetsMinimum          = false,
-    this.minimumLitterRequired = 5,
-    this.minimumPondsRequired  = 3,
+    this.minimumLitterRequired = 9,
+    this.endReason             = 'Level completed.',
+    this.completionState       = LevelCompletionState.failed,
   });
 
   int get accuracyPct =>
       litterCollected == 0 ? 0 : ((correctSorts / litterCollected) * 100).round();
 
   String get performanceGrade {
-    if (correctSorts >= 12 && pondsClean >= 7) return 'MASTER ECOLOGIST';
-    if (correctSorts >= 8  && pondsClean >= 5) return 'HABITAT GUARDIAN';
-    if (correctSorts >= 5  && pondsClean >= 3) return 'ECO FIELD AGENT';
+    if (correctSorts >= 14) return 'MASTER ECOLOGIST';
+    if (correctSorts >= 10) return 'HABITAT GUARDIAN';
+    if (correctSorts >= 6)  return 'ECO FIELD AGENT';
     return 'JUNIOR RANGER';
   }
 
   String get performanceSummary {
     final lines = <String>[];
-    if (criticalSaves > 0)       lines.add('Saved $criticalSaves critical pond(s) from collapse');
-    if (pondsSpread > 0)         lines.add('$pondsSpread pond(s) spread due to neglect');
     if (ecoDiscoveriesFound > 0) lines.add('Found $ecoDiscoveriesFound hidden Eco-Discovery marker(s)');
     if (timeBonusCollected)      lines.add('Time Bonus item collected — earned +8 s');
     if (maxCombo >= 4)           lines.add('$maxCombo-action combo achieved — 3× point multiplier!');
     if (scanStreakBonus > 0)     lines.add('Scan streak bonus: +$scanStreakBonus pts');
     return lines.isEmpty
-        ? 'Collect litter and treat ponds to maximise your score.'
+        ? 'Collect and sort all litter to maximise your score.'
         : lines.join('\n');
   }
 
   static HabitatCleanupResult? current;
 }
 
-// ── Critical pond alert ────────────────────────────────────────────────────────
-class CriticalPondAlert {
-  final PollutedPond pond;
-  double timeLeft;
-  bool   handled;
-  CriticalPondAlert({required this.pond, this.timeLeft = 12.0, this.handled = false});
-}
+enum LevelCompletionState { failed, moderate, fullCompletion }
 
-// ── Scan result (auto-identified; no quiz) ─────────────────────────────────────
+// ── Scan result (litter only) ───────────────────────────────────────────────
 class HabitatScanResult {
   final String typeName;
   final String ecoFact;
@@ -109,7 +75,6 @@ class HabitatScanResult {
   final Color  color;
   final bool   hasEcoDiscovery;
   final String discoveryFact;
-  final bool   isLitter;
 
   const HabitatScanResult({
     required this.typeName,
@@ -119,52 +84,72 @@ class HabitatScanResult {
     required this.color,
     this.hasEcoDiscovery = false,
     this.discoveryFact   = '',
-    required this.isLitter,
   });
 
   static const _litterFacts = {
-    LitterType.plastic: [
-      'Plastic accounts for 60% of litter in Karura Forest. Kenya banned plastic bags in 2017 — but bottles and wrappers remain a major threat to urban wildlife.',
-      'A plastic bottle takes 450 years to decompose. Every piece collected today protects wildlife for centuries.',
+    LitterType.plasticBottle: [
+      'A plastic bottle takes 450 years to decompose. Every bottle collected today protects Karura\'s wildlife for centuries.',
+      'Plastic bottles fragment into microplastics that enter the soil food chain, harming birds and small mammals.',
     ],
-    LitterType.metal: [
-      'Metal cans leach zinc as they corrode, acidifying pond soil and poisoning ground-nesting birds in Karura.',
-      'Kenya recycles only 8% of its metal waste. A recycled can saves 95% of the energy needed to make a new one.',
+    LitterType.polythene: [
+      'Polythene bags clog waterways and suffocate soil organisms. Kenya banned them in 2017, yet remnants persist in urban parks.',
+      'When buried, polythene blocks root growth and can remain intact for over 1,000 years in forest soil.',
     ],
-    LitterType.organic: [
-      'Banana peels compost in 2–4 weeks — but dumped in large amounts they deplete oxygen in water, killing aquatic life.',
-      'Organic waste makes up 60% of Nairobi\'s landfill. Composting enriches park soil and cuts methane emissions.',
+    LitterType.foodWrap: [
+      'Plastic food wraps leach chemicals into soil and fragment into microplastics that earthworms and birds ingest.',
+      'Used food wraps attract pests and spread bacteria when left in natural habitats like Karura Forest.',
     ],
-    LitterType.glass: [
-      'Glass shards trap birds and small mammals in Karura. Reusing bottles cuts the energy cost of new glass by 30%.',
-      'A glass bottle can be reused up to 50 times. Recovering it from the habitat saves valuable silica resources.',
+    LitterType.glassBottle: [
+      'A glass bottle can be washed and reused up to 50 times — far better than melting it down for recycling.',
+      'Broken glass in Karura Forest injures birds and small mammals. Proper collection keeps habitats safe.',
     ],
-  };
-
-  static const _pondFacts = {
-    PondType.algaeBloom: [
-      'Algae blooms in Karura\'s ponds deplete oxygen — killing fish and frogs. Water hyacinths absorb excess nutrients, naturally restoring balance.',
-      'A single algae bloom can double in size every two days. Early hyacinth treatment prevents full pond collapse.',
+    LitterType.metalCan: [
+      'Recycling one metal can saves enough energy to power a television for 3 hours.',
+      'Rusting metal cans leach zinc and iron into soil, acidifying it and poisoning ground-nesting birds.',
     ],
-    PondType.organicWaste: [
-      'Organic runoff from Nairobi\'s estates introduces high nutrient loads, fuelling bacterial growth. Targeted bacteria pellets break down waste safely.',
-      'Organic pollution triggers BOD spikes — suffocating pond life. Bio-remediation bacteria restore oxygen within days.',
+    LitterType.paper: [
+      'Recycling one ton of paper saves 17 mature trees and 7,000 gallons of water.',
+      'While paper biodegrades, landfill burial produces methane — a greenhouse gas 25× stronger than CO₂.',
     ],
-    PondType.chemicalPollution: [
-      'Chemical contaminants from nearby industry persist in pond sediment for years. Filtration units remove up to 95% of dissolved pollutants.',
-      'Heavy metals bioaccumulate in fish and birds. A single filtration cycle protects the entire food chain above the pond.',
+    LitterType.fruitPeel: [
+      'Fruit peels compost in 2–4 weeks, returning nutrients to the soil and feeding beneficial microbes.',
+      'When trapped in plastic bags, organic waste like peels produces methane instead of enriching soil.',
+    ],
+    LitterType.clothes: [
+      'Textile waste can take over 200 years to decompose. Repurposing old clothes cuts landfill volume dramatically.',
+      'Synthetic fabrics release microfibres into waterways. Collection for reuse protects Karura\'s ponds.',
+    ],
+    LitterType.shoes: [
+      'Torn shoes contain rubber and synthetic foam that last centuries in landfills. Donation or repurposing is key.',
+      'Shoe rubber can be ground into playground surfaces or insulation — never truly "waste" if collected.',
+    ],
+    LitterType.eWaste: [
+      'One discarded phone battery can contaminate 600,000 liters of groundwater with lead and mercury.',
+      'E-waste contains precious metals like gold and copper. Proper harmful-waste disposal enables safe recovery.',
     ],
   };
 
   static const _discoveryFacts = {
-    LitterType.plastic:
+    LitterType.plasticBottle:
       '🏺 Cultural Marker Found! Karura Forest was the site of Wangari Maathai\'s famous stand — local women planted trees here to protest litter and deforestation under the Green Belt Movement.',
-    LitterType.metal:
+    LitterType.polythene:
       '🌿 Cultural Marker Found! The Kikuyu held "Itwika" renewal ceremonies in sacred Karura groves — community clean-ups that maintained the forest\'s spiritual and ecological purity.',
-    LitterType.organic:
+    LitterType.foodWrap:
       '🌾 Cultural Marker Found! Karura\'s original Kikuyu custodians composted organic waste in communal "githiga" mounds to feed the forest floor — an ancestral form of park stewardship.',
-    LitterType.glass:
+    LitterType.glassBottle:
       '🪶 Cultural Marker Found! Maasai elders near Karura used crushed glass from trading caravans as a soil amendment — a tradition now echoed in modern glass-recycling composites.',
+    LitterType.metalCan:
+      '⚙️ Cultural Marker Found! Early Nairobi metalworkers traded scrap at Karura\'s edge, melting cans into tools — an early recycling economy that kept metal out of the forest.',
+    LitterType.paper:
+      '📜 Cultural Marker Found! Before paper, Kikuyu elders recorded wisdom on bark cloth. The shift to paper was called "kwandikira mbere" — writing the future while honouring the past.',
+    LitterType.fruitPeel:
+      '🍃 Cultural Marker Found! Kikuyu farmers buried fruit peels at the base of "mukinduri" trees as natural fertiliser — a practice that kept Karura\'s soil rich for generations.',
+    LitterType.clothes:
+      '👘 Cultural Marker Found! The "muthaka" tradition saw torn clothes woven into rugs and mats. Nothing was wasted — textiles lived many lives before returning to the soil.',
+    LitterType.shoes:
+      '👣 Cultural Marker Found! Elders repaired leather sandals with forest fibre. "Guturira nguo" — the art of repair — was a moral duty, not just practicality.',
+    LitterType.eWaste:
+      '🔌 Cultural Marker Found! Early telephone wires in Nairobi used copper from recycled metal. Karura\'s clean-up legacy teaches us that today\'s e-waste is tomorrow\'s resource.',
   };
 
   static HabitatScanResult forLitter(
@@ -172,79 +157,104 @@ class HabitatScanResult {
     final facts = _litterFacts[t]!;
     final fact  = facts[variant % facts.length];
     switch (t) {
-      case LitterType.plastic:
+      case LitterType.plasticBottle:
         return HabitatScanResult(
-          typeName: 'Plastic Bottle / Wrap', ecoFact: fact,
+          typeName: 'Plastic Bottle', ecoFact: fact,
           correctAction: 'Sort into ♻️ Recyclable Bin',
-          icon: '🧴', color: const Color(0xFF29B6F6),
+          icon: '🥤', color: const Color(0xFF29B6F6),
           hasEcoDiscovery: withDiscovery,
           discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
-          isLitter: true,
         );
-      case LitterType.metal:
+      case LitterType.polythene:
         return HabitatScanResult(
-          typeName: 'Metal Can / Tin', ecoFact: fact,
+          typeName: 'Polythene Bag', ecoFact: fact,
+          correctAction: 'Sort into ♻️ Recyclable Bin',
+          icon: '🛍️', color: const Color(0xFF42A5F5),
+          hasEcoDiscovery: withDiscovery,
+          discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
+        );
+      case LitterType.foodWrap:
+        return HabitatScanResult(
+          typeName: 'Food Wrap', ecoFact: fact,
+          correctAction: 'Sort into ♻️ Recyclable Bin',
+          icon: '🥡', color: const Color(0xFF26C6DA),
+          hasEcoDiscovery: withDiscovery,
+          discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
+        );
+      case LitterType.glassBottle:
+        return HabitatScanResult(
+          typeName: 'Glass Bottle', ecoFact: fact,
+          correctAction: 'Sort into 🔄 Reusable Bin',
+          icon: '🍾', color: const Color(0xFFAB47BC),
+          hasEcoDiscovery: withDiscovery,
+          discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
+        );
+      case LitterType.metalCan:
+        return HabitatScanResult(
+          typeName: 'Metal Can', ecoFact: fact,
           correctAction: 'Sort into ♻️ Recyclable Bin',
           icon: '🥫', color: const Color(0xFF90A4AE),
           hasEcoDiscovery: withDiscovery,
           discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
-          isLitter: true,
         );
-      case LitterType.organic:
+      case LitterType.paper:
         return HabitatScanResult(
-          typeName: 'Organic Waste', ecoFact: fact,
+          typeName: 'Paper / Book', ecoFact: fact,
+          correctAction: 'Sort into ♻️ Recyclable Bin',
+          icon: '📄', color: const Color(0xFF8D6E63),
+          hasEcoDiscovery: withDiscovery,
+          discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
+        );
+      case LitterType.fruitPeel:
+        return HabitatScanResult(
+          typeName: 'Fruit Peel', ecoFact: fact,
           correctAction: 'Sort into 🌿 Biodegradable Bin',
           icon: '🍌', color: const Color(0xFF558B2F),
           hasEcoDiscovery: withDiscovery,
           discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
-          isLitter: true,
         );
-      case LitterType.glass:
+      case LitterType.clothes:
         return HabitatScanResult(
-          typeName: 'Glass Item', ecoFact: fact,
+          typeName: 'Old Clothes', ecoFact: fact,
           correctAction: 'Sort into 🔄 Reusable Bin',
-          icon: '🍶', color: const Color(0xFF26C6DA),
+          icon: '👕', color: const Color(0xFFEC407A),
           hasEcoDiscovery: withDiscovery,
           discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
-          isLitter: true,
         );
-    }
-  }
-
-  static HabitatScanResult forPond(PondType t, {int variant = 0}) {
-    final facts = _pondFacts[t]!;
-    final fact  = facts[variant % facts.length];
-    switch (t) {
-      case PondType.algaeBloom:
+      case LitterType.shoes:
         return HabitatScanResult(
-          typeName: 'Algae Bloom', ecoFact: fact,
-          correctAction: 'Deploy 🌿 Water Hyacinths',
-          icon: '🌿', color: const Color(0xFF2E7D32),
-          isLitter: false,
+          typeName: 'Torn Shoes', ecoFact: fact,
+          correctAction: 'Sort into 🔄 Reusable Bin',
+          icon: '👟', color: const Color(0xFF7E57C2),
+          hasEcoDiscovery: withDiscovery,
+          discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
         );
-      case PondType.organicWaste:
+      case LitterType.eWaste:
         return HabitatScanResult(
-          typeName: 'Organic Waste Pond', ecoFact: fact,
-          correctAction: 'Apply 🧫 Bacteria Pellets',
-          icon: '🦠', color: const Color(0xFF795548),
-          isLitter: false,
-        );
-      case PondType.chemicalPollution:
-        return HabitatScanResult(
-          typeName: 'Chemical Pollution', ecoFact: fact,
-          correctAction: 'Install 🔧 Filtration Unit',
-          icon: '☠️', color: const Color(0xFF7B1FA2),
-          isLitter: false,
+          typeName: 'E-Waste / Battery', ecoFact: fact,
+          correctAction: 'Sort into ☠️ Harmful Bin',
+          icon: '🔋', color: const Color(0xFFEF5350),
+          hasEcoDiscovery: withDiscovery,
+          discoveryFact: withDiscovery ? (_discoveryFacts[t] ?? '') : '',
         );
     }
   }
 }
 
-// ── Enums ─────────────────────────────────────────────────────────────────────
-enum LitterType    { plastic, metal, organic, glass }
-enum WasteSort     { recyclable, reusable, biodegradable }
-enum PondType      { algaeBloom, organicWaste, chemicalPollution }
-enum PondTreatment { hyacinths, bacteriaPellets, filtrationUnit }
+enum LitterType {
+  plasticBottle,
+  polythene,
+  foodWrap,
+  glassBottle,
+  metalCan,
+  paper,
+  fruitPeel,
+  clothes,
+  shoes,
+  eWaste,
+}
+
+enum WasteSort { recyclable, reusable, biodegradable, harmful }
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  SCREEN WRAPPER
@@ -273,7 +283,7 @@ class _HabitatCleanupGameScreenState extends State<HabitatCleanupGameScreen> {
   void _onDone() {
     if (!mounted) return;
     Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => WildlifeRescueScreen(carryOver: widget.carryOver),
+      builder: (_) => PondCleaningGameScreen(carryOver: widget.carryOver),
     ));
   }
 
@@ -288,12 +298,8 @@ class _HabitatCleanupGameScreenState extends State<HabitatCleanupGameScreen> {
           'banner':        (ctx, g) => CleanupPhaseBanner(g as HabitatCleanupGame),
           'scanResult':    (ctx, g) => HabitatScanResultOverlay(g as HabitatCleanupGame),
           'sortMini':      (ctx, g) => SortMiniGame(g as HabitatCleanupGame),
-          'pondSelect':    (ctx, g) => PondTreatmentSelector(g as HabitatCleanupGame),
           'reactionFx':    (ctx, g) => CleanupReactionFx(g as HabitatCleanupGame),
           'ecoDiscovery':  (ctx, g) => CleanupEcoDiscoveryOverlay(g as HabitatCleanupGame),
-          'criticalPond':  (ctx, g) => CriticalPondAlertOverlay(g as HabitatCleanupGame),
-          'acidRain':      (ctx, g) => AcidRainAlertOverlay(g as HabitatCleanupGame),
-          'treatResupply': (ctx, g) => TreatmentResupplyOverlay(g as HabitatCleanupGame),
           'results':       (ctx, g) => CleanupResultsOverlay(g as HabitatCleanupGame),
         },
         initialActiveOverlays: const ['hud', 'controls'],
@@ -303,7 +309,7 @@ class _HabitatCleanupGameScreenState extends State<HabitatCleanupGameScreen> {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  MAIN GAME CLASS
+//  MAIN GAME CLASS  — Waste only
 // ══════════════════════════════════════════════════════════════════════════════
 class HabitatCleanupGame extends FlameGame
     with HasCollisionDetection, ChangeNotifier {
@@ -312,11 +318,8 @@ class HabitatCleanupGame extends FlameGame
   final VoidCallback    onLevelComplete;
   HabitatCleanupGame({required this.carryOver, required this.onLevelComplete});
 
-  // ── Minimum items required to proceed ─────────────────────────────────────
-  static const int kMinLitterRequired = 5;
-  static const int kMinPondsRequired  = 3;
+  static const int kMinLitterRequired = 9;
 
-  // ── World / camera (world = 3× screen) ────────────────────────────────────
   static const double kWorldScale   = 3.0;
   static const double kEdgeFraction = 0.22;
   static const double kCameraEase   = 5.5;
@@ -326,42 +329,25 @@ class HabitatCleanupGame extends FlameGame
   double edgeHintLeft = 0, edgeHintRight = 0;
   double edgeHintTop  = 0, edgeHintBottom = 0;
 
-  // ── Core ───────────────────────────────────────────────────────────────────
-  int    gamePhase   = 1;
   bool   gameStarted = false;
   double timeLeft    = 150.0;
   bool   levelDone   = false;
 
-  // ── Score ──────────────────────────────────────────────────────────────────
   int ecoPoints    = 0;
   int litterCount  = 0;
   int correctSorts = 0;
-  int pondsFixed   = 0;
   int maxCombo     = 1;
 
-  // ── Water purity ──────────────────────────────────────────────────────────
-  double waterPurity = 10.0;
-  static const double _purityGain   = 18.0;
-  static const double _wrongPenalty = 6.0;
-
-  // ── Ranges ────────────────────────────────────────────────────────────────
   static const double _scanRange     = 145.0;
-  //static const double _collectRange  = 95.0;
-  static const double _treatRange    = 110.0;
   static const double _scanMaxRadius = 170.0;
 
-  // ── Drone ──────────────────────────────────────────────────────────────────
   late Vector2 dronePos;
   bool isUp = false, isDown = false, isLeft = false, isRight = false;
   static const double _droneSpeed = 185.0;
 
-  // ── Pending fix targets ────────────────────────────────────────────────────
   LitterItem?   pendingSortTarget;
   bool          sortSelectorOpen      = false;
-  PollutedPond? pendingTreatTarget;
-  bool          treatmentSelectorOpen = false;
 
-  // ── Phase 1 · Litter scan lock ─────────────────────────────────────────────
   bool        scanLockActive   = false;
   double      _scanLockTimer   = 0;
   static const double _scanDuration = 1.5;
@@ -370,26 +356,17 @@ class HabitatCleanupGame extends FlameGame
   bool        scanActive       = false;
   double      scanRadius       = 0;
 
-  // ── Phase 2 · Pond scan lock ──────────────────────────────────────────────
-  bool          pondScanLockActive = false;
-  double        _pondScanTimer     = 0;
-  PollutedPond? activeScanPond;
-  PollutedPond? _nearestScanPond;
-
-  // ── Scan result (non-blocking mini-card) ──────────────────────────────────
   bool               scanResultActive = false;
   HabitatScanResult? lastScanResult;
   double             scanResultTimer  = 0;
   int                lastScanPoints   = 0;
   Vector2            scanCardPos      = Vector2.zero();
 
-  // ── Scan streak ────────────────────────────────────────────────────────────
   int    scanStreak      = 0;
   double scanStreakTimer  = 0;
   int    totalScanStreak = 0;
   static const double _streakWindow = 6.0;
 
-  // ── Eco-discovery & time-bonus ─────────────────────────────────────────────
   final Set<int> ecoDiscoveryIndices  = {};
   final Set<int> discoveredEcoItems   = {};
   int?           timeBonusLitterIndex;
@@ -399,88 +376,34 @@ class HabitatCleanupGame extends FlameGame
   double         discoveryDisplayTimer = 0;
   static const double _discoveryDisplay = 4.0;
 
-  // ── Combo ──────────────────────────────────────────────────────────────────
   int    comboCount      = 0;
   double comboTimer      = 0;
   static const double _comboWindow = 4.5;
   bool   showComboFlash  = false;
   double comboFlashTimer = 0;
 
-  // ── Treatment inventory ────────────────────────────────────────────────────
-  final Map<PondTreatment, int> treatmentUses = {
-    PondTreatment.hyacinths:       3,
-    PondTreatment.bacteriaPellets: 3,
-    PondTreatment.filtrationUnit:  3,
-  };
-  PondTreatment selectedTreatment = PondTreatment.hyacinths;
-  bool get canUseSelectedTreatment => (treatmentUses[selectedTreatment] ?? 0) > 0;
-
-  // ── Treatment resupply ─────────────────────────────────────────────────────
-  int    _pondsSinceResupply = 0;
-  int    resupplyTriggered   = 0;
-  bool   resupplyActive      = false;
-  double resupplyTimer       = 0;
-  static const double _resupplyDisplay = 2.2;
-
-  // ── Critical pond alerts ───────────────────────────────────────────────────
-  final List<CriticalPondAlert> criticalAlerts = [];
-  double _criticalAlertTimer = 45.0;
-  int    criticalSaves       = 0;
-
-  // ── Algae spread ──────────────────────────────────────────────────────────
-  final Map<PollutedPond, double> _algaeIdleTimers = {};
-  static const double _algaeSpreadAt = 30.0;
-  int    pondsSpread      = 0;
-  double _algaeCheckTimer = 1.0;
-
-  // ── Acid rain ──────────────────────────────────────────────────────────────
-  double _acidRainTimer      = 50.0;
-  bool   acidRainWarning     = false;
-  bool   acidRainActive      = false;
-  double _acidRainWarningCd  = 0;
-  double _acidRainActiveCd   = 0;
-  double acidRainIntensity   = 0;
-
-  // ── Pollution surge ───────────────────────────────────────────────────────
-  double _surgeTimer   = 28.0;
-  bool   surgePending  = false;
-  double surgePulse    = 0;
-
-  // ── Show-once consciousness ────────────────────────────────────────────────
   final Set<LitterType> _seenLitterTypes = {};
-  final Set<PondType>   _seenPondTypes   = {};
   bool scanResultShowsHints  = true;
   bool sortShowsHints        = true;
-  bool treatmentShowsHints   = true;
 
-  // ── Reaction FX ───────────────────────────────────────────────────────────
   bool   reactionActive  = false;
   bool   reactionCorrect = false;
-  int    reactionPhase   = 1;
   bool   reactionInRange = true;
   double reactionTimer   = 0;
   String reactionMsg     = '';
 
-  // ── Banner ─────────────────────────────────────────────────────────────────
   double bannerTimer = 3.5;
 
-  // ── Eco-guide hint ─────────────────────────────────────────────────────────
   String ecoGuideHint  = '';
   double ecoGuideTimer = 0;
   double _hintCooldown = 0;
   double _idleTimer    = 0;
 
-  // ── Components ─────────────────────────────────────────────────────────────
   late EcoDroneCleanupComponent drone;
   final List<LitterItem>   litter = [];
-  final List<PollutedPond> ponds  = [];
 
-  static const int totalLitter = 14;
-  static const int totalPonds  = 8;
+  static const int totalLitter = 16;
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  INIT
-  // ══════════════════════════════════════════════════════════════════════════
   @override
   Future<void> onLoad() async {
     super.onLoad();
@@ -513,20 +436,22 @@ class HabitatCleanupGame extends FlameGame
 
   void _spawnLitter() {
     const specs = [
-      (LitterType.plastic, 0.40, 0.42),
-      (LitterType.metal,   0.55, 0.38),
-      (LitterType.organic, 0.47, 0.53),
-      (LitterType.glass,   0.60, 0.46),
-      (LitterType.plastic, 0.12, 0.30),
-      (LitterType.organic, 0.18, 0.58),
-      (LitterType.metal,   0.08, 0.70),
-      (LitterType.glass,   0.82, 0.24),
-      (LitterType.plastic, 0.76, 0.54),
-      (LitterType.metal,   0.88, 0.68),
-      (LitterType.organic, 0.44, 0.14),
-      (LitterType.glass,   0.62, 0.76),
-      (LitterType.plastic, 0.28, 0.80),
-      (LitterType.organic, 0.55, 0.18),
+      (LitterType.plasticBottle, 0.40, 0.42),
+      (LitterType.polythene,     0.55, 0.38),
+      (LitterType.foodWrap,      0.47, 0.53),
+      (LitterType.glassBottle,   0.60, 0.46),
+      (LitterType.metalCan, 0.12, 0.30),
+      (LitterType.paper,    0.18, 0.58),
+      (LitterType.fruitPeel, 0.08, 0.70),
+      (LitterType.clothes,  0.22, 0.42),
+      (LitterType.shoes,    0.82, 0.24),
+      (LitterType.eWaste,   0.76, 0.54),
+      (LitterType.plasticBottle, 0.88, 0.68),
+      (LitterType.polythene,     0.70, 0.38),
+      (LitterType.foodWrap,    0.44, 0.14),
+      (LitterType.glassBottle, 0.62, 0.76),
+      (LitterType.metalCan,    0.28, 0.80),
+      (LitterType.paper,       0.55, 0.18),
     ];
     for (int i = 0; i < specs.length; i++) {
       final (type, rx, ry) = specs[i];
@@ -536,28 +461,6 @@ class HabitatCleanupGame extends FlameGame
         seed: i * 17,
       );
       add(l); litter.add(l);
-    }
-  }
-
-  void _spawnPonds() {
-    const specs = [
-      (PondType.algaeBloom,        0.38, 0.38),
-      (PondType.algaeBloom,        0.68, 0.55),
-      (PondType.organicWaste,      0.20, 0.48),
-      (PondType.organicWaste,      0.82, 0.30),
-      (PondType.chemicalPollution, 0.52, 0.65),
-      (PondType.chemicalPollution, 0.22, 0.72),
-      (PondType.algaeBloom,        0.62, 0.22),
-      (PondType.organicWaste,      0.45, 0.78),
-    ];
-    for (int i = 0; i < specs.length; i++) {
-      final (type, rx, ry) = specs[i];
-      final p = PollutedPond(
-        game: this, type: type,
-        worldX: worldW * rx, worldY: worldH * ry,
-        seed: i * 23,
-      );
-      add(p); ponds.add(p);
     }
   }
 
@@ -576,38 +479,18 @@ class HabitatCleanupGame extends FlameGame
     notifyListeners();
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  GETTERS
-  // ══════════════════════════════════════════════════════════════════════════
   double get scanHoldProgress =>
       scanLockActive ? (_scanLockTimer / _scanDuration).clamp(0.0, 1.0) : 0.0;
-
-  double get pondScanProgress =>
-      pondScanLockActive ? (_pondScanTimer / _scanDuration).clamp(0.0, 1.0) : 0.0;
 
   bool get _hasNearbyUnscannedLitter =>
       litter.any((l) => !l.isScanned && !l.isCollected &&
           (l.litterPos - dronePos).length <= _scanRange);
 
-  bool get _hasNearbyUnscannedPond =>
-      ponds.any((p) => !p.isScanned && !p.isClean &&
-          (p.pondPos - dronePos).length <= _scanRange);
-
-  PollutedPond? get _nearestTreatable {
-    PollutedPond? best; double minD = _treatRange;
-    for (final p in ponds) {
-      if (p.isClean) continue;
-      final d = (p.pondPos - dronePos).length;
-      if (d < minD) { minD = d; best = p; }
-    }
-    return best;
-  }
-
   // ══════════════════════════════════════════════════════════════════════════
-  //  PHASE 1: LITTER SCAN (hold 1.5 s → result card → sort mini-game)
+  //  LITTER SCAN
   // ══════════════════════════════════════════════════════════════════════════
   void triggerScan() {
-    if (!gameStarted || levelDone || gamePhase != 1) return;
+    if (!gameStarted || levelDone) return;
     gameStarted = true;
     HapticFeedback.selectionClick();
 
@@ -687,91 +570,12 @@ class HabitatCleanupGame extends FlameGame
     notifyListeners();
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  PHASE 2: POND SCAN (hold 1.5 s → result card → treatment selector)
-  // ══════════════════════════════════════════════════════════════════════════
-  void triggerPondScan() {
-    if (!gameStarted || levelDone || gamePhase != 2) return;
-    HapticFeedback.selectionClick();
-
-    if (treatmentSelectorOpen) {
-      reactionMsg = '💧 Apply a treatment first!';
-      _triggerReaction(false, inRange: false);
-      notifyListeners(); return;
-    }
-    if (pondScanLockActive) {
-      reactionMsg = '📡 Scanning pond…';
-      _triggerReaction(true, inRange: true);
-      notifyListeners(); return;
-    }
-
-    PollutedPond? nearest; double nearestD = _scanRange;
-    for (final p in ponds) {
-      if (p.isScanned || p.isClean) continue;
-      final d = (p.pondPos - dronePos).length;
-      if (d < nearestD) { nearestD = d; nearest = p; }
-    }
-
-    if (nearest == null) {
-      reactionMsg = '💧 No unscanned pond in range — fly closer';
-      _triggerReaction(false, inRange: false);
-      notifyListeners(); return;
-    }
-
-    activeScanPond     = nearest;
-    pondScanLockActive = true;
-    _pondScanTimer     = 0;
-    reactionMsg        = '🔬 Analysing pond — stay in range!';
-    _triggerReaction(true, inRange: true);
-    HapticFeedback.lightImpact();
-    notifyListeners();
-  }
-
-  void _completePondScan(PollutedPond p) {
-    if (p.isScanned) return;
-    final idx = ponds.indexOf(p);
-    p.isScanned   = true;
-    p.scanVariant = idx;
-
-    ecoPoints     += 12;
-    lastScanPoints = 12;
-    scanCardPos    = dronePos.clone();
-
-    final firstScan = !_seenPondTypes.contains(p.type);
-    if (firstScan) _seenPondTypes.add(p.type);
-    scanResultShowsHints = firstScan;
-    treatmentShowsHints  = firstScan;
-
-    lastScanResult   = HabitatScanResult.forPond(p.type, variant: idx);
-    scanResultTimer  = 3.8;
-    scanResultActive = true;
-
-    pondScanLockActive = false; _pondScanTimer = 0; activeScanPond = null;
-    _handleScanStreak();
-    HapticFeedback.heavyImpact();
-
-    overlays.add('scanResult');
-    pendingTreatTarget = p;
-    notifyListeners();
-  }
-
-  // ── "SORT IT" tapped on scan result card ─────────────────────────────────
   void openSortSelectorForPending() {
     if (pendingSortTarget == null || sortSelectorOpen) return;
     sortSelectorOpen = true;
     overlays.remove('scanResult');
     scanResultActive = false;
     overlays.add('sortMini');
-    notifyListeners();
-  }
-
-  // ── "TREAT IT" tapped on scan result card ─────────────────────────────────
-  void openTreatmentSelectorForPending() {
-    if (pendingTreatTarget == null || treatmentSelectorOpen) return;
-    treatmentSelectorOpen = true;
-    overlays.remove('scanResult');
-    scanResultActive = false;
-    overlays.add('pondSelect');
     notifyListeners();
   }
 
@@ -782,17 +586,10 @@ class HabitatCleanupGame extends FlameGame
     if (pendingSortTarget != null && !sortSelectorOpen) {
       sortSelectorOpen = true;
       overlays.add('sortMini');
-    } else if (pendingTreatTarget != null && !treatmentSelectorOpen) {
-      treatmentSelectorOpen = true;
-      overlays.add('pondSelect');
     }
     notifyListeners();
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  PHASE 1: SORT LITTER
-  //  Wrong sort keeps mini-game open (retry) — correct closes and scores.
-  // ══════════════════════════════════════════════════════════════════════════
   void sortLitter(WasteSort sort) {
     if (pendingSortTarget == null) return;
     HapticFeedback.selectionClick();
@@ -823,24 +620,33 @@ class HabitatCleanupGame extends FlameGame
       overlays.remove('sortMini');
 
       if (litter.every((l) => l.isCollected)) {
-        Future.delayed(const Duration(milliseconds: 600), _advanceToPhase2);
+        Future.delayed(const Duration(milliseconds: 600), _endCleanup);
       }
     } else {
       ecoPoints = math.max(0, ecoPoints - 5);
       _breakCombo();
       reactionMsg = '❌ Wrong bin — try another!';
       _triggerReaction(false);
-      // sortMini stays open to retry
     }
     notifyListeners();
   }
 
   bool _isCorrectSort(LitterType t, WasteSort s) {
     switch (t) {
-      case LitterType.plastic: return s == WasteSort.recyclable;
-      case LitterType.metal:   return s == WasteSort.recyclable;
-      case LitterType.organic: return s == WasteSort.biodegradable;
-      case LitterType.glass:   return s == WasteSort.reusable;
+      case LitterType.plasticBottle:
+      case LitterType.polythene:
+      case LitterType.foodWrap:
+      case LitterType.metalCan:
+      case LitterType.paper:
+        return s == WasteSort.recyclable;
+      case LitterType.glassBottle:
+      case LitterType.clothes:
+      case LitterType.shoes:
+        return s == WasteSort.reusable;
+      case LitterType.fruitPeel:
+        return s == WasteSort.biodegradable;
+      case LitterType.eWaste:
+        return s == WasteSort.harmful;
     }
   }
 
@@ -851,109 +657,6 @@ class HabitatCleanupGame extends FlameGame
     notifyListeners();
   }
 
-  void _advanceToPhase2() {
-    if (levelDone) return;
-    gamePhase   = 2;
-    bannerTimer = 3.0;
-    _spawnPonds();
-    overlays.add('banner');
-    notifyListeners();
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  //  PHASE 2: TREAT POND
-  //  Wrong treatment keeps selector open (retry). Correct closes & scores.
-  // ══════════════════════════════════════════════════════════════════════════
-  void selectTreatment(PondTreatment t) {
-    selectedTreatment = t;
-    notifyListeners();
-    if (treatmentSelectorOpen) treatPond();
-  }
-
-  void treatPond() {
-    if (!gameStarted || levelDone || gamePhase != 2) return;
-    if (!canUseSelectedTreatment) {
-      reactionMsg = '⚠️ No ${_treatmentLabel(selectedTreatment)} uses left!';
-      _triggerReaction(false, inRange: false);
-      notifyListeners(); return;
-    }
-
-    final target = pendingTreatTarget ?? _nearestTreatable;
-    if (target == null) {
-      reactionMsg = '💧 Scan a pond first';
-      _triggerReaction(false, inRange: false);
-      notifyListeners(); return;
-    }
-
-    HapticFeedback.lightImpact();
-    treatmentUses[selectedTreatment] = (treatmentUses[selectedTreatment] ?? 1) - 1;
-
-    final correct = _isCorrectTreatment(target.type, selectedTreatment);
-
-    if (correct) {
-      target.clean();
-      target.triggerSparkle = true;
-      pondsFixed++;
-      waterPurity = math.min(100, waterPurity + _purityGain);
-      ecoPoints  += 25 * _comboMult();
-      _incCombo();
-      _algaeIdleTimers.remove(target);
-      _dismissCriticalAlert(target, saved: true);
-      reactionMsg = '💧 Pond Cleaned!  +${25 * _comboMult()} pts  🎉';
-      _triggerReaction(true);
-      _pondsSinceResupply++;
-      if (_pondsSinceResupply >= 3) {
-        _pondsSinceResupply = 0;
-        _triggerResupply();
-      }
-
-      pendingTreatTarget    = null;
-      treatmentSelectorOpen = false;
-      overlays.remove('pondSelect');
-    } else {
-      waterPurity = math.max(0, waterPurity - _wrongPenalty);
-      ecoPoints   = math.max(0, ecoPoints - 8);
-      _breakCombo();
-      reactionMsg = '❌ Wrong treatment — try another!';
-      _triggerReaction(false);
-      // pondSelect stays open to retry
-    }
-
-    if (ponds.every((p) => p.isClean)) {
-      Future.delayed(const Duration(milliseconds: 800), _endCleanup);
-    }
-    notifyListeners();
-  }
-
-  bool _isCorrectTreatment(PondType t, PondTreatment tr) {
-    switch (t) {
-      case PondType.algaeBloom:        return tr == PondTreatment.hyacinths;
-      case PondType.organicWaste:      return tr == PondTreatment.bacteriaPellets;
-      case PondType.chemicalPollution: return tr == PondTreatment.filtrationUnit;
-    }
-  }
-
-  void cancelTreatmentSelector() {
-    treatmentSelectorOpen = false;
-    pendingTreatTarget    = null;
-    overlays.remove('pondSelect');
-    notifyListeners();
-  }
-
-  // ── Treatment resupply ─────────────────────────────────────────────────────
-  void _triggerResupply() {
-    PondTreatment lowest = PondTreatment.hyacinths; int lowestCount = 99;
-    treatmentUses.forEach((t, c) {
-      if (c < lowestCount) { lowestCount = c; lowest = t; }
-    });
-    treatmentUses[lowest] = (treatmentUses[lowest] ?? 0) + 3;
-    resupplyActive = true; resupplyTimer = _resupplyDisplay;
-    resupplyTriggered++;
-    overlays.add('treatResupply');
-    notifyListeners();
-  }
-
-  // ── Scan streak ────────────────────────────────────────────────────────────
   void _handleScanStreak() {
     scanStreakTimer = _streakWindow;
     scanStreak++;
@@ -966,96 +669,6 @@ class HabitatCleanupGame extends FlameGame
     }
   }
 
-  // ── Critical alerts ────────────────────────────────────────────────────────
-  void _spawnCriticalAlert() {
-    final candidates = ponds.where((p) =>
-        !p.isClean &&
-        criticalAlerts.every((a) => a.pond != p)).toList();
-    if (candidates.isEmpty) return;
-    candidates.shuffle(math.Random());
-    final p = candidates.first;
-    p.isCritical = true;
-    criticalAlerts.add(CriticalPondAlert(pond: p, timeLeft: 12.0));
-    overlays.add('criticalPond');
-    HapticFeedback.heavyImpact();
-    notifyListeners();
-  }
-
-  void _dismissCriticalAlert(PollutedPond p, {bool saved = false}) {
-    final alert = criticalAlerts.where((a) => a.pond == p).firstOrNull;
-    if (alert == null) return;
-    alert.handled = true;
-    p.isCritical  = false;
-    if (saved) { criticalSaves++; ecoPoints += 15; }
-    criticalAlerts.removeWhere((a) => a.handled);
-    if (criticalAlerts.isEmpty) overlays.remove('criticalPond');
-    notifyListeners();
-  }
-
-  void _expireCriticalAlert(CriticalPondAlert alert) {
-    alert.handled          = true;
-    alert.pond.isCritical  = false;
-    waterPurity = math.max(0, waterPurity - 12.0);
-    ecoPoints   = math.max(0, ecoPoints - 15);
-    criticalAlerts.removeWhere((a) => a.handled);
-    if (criticalAlerts.isEmpty) overlays.remove('criticalPond');
-    reactionMsg = '⛔ Pond collapsed!  -15 pts  💀';
-    _triggerReaction(false);
-    notifyListeners();
-  }
-
-  // ── Algae spread ──────────────────────────────────────────────────────────
-  void _checkAlgaeSpread() {
-    for (final p in List<PollutedPond>.from(ponds)) {
-      if (p.type != PondType.algaeBloom) continue;
-      if (p.isClean) { _algaeIdleTimers.remove(p); continue; }
-      _algaeIdleTimers[p] = (_algaeIdleTimers[p] ?? 0) + 1;
-      if ((_algaeIdleTimers[p] ?? 0) >= _algaeSpreadAt) {
-        _algaeIdleTimers.remove(p);
-        _spawnChildPond(p);
-      }
-    }
-  }
-
-  void _spawnChildPond(PollutedPond parent) {
-    if (ponds.length >= 14) return;
-    final rng = math.Random();
-    final nx  = (parent.hx + (rng.nextDouble() * 90 - 45)).clamp(70.0, worldW - 70);
-    final ny  = (parent.hy + (rng.nextDouble() * 90 - 45)).clamp(70.0, worldH - 70);
-    final child = PollutedPond(
-      game: this, type: PondType.algaeBloom,
-      worldX: nx, worldY: ny, seed: rng.nextInt(9999), isChildPond: true,
-    );
-    add(child); ponds.add(child);
-    pondsSpread++;
-    child.isScanned = true;
-    waterPurity = math.max(0, waterPurity - 8.0);
-    ecoPoints   = math.max(0, ecoPoints - 8);
-    reactionMsg = '⚠️ Algae spread nearby!  -8 pts';
-    _triggerReaction(false);
-    notifyListeners();
-  }
-
-  // ── Acid rain ──────────────────────────────────────────────────────────────
-  void _triggerAcidRainWarning() {
-    acidRainWarning  = true; _acidRainWarningCd = 3.2;
-    overlays.add('acidRain'); notifyListeners();
-  }
-
-  void _triggerAcidRainActive() {
-    acidRainWarning = false; acidRainActive = true;
-    _acidRainActiveCd = 8.0; acidRainIntensity = 1.0;
-    overlays.remove('acidRain');
-    waterPurity = math.max(0, waterPurity - 10.0);
-    notifyListeners();
-  }
-
-  void _endAcidRain() {
-    acidRainActive = false; acidRainIntensity = 0;
-    notifyListeners();
-  }
-
-  // ── Combo ──────────────────────────────────────────────────────────────────
   int _comboMult() {
     if (comboCount >= 4) return 3;
     if (comboCount >= 2) return 2;
@@ -1071,85 +684,82 @@ class HabitatCleanupGame extends FlameGame
 
   void _breakCombo() { comboCount = 0; comboTimer = 0; }
 
-  // ── Eco-guide hints ────────────────────────────────────────────────────────
   void _checkHints() {
     if (_hintCooldown > 0 || ecoGuideTimer > 0) return;
-    if (gamePhase == 1 && _idleTimer > 4.5) {
+    if (_idleTimer > 4.5) {
       ecoGuideHint  = '📡 Fly near litter and hold SCAN (1.5 s). Read the eco-fact, then tap SORT IT!';
       ecoGuideTimer = 3.5; _hintCooldown = 12; _idleTimer = 0;
-    } else if (gamePhase == 2) {
-      if (_idleTimer > 4.0) {
-        ecoGuideHint  = '🔬 Fly near a pond and hold SCAN. Read the analysis, then pick the correct treatment!';
-        ecoGuideTimer = 3.5; _hintCooldown = 12; _idleTimer = 0;
-      } else if (criticalAlerts.isNotEmpty && _idleTimer > 2.5) {
-        ecoGuideHint  = '⚡ Critical pond alert! Scan and treat it before the timer expires — +15 bonus pts!';
-        ecoGuideTimer = 3.5; _hintCooldown = 8;
-      }
     }
     notifyListeners();
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  END GAME
-  // ══════════════════════════════════════════════════════════════════════════
   void _endCleanup() {
     if (levelDone) return;
     levelDone = true;
     pauseEngine();
+
+    final meetsMin    = correctSorts >= kMinLitterRequired;
+    final allCollected = litter.every((l) => l.isCollected);
+
+    final LevelCompletionState completionState;
+    if (allCollected) {
+      completionState = LevelCompletionState.fullCompletion;
+    } else if (meetsMin) {
+      completionState = LevelCompletionState.moderate;
+    } else {
+      completionState = LevelCompletionState.failed;
+    }
+
+    String endReason = '';
+    if (timeLeft <= 0) {
+      if (allCollected) {
+        endReason = '🌍 All litter collected — and just in time!';
+      } else if (meetsMin) {
+        endReason = '⏰ Time expired — minimum $kMinLitterRequired sorts met. Well done!';
+      } else {
+        endReason = '⏰ Time ran out before sorting $kMinLitterRequired items. Keep practising!';
+      }
+    } else if (allCollected) {
+      endReason = '🌍 All ${litter.length} litter items correctly sorted! Outstanding work!';
+    } else {
+      endReason = 'Level ended with $correctSorts/$kMinLitterRequired items correctly sorted.';
+    }
+
     HabitatCleanupResult.current = HabitatCleanupResult(
       litterCollected:       litterCount,
       correctSorts:          correctSorts,
-      pondsClean:            pondsFixed,
       ecoPoints:             ecoPoints,
-      waterPurity:           waterPurity,
       maxCombo:              maxCombo,
       scanStreakBonus:        totalScanStreak,
       ecoDiscoveriesFound:   ecoDiscoveriesFound,
       timeBonusCollected:    timeBonusCollected,
-      criticalSaves:         criticalSaves,
-      pondsSpread:           pondsSpread,
-      resupplyTriggered:     resupplyTriggered,
-      meetsMinimum:          correctSorts >= kMinLitterRequired &&
-                             pondsFixed >= kMinPondsRequired,
+      meetsMinimum:          meetsMin,
       minimumLitterRequired: kMinLitterRequired,
-      minimumPondsRequired:  kMinPondsRequired,
+      endReason:             endReason,
+      completionState:       completionState,
     );
+
     overlays
       ..remove('reactionFx')
       ..remove('scanResult')
       ..remove('sortMini')
-      ..remove('pondSelect')
-      ..remove('acidRain')
-      ..remove('criticalPond')
       ..remove('ecoDiscovery')
-      ..remove('treatResupply')
       ..add('results');
     notifyListeners();
   }
 
-  // ── Input ──────────────────────────────────────────────────────────────────
   void setUpKey(bool v)    { isUp    = v; if (v) { gameStarted = true; _idleTimer = 0; } }
   void setDownKey(bool v)  { isDown  = v; if (v) { gameStarted = true; _idleTimer = 0; } }
   void setLeftKey(bool v)  { isLeft  = v; if (v) { gameStarted = true; _idleTimer = 0; } }
   void setRightKey(bool v) { isRight = v; if (v) { gameStarted = true; _idleTimer = 0; } }
 
-  // ── Reaction FX ───────────────────────────────────────────────────────────
   void _triggerReaction(bool correct, {bool inRange = true}) {
     reactionActive  = true; reactionCorrect = correct;
-    reactionPhase   = gamePhase; reactionInRange = inRange;
+    reactionInRange = inRange;
     reactionTimer   = 1.3;
     overlays.add('reactionFx');
   }
 
-  String _treatmentLabel(PondTreatment t) {
-    switch (t) {
-      case PondTreatment.hyacinths:       return 'Hyacinths';
-      case PondTreatment.bacteriaPellets: return 'Bacteria Pellets';
-      case PondTreatment.filtrationUnit:  return 'Filtration Unit';
-    }
-  }
-
-  // ── Camera follow ──────────────────────────────────────────────────────────
   void _updateCamera(double dt) {
     final sw = size.x; final sh = size.y;
     final edgeW = sw * kEdgeFraction;
@@ -1180,9 +790,6 @@ class HabitatCleanupGame extends FlameGame
         ? ((sy-(sh-edgeH*1.5))/(edgeH*1.5)).clamp(0, 1) : 0;
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  UPDATE LOOP
-  // ══════════════════════════════════════════════════════════════════════════
   @override
   void update(double dt) {
     super.update(dt);
@@ -1199,10 +806,6 @@ class HabitatCleanupGame extends FlameGame
       scanRadius += dt * 220;
       if (scanRadius >= _scanMaxRadius) scanActive = false;
     }
-    if (surgePulse > 0) {
-      surgePulse = math.max(0, surgePulse - dt * 0.9);
-      if (surgePulse == 0) surgePending = false;
-    }
     if (ecoGuideTimer > 0) {
       ecoGuideTimer -= dt;
       if (ecoGuideTimer <= 0) ecoGuideHint = '';
@@ -1216,10 +819,6 @@ class HabitatCleanupGame extends FlameGame
       discoveryDisplayTimer -= dt;
       if (discoveryDisplayTimer <= 0) overlays.remove('ecoDiscovery');
     }
-    if (resupplyTimer > 0) {
-      resupplyTimer -= dt;
-      if (resupplyTimer <= 0) { resupplyActive = false; overlays.remove('treatResupply'); }
-    }
     if (scanStreakTimer > 0) {
       scanStreakTimer -= dt;
       if (scanStreakTimer <= 0) scanStreak = 0;
@@ -1227,7 +826,6 @@ class HabitatCleanupGame extends FlameGame
 
     if (!gameStarted || levelDone) { notifyListeners(); return; }
 
-    // Drone movement
     double vx = 0, vy = 0;
     if (isLeft)  vx -= 1; if (isRight) vx += 1;
     if (isUp)    vy -= 1; if (isDown)  vy += 1;
@@ -1243,106 +841,30 @@ class HabitatCleanupGame extends FlameGame
     dronePos.y = (dronePos.y + vy * _droneSpeed * dt).clamp(40, worldH - 40);
     _updateCamera(dt);
 
-    // Phase 1: scan logic
-    if (gamePhase == 1) {
-      LitterItem? nl; double nlD = _scanRange;
-      for (final l in litter) {
-        if (l.isScanned || l.isCollected) continue;
-        final d = (l.litterPos - dronePos).length;
-        if (d < nlD) { nlD = d; nl = l; }
-      }
-      _nearestScanLitter = nl;
+    LitterItem? nl; double nlD = _scanRange;
+    for (final l in litter) {
+      if (l.isScanned || l.isCollected) continue;
+      final d = (l.litterPos - dronePos).length;
+      if (d < nlD) { nlD = d; nl = l; }
+    }
+    _nearestScanLitter = nl;
 
-      if (scanLockActive && activeScanLitter != null) {
-        final lockDist = (activeScanLitter!.litterPos - dronePos).length;
-        if (lockDist > _scanRange * 1.15) {
-          scanLockActive = false; _scanLockTimer = 0; activeScanLitter = null;
-          reactionMsg = '📡 Scan cancelled — too far!';
-          _triggerReaction(false, inRange: false);
-        } else {
-          _scanLockTimer += dt;
-          if (_scanLockTimer >= _scanDuration) _completeLitterScan(activeScanLitter!);
-        }
-      }
-
-      // Combo decay
-      if (comboCount > 0) { comboTimer -= dt; if (comboTimer <= 0) _breakCombo(); }
-      if (comboFlashTimer > 0) {
-        comboFlashTimer -= dt;
-        if (comboFlashTimer <= 0) showComboFlash = false;
+    if (scanLockActive && activeScanLitter != null) {
+      final lockDist = (activeScanLitter!.litterPos - dronePos).length;
+      if (lockDist > _scanRange * 1.15) {
+        scanLockActive = false; _scanLockTimer = 0; activeScanLitter = null;
+        reactionMsg = '📡 Scan cancelled — too far!';
+        _triggerReaction(false, inRange: false);
+      } else {
+        _scanLockTimer += dt;
+        if (_scanLockTimer >= _scanDuration) _completeLitterScan(activeScanLitter!);
       }
     }
 
-    // Phase 2: pond logic
-    if (gamePhase == 2) {
-      PollutedPond? np; double npD = _scanRange;
-      for (final p in ponds) {
-        if (p.isScanned || p.isClean) continue;
-        final d = (p.pondPos - dronePos).length;
-        if (d < npD) { npD = d; np = p; }
-      }
-      _nearestScanPond = np;
-
-      if (pondScanLockActive && activeScanPond != null) {
-        final lockDist = (activeScanPond!.pondPos - dronePos).length;
-        if (lockDist > _scanRange * 1.15) {
-          pondScanLockActive = false; _pondScanTimer = 0; activeScanPond = null;
-          reactionMsg = '🔬 Scan cancelled — too far!';
-          _triggerReaction(false, inRange: false);
-        } else {
-          _pondScanTimer += dt;
-          if (_pondScanTimer >= _scanDuration) _completePondScan(activeScanPond!);
-        }
-      }
-
-      // Combo decay
-      if (comboCount > 0) { comboTimer -= dt; if (comboTimer <= 0) _breakCombo(); }
-      if (comboFlashTimer > 0) {
-        comboFlashTimer -= dt;
-        if (comboFlashTimer <= 0) showComboFlash = false;
-      }
-
-      // Critical alerts
-      _criticalAlertTimer -= dt;
-      if (_criticalAlertTimer <= 0 && criticalAlerts.length < 2) {
-        _criticalAlertTimer = 40.0 + math.Random().nextDouble() * 20;
-        _spawnCriticalAlert();
-      }
-      for (final alert in List<CriticalPondAlert>.from(criticalAlerts)) {
-        if (!alert.handled) {
-          alert.timeLeft -= dt;
-          if (alert.timeLeft <= 0) _expireCriticalAlert(alert);
-        }
-      }
-
-      // Algae spread
-      _algaeCheckTimer -= dt;
-      if (_algaeCheckTimer <= 0) { _algaeCheckTimer = 1.0; _checkAlgaeSpread(); }
-
-      // Acid rain
-      _acidRainTimer -= dt;
-      if (_acidRainTimer <= 0 && !acidRainWarning && !acidRainActive) {
-        _acidRainTimer = 45.0 + math.Random().nextDouble() * 20;
-        _triggerAcidRainWarning();
-      }
-      if (acidRainWarning) {
-        _acidRainWarningCd -= dt;
-        if (_acidRainWarningCd <= 0) { acidRainWarning = false; _triggerAcidRainActive(); }
-      }
-      if (acidRainActive) {
-        _acidRainActiveCd -= dt;
-        acidRainIntensity = (_acidRainActiveCd / 8.0).clamp(0.0, 1.0);
-        if (_acidRainActiveCd <= 0) _endAcidRain();
-      }
-
-      // Pollution surge
-      _surgeTimer -= dt;
-      if (_surgeTimer <= 0) {
-        _surgeTimer  = 22.0 + math.Random().nextDouble() * 14;
-        waterPurity  = math.max(0, waterPurity - 5.0);
-        ecoPoints    = math.max(0, ecoPoints - 5);
-        surgePending = true; surgePulse = 1.0;
-      }
+    if (comboCount > 0) { comboTimer -= dt; if (comboTimer <= 0) _breakCombo(); }
+    if (comboFlashTimer > 0) {
+      comboFlashTimer -= dt;
+      if (comboFlashTimer <= 0) showComboFlash = false;
     }
 
     notifyListeners();
@@ -1350,7 +872,7 @@ class HabitatCleanupGame extends FlameGame
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  DEGRADED PARK RENDERER  — 3× world, richly detailed urban park
+//  PARK BACKGROUND RENDERER
 // ══════════════════════════════════════════════════════════════════════════════
 class DegradedParkRenderer extends Component {
   final HabitatCleanupGame game;
@@ -1426,23 +948,6 @@ class DegradedParkRenderer extends Component {
     _drawTrees(canvas, w, h);
     _drawLitterPiles(canvas, w, h);
     _drawFooter(canvas, w, h);
-
-    // Purity greening
-    final purity = (game.waterPurity / 100.0).clamp(0.0, 1.0);
-    if (purity > 0) {
-      canvas.drawRect(Rect.fromLTWH(0, 0, w, h),
-          Paint()..color = const Color(0xFF69F0AE).withValues(alpha: purity * 0.05)
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 35));
-    }
-
-    // Acid rain overlay
-    if (game.acidRainIntensity > 0) _drawAcidRain(canvas, w, h);
-
-    // Surge flash
-    if (game.surgePulse > 0) {
-      canvas.drawRect(Rect.fromLTWH(0, 0, w, h),
-          Paint()..color = const Color(0xFF7B1FA2).withValues(alpha: game.surgePulse * 0.15));
-    }
 
     canvas.restore();
     _drawEdgeHints(canvas, sw, sh);
@@ -1547,27 +1052,8 @@ class DegradedParkRenderer extends Component {
     canvas.drawLine(Offset(0, h*0.86), Offset(w, h*0.86),
         Paint()..color = const Color(0xFF1A2E18).withValues(alpha: 0.50)..strokeWidth = 1.5);
   }
-
-  void _drawAcidRain(Canvas canvas, double w, double h) {
-    final alpha = game.acidRainIntensity * 0.52;
-    final rng   = math.Random(77);
-    final paint = Paint()
-      ..color = const Color(0xFFCDDC39).withValues(alpha: alpha)
-      ..strokeWidth = 0.9..strokeCap = StrokeCap.round;
-    for (int i = 0; i < 80; i++) {
-      final rx  = rng.nextDouble() * w;
-      final ry  = rng.nextDouble() * h;
-      final len = 8.0 + rng.nextDouble() * 16.0;
-      final phase = ((_t*4.8 + rng.nextDouble()*5.0) % 1.0);
-      final y   = (ry + phase * h * 0.55) % h;
-      canvas.drawLine(Offset(rx - len*0.10, y), Offset(rx + len*0.10, y + len), paint);
-    }
-    canvas.drawRect(Rect.fromLTWH(0, 0, w, h),
-        Paint()..color = const Color(0xFF9E9D24).withValues(alpha: game.acidRainIntensity * 0.07));
-  }
 }
 
-// ── Data classes for park features ────────────────────────────────────────────
 class _ParkPath   { final double x, y, w, h; const _ParkPath({required this.x, required this.y, required this.w, required this.h}); }
 class _GrassBlock { final double x, y, w, h; final int seed; const _GrassBlock({required this.x, required this.y, required this.w, required this.h, required this.seed}); }
 class _MudPatch   { final double x, y, r; final int seed; const _MudPatch({required this.x, required this.y, required this.r, required this.seed}); }
@@ -1575,7 +1061,7 @@ class _ParkTree   { final double x, y, h; final String state; final int seed; co
 class _LitterPile { final double x, y; final int seed; const _LitterPile({required this.x, required this.y, required this.seed}); }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  ECO-DRONE COMPONENT
+//  DRONE
 // ══════════════════════════════════════════════════════════════════════════════
 class EcoDroneCleanupComponent extends Component {
   final HabitatCleanupGame game;
@@ -1597,7 +1083,6 @@ class EcoDroneCleanupComponent extends Component {
     final cx = game.dronePos.x;
     final cy = game.dronePos.y + math.sin(_t * 3.0) * 2.5;
 
-    // Scan pulse ring
     if (game.scanActive) {
       final alpha = (1.0 - game.scanRadius / HabitatCleanupGame._scanMaxRadius) * 0.30;
       canvas.drawCircle(Offset(cx, cy), game.scanRadius,
@@ -1605,16 +1090,12 @@ class EcoDroneCleanupComponent extends Component {
             ..style = PaintingStyle.stroke..strokeWidth = 2.5);
     }
 
-    // Range indicator
-    final rangeColor = game.gamePhase == 1
-        ? const Color(0xFFFFB300) : const Color(0xFF00897B);
+    final rangeColor = const Color(0xFFFFB300);
     canvas.drawCircle(Offset(cx, cy), HabitatCleanupGame._scanRange,
         Paint()..color = rangeColor.withValues(alpha: 0.058)
           ..style = PaintingStyle.stroke..strokeWidth = 1.2);
 
-    // Scan progress glow
-    final progress = game.gamePhase == 1
-        ? game.scanHoldProgress : game.pondScanProgress;
+    final progress = game.scanHoldProgress;
     if (progress > 0) {
       canvas.drawCircle(Offset(cx, cy), 14 + progress * 7,
           Paint()..color = const Color(0xFFFFB300).withValues(alpha: progress * 0.28)
@@ -1624,20 +1105,16 @@ class EcoDroneCleanupComponent extends Component {
     canvas.save();
     canvas.translate(cx, cy);
 
-    // Shadow
     canvas.drawOval(Rect.fromCenter(center: const Offset(0, 14), width: 38, height: 9),
         Paint()..color = Colors.black.withValues(alpha: 0.28));
 
-    // Arms
     final armP = Paint()..color = const Color(0xFF1A2E18)..strokeWidth = 3.0..strokeCap = StrokeCap.round;
     for (final (dx, dy) in [(-1,-1),(1,-1),(-1,1),(1,1)]) {
       canvas.drawLine(Offset(dx*8.0, dy*8.0), Offset(dx*22.0, dy*22.0), armP);
     }
 
-    // Propellers
     final propPaint = Paint()
-      ..color = (game.gamePhase == 1 ? const Color(0xFFFFB300) : const Color(0xFF69F0AE))
-          .withValues(alpha: 0.58)
+      ..color = const Color(0xFFFFB300).withValues(alpha: 0.58)
       ..strokeWidth = 1.8..strokeCap = StrokeCap.round;
     for (final (px, py) in [(-22.0,-22.0),(22.0,-22.0),(-22.0,22.0),(22.0,22.0)]) {
       canvas.save(); canvas.translate(px, py); canvas.rotate(_t * 13);
@@ -1646,22 +1123,18 @@ class EcoDroneCleanupComponent extends Component {
       canvas.restore();
     }
 
-    // Body
     canvas.drawRRect(RRect.fromRectAndRadius(
         Rect.fromLTWH(-13, -9, 26, 18), const Radius.circular(6)),
         Paint()..color = const Color(0xFF142810));
 
-    // Glow
-    final glowColor  = game.gamePhase == 1 ? const Color(0xFFFFB300) : const Color(0xFF00897B);
     final glowBright = progress > 0 ? 0.95 : 0.75 + math.sin(_t*4)*0.20;
     canvas.drawCircle(Offset.zero, 7,
-        Paint()..color = glowColor.withValues(alpha: glowBright)
+        Paint()..color = const Color(0xFFFFB300).withValues(alpha: glowBright)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
     canvas.drawCircle(Offset.zero, 3.5, Paint()..color = Colors.white.withValues(alpha: 0.95));
 
-    // Phase icon
     final tp = TextPainter(
-      text: TextSpan(text: game.gamePhase == 1 ? '🗑️' : '💧', style: const TextStyle(fontSize: 8)),
+      text: const TextSpan(text: '🗑️', style: TextStyle(fontSize: 8)),
       textDirection: TextDirection.ltr,
     )..layout();
     tp.paint(canvas, Offset(-tp.width/2, 12 - tp.height/2));
@@ -1671,7 +1144,7 @@ class EcoDroneCleanupComponent extends Component {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  LITTER ITEM COMPONENT  — starts as "?" until scanned
+//  LITTER ITEM
 // ══════════════════════════════════════════════════════════════════════════════
 class LitterItem extends Component {
   final HabitatCleanupGame game;
@@ -1693,10 +1166,16 @@ class LitterItem extends Component {
   void collect() => isCollected = true;
 
   static const _specs = {
-    LitterType.plastic: ('🧴', Color(0xFF29B6F6)),
-    LitterType.metal:   ('🥫', Color(0xFF90A4AE)),
-    LitterType.organic: ('🍌', Color(0xFF558B2F)),
-    LitterType.glass:   ('🍶', Color(0xFF26C6DA)),
+    LitterType.plasticBottle: ('🥤', Color(0xFF29B6F6)),
+    LitterType.polythene:     ('🛍️', Color(0xFF42A5F5)),
+    LitterType.foodWrap:      ('🥡', Color(0xFF26C6DA)),
+    LitterType.glassBottle:   ('🍾', Color(0xFFAB47BC)),
+    LitterType.metalCan:      ('🥫', Color(0xFF90A4AE)),
+    LitterType.paper:         ('📄', Color(0xFF8D6E63)),
+    LitterType.fruitPeel:     ('🍌', Color(0xFF558B2F)),
+    LitterType.clothes:       ('👕', Color(0xFFEC407A)),
+    LitterType.shoes:         ('👟', Color(0xFF7E57C2)),
+    LitterType.eWaste:        ('🔋', Color(0xFFEF5350)),
   };
 
   @override
@@ -1721,7 +1200,6 @@ class LitterItem extends Component {
     final pulse = 0.75 + math.sin(_t * 2.5) * 0.15;
 
     if (!isScanned) {
-      // Unknown — animated "?"
       canvas.drawCircle(Offset(lx, ly), 22 * pulse,
           Paint()..color = const Color(0xFF557755).withValues(alpha: 0.07)
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
@@ -1739,7 +1217,6 @@ class LitterItem extends Component {
         _drawScanProgress(canvas, game.scanHoldProgress);
       }
     } else {
-      // Revealed
       canvas.drawCircle(Offset(lx, ly), 20 * pulse,
           Paint()..color = color.withValues(alpha: 0.10)
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
@@ -1752,7 +1229,6 @@ class LitterItem extends Component {
       )..layout();
       tp.paint(canvas, Offset(lx - tp.width/2, ly - tp.height/2));
 
-      // Time bonus indicator
       final idx = game.litter.indexOf(this);
       if (idx == game.timeBonusLitterIndex && !game.timeBonusCollected) {
         canvas.drawCircle(Offset(lx+18, ly-18), 8,
@@ -1765,7 +1241,6 @@ class LitterItem extends Component {
         tip.paint(canvas, Offset(lx+18 - tip.width/2, ly-18 - tip.height/2));
       }
 
-      // Eco-discovery shimmer
       if (game.ecoDiscoveryIndices.contains(idx) && !game.discoveredEcoItems.contains(idx)) {
         final shimmer = 0.30 + math.sin(_t*3.5)*0.22;
         canvas.drawCircle(Offset(lx-18, ly-18), 6,
@@ -1773,7 +1248,6 @@ class LitterItem extends Component {
               ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
       }
 
-      // Sparkle burst
       if (sparkleTimer > 0) {
         for (int i = 0; i < 10; i++) {
           final angle = (i/10)*math.pi*2;
@@ -1820,191 +1294,6 @@ class LitterItem extends Component {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  POLLUTED POND COMPONENT  — starts as "?" until scanned
-// ══════════════════════════════════════════════════════════════════════════════
-class PollutedPond extends Component {
-  final HabitatCleanupGame game;
-  final PondType type;
-  double hx, hy;
-  final int  seed;
-  final bool isChildPond;
-  bool   isScanned      = false;
-  bool   isClean        = false;
-  bool   isCritical     = false;
-  bool   triggerSparkle = false;
-  double sparkleTimer   = 0;
-  int    scanVariant    = 0;
-  double _t             = 0;
-
-  PollutedPond({required this.game, required this.type,
-      required double worldX, required double worldY,
-      required this.seed, this.isChildPond = false})
-      : hx = worldX, hy = worldY;
-
-  Vector2 get pondPos => Vector2(hx, hy);
-  void clean() => isClean = true;
-
-  static const _specs = {
-    PondType.algaeBloom:        ('🌿', 'Algae\nBloom',   Color(0xFF2E7D32), '💧Hyacinths'),
-    PondType.organicWaste:      ('🦠', 'Organic\nWaste', Color(0xFF795548), '🧫Bacteria'),
-    PondType.chemicalPollution: ('☠️', 'Chemical',       Color(0xFF7B1FA2), '🔧Filter'),
-  };
-
-  @override
-  void update(double dt) {
-    _t += dt;
-    if (triggerSparkle) { sparkleTimer = 1.8; triggerSparkle = false; }
-    if (sparkleTimer > 0) sparkleTimer = math.max(0, sparkleTimer - dt);
-  }
-
-  @override
-  void render(Canvas canvas) {
-    canvas.save();
-    canvas.translate(-game.camX, -game.camY);
-    if (isClean) {
-      _drawClean(canvas);
-    } else {
-      _drawPolluted(canvas);
-    }
-    canvas.restore();
-  }
-
-  void _drawPolluted(Canvas canvas) {
-    final spec  = _specs[type]!;
-    final color = spec.$3;
-    final pulse = 0.65 + math.sin(_t * 2.6) * 0.22;
-
-    if (!isScanned) {
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(hx, hy), width: 68, height: 30),
-        Paint()..color = const Color(0xFF1A2820).withValues(alpha: 0.40),
-      );
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(hx, hy), width: 68, height: 30),
-        Paint()..color = const Color(0xFF00897B).withValues(alpha: 0.35)
-          ..style = PaintingStyle.stroke..strokeWidth = 1.8,
-      );
-      final qp = TextPainter(
-        text: const TextSpan(text: '?',
-            style: TextStyle(color: Color(0xFF80CBC4), fontSize: 14, fontWeight: FontWeight.bold)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      qp.paint(canvas, Offset(hx - qp.width/2, hy - qp.height/2 - 4));
-      if (game.activeScanPond == this) _drawPondScanProgress(canvas, game.pondScanProgress);
-    } else {
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(hx, hy), width: 68, height: 30),
-        Paint()..color = color.withValues(alpha: 0.13 + pulse*0.05),
-      );
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(hx, hy), width: 68, height: 30),
-        Paint()..color = color.withValues(alpha: 0.62)
-          ..style = PaintingStyle.stroke..strokeWidth = 2.0,
-      );
-      final ep = TextPainter(
-        text: TextSpan(text: spec.$1, style: const TextStyle(fontSize: 15)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      ep.paint(canvas, Offset(hx - ep.width/2, hy - ep.height/2 - 4));
-
-      // Treatment hint
-      final lp = TextPainter(
-        text: TextSpan(text: spec.$4,
-            style: TextStyle(color: color, fontSize: 7.5, fontWeight: FontWeight.bold)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      lp.paint(canvas, Offset(hx - lp.width/2, hy + 14));
-
-      // Child pond tag
-      if (isChildPond) {
-        final cp = TextPainter(
-          text: const TextSpan(text: '⚠️ Spread',
-              style: TextStyle(color: Color(0xFFFF6D00), fontSize: 8, fontWeight: FontWeight.bold)),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        cp.paint(canvas, Offset(hx - cp.width/2, hy - 44));
-      }
-
-      // Critical pulsing ring
-      if (isCritical) {
-        final urgency = math.sin(_t * 8).abs();
-        final alert = game.criticalAlerts.firstWhere((a) => a.pond == this,
-            orElse: () => CriticalPondAlert(pond: this, timeLeft: 0));
-        canvas.drawCircle(Offset(hx, hy), 46 + urgency*10,
-            Paint()..color = Colors.red.withValues(alpha: 0.20 + urgency*0.14)
-              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
-        canvas.drawCircle(Offset(hx, hy), 36,
-            Paint()..color = Colors.red.withValues(alpha: 0.75)
-              ..style = PaintingStyle.stroke..strokeWidth = 2.6);
-        final tp = TextPainter(
-          text: TextSpan(text: '⚡ ${alert.timeLeft.ceil()}s',
-              style: const TextStyle(color: Colors.red, fontSize: 9.5, fontWeight: FontWeight.w900)),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        tp.paint(canvas, Offset(hx - tp.width/2, hy - 56));
-      }
-    }
-  }
-
-  void _drawClean(Canvas canvas) {
-    if (sparkleTimer > 0) {
-      for (int i = 0; i < 12; i++) {
-        final angle = (i/12)*math.pi*2;
-        final r = sparkleTimer/1.8 * 55;
-        canvas.drawCircle(
-          Offset(hx + math.cos(angle)*r, hy + math.sin(angle)*r), 2.5,
-          Paint()..color = const Color(0xFF69F0AE)
-              .withValues(alpha: (sparkleTimer/1.8).clamp(0,1)),
-        );
-      }
-    }
-    canvas.drawOval(Rect.fromCenter(center: Offset(hx, hy), width: 68, height: 30),
-        Paint()..color = const Color(0xFF00897B).withValues(alpha: 0.22));
-    canvas.drawOval(Rect.fromCenter(center: Offset(hx, hy), width: 68, height: 30),
-        Paint()..color = const Color(0xFF69F0AE).withValues(alpha: 0.60)
-          ..style = PaintingStyle.stroke..strokeWidth = 2.0);
-    for (int i = 0; i < 6; i++) {
-      final angle = (i/6)*math.pi*2;
-      canvas.drawLine(
-        Offset(hx + math.cos(angle)*16, hy + math.sin(angle)*7 + 6),
-        Offset(hx + math.cos(angle)*16, hy + math.sin(angle)*7),
-        Paint()..color = const Color(0xFF4CAF50).withValues(alpha: 0.65)
-          ..strokeWidth = 2.0..strokeCap = StrokeCap.round);
-    }
-    final tp = TextPainter(
-      text: const TextSpan(text: '💧', style: TextStyle(fontSize: 15)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, Offset(hx - tp.width/2, hy - tp.height/2 - 4));
-  }
-
-  void _drawPondScanProgress(Canvas canvas, double progress) {
-    const start = -math.pi / 2;
-    const full  = math.pi * 2;
-    final beam  = start + full * progress;
-    canvas.drawArc(
-      Rect.fromCenter(center: Offset(hx, hy), width: 88, height: 40),
-      beam - 0.5, 0.5, false,
-      Paint()..color = const Color(0xFF00897B).withValues(alpha: 0.18)
-        ..style = PaintingStyle.stroke..strokeWidth = 9.0);
-    if (progress > 0) {
-      canvas.drawArc(
-        Rect.fromCenter(center: Offset(hx, hy), width: 88, height: 40),
-        start, full * progress, false,
-        Paint()..color = const Color(0xFF00897B).withValues(alpha: 0.90)
-          ..style = PaintingStyle.stroke..strokeWidth = 3.5..strokeCap = StrokeCap.round);
-    }
-    final pct = (progress * 100).toInt();
-    final pctP = TextPainter(
-      text: TextSpan(text: '$pct%',
-          style: const TextStyle(color: Color(0xFF69F0AE), fontSize: 9, fontWeight: FontWeight.bold)),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    pctP.paint(canvas, Offset(hx - pctP.width/2, hy - 38));
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
 //  HUD
 // ══════════════════════════════════════════════════════════════════════════════
 class CleanupHud extends StatelessWidget {
@@ -2016,63 +1305,48 @@ class CleanupHud extends StatelessWidget {
     return AnimatedBuilder(
       animation: game,
       builder: (_, __) {
-        final warn        = game.timeLeft < 20;
-        final purityRatio = (game.waterPurity / 100.0).clamp(0.0, 1.0);
-        final purityColor = game.waterPurity >= 80
-            ? const Color(0xFF69F0AE)
-            : game.waterPurity >= 50 ? const Color(0xFF00897B) : const Color(0xFFEF5350);
-        final p1 = game.gamePhase == 1;
+        final warn = game.timeLeft < 20;
 
         return SafeArea(child: Padding(
           padding: const EdgeInsets.all(10),
           child: Column(mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch, children: [
 
-            // Phase tag
             Align(alignment: Alignment.topCenter, child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
               decoration: BoxDecoration(
-                color: p1 ? const Color(0xFFFFB300).withValues(alpha: 0.90)
-                          : const Color(0xFF00897B).withValues(alpha: 0.90),
+                color: const Color(0xFFFFB300).withValues(alpha: 0.90),
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [BoxShadow(
-                    color: (p1 ? const Color(0xFFFFB300) : const Color(0xFF00897B))
-                        .withValues(alpha: 0.35), blurRadius: 10)],
+                    color: const Color(0xFFFFB300).withValues(alpha: 0.35), blurRadius: 10)],
               ),
-              child: Text(
-                p1 ? '🗑️  PHASE 1 — WASTE COLLECTION'
-                   : '💧  PHASE 2 — WATER PURIFICATION',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900,
+              child: const Text(
+                '🗑️  WASTE COLLECTION',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900,
                     fontSize: 12, letterSpacing: 1.1),
               ),
             )),
             const SizedBox(height: 8),
 
-            // Stats row
             Row(children: [
               _CHTile(Icons.timer_rounded, '${game.timeLeft.toInt()}s', 'TIME',
                   warn ? Colors.red : Colors.white),
               const SizedBox(width: 5),
               _CHTile(Icons.radar_rounded,
-                  p1 ? '${game.litter.where((l) => l.isScanned).length}/${HabitatCleanupGame.totalLitter}'
-                     : '${game.ponds.where((p) => p.isScanned).length}/${game.ponds.length}',
+                  '${game.litter.where((l) => l.isScanned).length}/${HabitatCleanupGame.totalLitter}',
                   'SCANNED', const Color(0xFFFFB300)),
               const SizedBox(width: 5),
               _CHTile(Icons.check_circle_rounded,
-                  p1 ? '${game.correctSorts}/${HabitatCleanupGame.kMinLitterRequired}+'
-                     : '${game.pondsFixed}/${HabitatCleanupGame.kMinPondsRequired}+',
-                  p1 ? 'SORTED' : 'CLEANED',
-                  p1 ? (game.correctSorts >= HabitatCleanupGame.kMinLitterRequired
-                        ? const Color(0xFF69F0AE) : Colors.white70)
-                     : (game.pondsFixed >= HabitatCleanupGame.kMinPondsRequired
-                        ? const Color(0xFF69F0AE) : Colors.white70)),
+                  '${game.correctSorts}/${HabitatCleanupGame.kMinLitterRequired}+',
+                  'SORTED',
+                  game.correctSorts >= HabitatCleanupGame.kMinLitterRequired
+                      ? const Color(0xFF69F0AE) : Colors.white70),
               const SizedBox(width: 5),
               _CHTile(Icons.eco_rounded, '${game.ecoPoints}', 'ECO-PTS', Colors.limeAccent),
             ]),
             const SizedBox(height: 5),
 
-            // Phase 1 scan lock bar
-            if (p1 && game.scanLockActive) ...[
+            if (game.scanLockActive) ...[
               Row(children: [
                 const Text('🔒', style: TextStyle(fontSize: 12)),
                 const SizedBox(width: 5),
@@ -2092,29 +1366,7 @@ class CleanupHud extends StatelessWidget {
               const SizedBox(height: 4),
             ],
 
-            // Phase 2 pond scan bar
-            if (!p1 && game.pondScanLockActive) ...[
-              Row(children: [
-                const Text('🔬', style: TextStyle(fontSize: 12)),
-                const SizedBox(width: 5),
-                Expanded(child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: game.pondScanProgress,
-                    backgroundColor: Colors.white12,
-                    valueColor: const AlwaysStoppedAnimation(Color(0xFF00897B)),
-                    minHeight: 7,
-                  ),
-                )),
-                const SizedBox(width: 6),
-                const Text('Analysing…', style: TextStyle(
-                    color: Color(0xFF00897B), fontSize: 9, fontWeight: FontWeight.w700)),
-              ]),
-              const SizedBox(height: 4),
-            ],
-
-            // Nearby litter nudge
-            if (p1 && !game.scanLockActive && game._nearestScanLitter != null &&
+            if (!game.scanLockActive && game._nearestScanLitter != null &&
                 !game.sortSelectorOpen && !game.scanResultActive) ...[
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -2133,27 +1385,6 @@ class CleanupHud extends StatelessWidget {
               ),
             ],
 
-            // Nearby pond nudge
-            if (!p1 && !game.pondScanLockActive && game._nearestScanPond != null &&
-                !game.treatmentSelectorOpen && !game.scanResultActive) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                margin: const EdgeInsets.only(bottom: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF00897B).withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF00897B).withValues(alpha: 0.35)),
-                ),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text('🔬', style: TextStyle(fontSize: 10)),
-                  SizedBox(width: 5),
-                  Text('Polluted pond nearby — hold SCAN!',
-                      style: TextStyle(color: Color(0xFF00897B), fontSize: 9, fontWeight: FontWeight.w700)),
-                ]),
-              ),
-            ],
-
-            // Scan streak badge
             if (game.scanStreak >= 2)
               Align(alignment: Alignment.centerRight,
                 child: Container(
@@ -2170,70 +1401,23 @@ class CleanupHud extends StatelessWidget {
                 ),
               ),
 
-            // Phase 2 extras
-            if (!p1) ...[
-              Row(children: [
-                const Text('💧', style: TextStyle(fontSize: 13)),
-                const SizedBox(width: 5),
-                Expanded(child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: purityRatio,
-                    backgroundColor: Colors.white12,
-                    valueColor: AlwaysStoppedAnimation(purityColor),
-                    minHeight: 7,
-                  ),
-                )),
-                const SizedBox(width: 6),
-                RichText(text: TextSpan(children: [
-                  TextSpan(text: '${game.waterPurity.toStringAsFixed(0)}%',
-                      style: TextStyle(color: purityColor, fontSize: 10, fontWeight: FontWeight.bold)),
-                  const TextSpan(text: ' / 100%',
-                      style: TextStyle(color: Color(0xFF69F0AE), fontSize: 8)),
-                ])),
-              ]),
-              const SizedBox(height: 4),
-
-              // Critical alert banner
-              if (game.criticalAlerts.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                  margin: const EdgeInsets.only(bottom: 4),
+            if (game.comboCount > 0)
+              Align(alignment: Alignment.centerRight,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.20),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.60)),
+                    color: const Color(0xFFFF6D00).withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFF6D00).withValues(alpha: 0.60)),
                   ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Text('⚡', style: TextStyle(fontSize: 10)),
-                    const SizedBox(width: 5),
-                    Text(
-                      '${game.criticalAlerts.length} CRITICAL POND${game.criticalAlerts.length > 1 ? "S" : ""}!  Treat before collapse!',
-                      style: const TextStyle(color: Colors.red, fontSize: 8.5, fontWeight: FontWeight.w900),
-                    ),
-                  ]),
-                ),
-
-              // Combo
-              if (game.comboCount > 0)
-                Align(alignment: Alignment.centerRight,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF6D00).withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFFF6D00).withValues(alpha: 0.60)),
-                    ),
-                    child: Text(
-                      '🔥 ${game.comboCount}× Combo  (${game.comboTimer.toStringAsFixed(1)}s)',
-                      style: const TextStyle(color: Color(0xFFFF6D00),
-                          fontSize: 9, fontWeight: FontWeight.w900),
-                    ),
+                  child: Text(
+                    '🔥 ${game.comboCount}× Combo  (${game.comboTimer.toStringAsFixed(1)}s)',
+                    style: const TextStyle(color: Color(0xFFFF6D00),
+                        fontSize: 9, fontWeight: FontWeight.w900),
                   ),
                 ),
-            ],
+              ),
 
-            // Eco-guide hint
             if (game.ecoGuideHint.isNotEmpty)
               Container(
                 margin: const EdgeInsets.only(top: 5),
@@ -2319,14 +1503,7 @@ class _CleanupControlsState extends State<CleanupControls> {
     if (k == LogicalKeyboardKey.keyD || k == LogicalKeyboardKey.arrowRight)
         { if (pressed) rt(true); if (released) rt(false); }
     if (k == LogicalKeyboardKey.space && pressed) {
-      widget.game.gamePhase == 1
-          ? widget.game.triggerScan()
-          : widget.game.triggerPondScan();
-    }
-    if (pressed) {
-      if (k == LogicalKeyboardKey.digit1) widget.game.selectTreatment(PondTreatment.hyacinths);
-      if (k == LogicalKeyboardKey.digit2) widget.game.selectTreatment(PondTreatment.bacteriaPellets);
-      if (k == LogicalKeyboardKey.digit3) widget.game.selectTreatment(PondTreatment.filtrationUnit);
+      widget.game.triggerScan();
     }
   }
 
@@ -2335,18 +1512,14 @@ class _CleanupControlsState extends State<CleanupControls> {
     return AnimatedBuilder(
       animation: widget.game,
       builder: (_, __) {
-        final phase    = widget.game.gamePhase;
-        final scanning = phase == 1 ? widget.game.scanLockActive : widget.game.pondScanLockActive;
-        final canScan  = phase == 1
-            ? widget.game._hasNearbyUnscannedLitter
-            : widget.game._hasNearbyUnscannedPond;
-        final actColor = phase == 1 ? const Color(0xFFFFB300) : const Color(0xFF00897B);
+        final scanning = widget.game.scanLockActive;
+        final canScan  = widget.game._hasNearbyUnscannedLitter;
+        const actColor = Color(0xFFFFB300);
 
         return KeyboardListener(
           focusNode: _fk,
           onKeyEvent: _onKey,
           child: Stack(children: [
-            // D-pad (bottom-left)
             Align(alignment: Alignment.bottomLeft, child: SafeArea(child: Padding(
               padding: const EdgeInsets.only(bottom: 16, left: 12),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -2369,16 +1542,6 @@ class _CleanupControlsState extends State<CleanupControls> {
               ]),
             ))),
 
-            // Phase 2: right-side treatment panel
-            if (phase == 2)
-              Align(alignment: Alignment.centerRight,
-                child: SafeArea(child: Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _TreatmentSidePanel(game: widget.game),
-                )),
-              ),
-
-            // Scan action button (bottom-right)
             Align(alignment: Alignment.bottomRight, child: SafeArea(child: Padding(
               padding: const EdgeInsets.only(bottom: 20, right: 14),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -2391,17 +1554,13 @@ class _CleanupControlsState extends State<CleanupControls> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: actColor.withValues(alpha: 0.42)),
                     ),
-                    child: Text(
-                      phase == 1
-                          ? '🔒 Scanning litter — stay in range!'
-                          : '🔬 Analysing pond — stay in range!',
-                      style: TextStyle(color: actColor, fontSize: 9, fontWeight: FontWeight.bold),
+                    child: const Text(
+                      '🔒 Scanning litter — stay in range!',
+                      style: TextStyle(color: Color(0xFFFFB300), fontSize: 9, fontWeight: FontWeight.bold),
                     ),
                   ),
                 GestureDetector(
-                  onTap: () => phase == 1
-                      ? widget.game.triggerScan()
-                      : widget.game.triggerPondScan(),
+                  onTap: () => widget.game.triggerScan(),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 140),
                     width: 70, height: 70,
@@ -2417,9 +1576,7 @@ class _CleanupControlsState extends State<CleanupControls> {
                           : [],
                     ),
                     child: Center(child: Text(
-                      phase == 1
-                          ? (scanning ? '🔒\nLOCK\nING…' : '📡\nSCAN')
-                          : (scanning ? '🔬\nANA\nLYSE' : '🔬\nSCAN'),
+                      scanning ? '🔒\nLOCK\nING…' : '📡\nSCAN',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: canScan ? actColor : Colors.white30,
                           fontWeight: FontWeight.w900, fontSize: 8, letterSpacing: 0.3, height: 1.3),
@@ -2429,108 +1586,6 @@ class _CleanupControlsState extends State<CleanupControls> {
               ]),
             ))),
           ]),
-        );
-      },
-    );
-  }
-}
-
-// ── Right-side treatment panel ────────────────────────────────────────────────
-class _TreatmentSidePanel extends StatelessWidget {
-  final HabitatCleanupGame game;
-  const _TreatmentSidePanel({required this.game});
-
-  static const _treatments = [
-    (PondTreatment.hyacinths,       '🌿', 'Hyacinths',  'Algae Bloom',        Color(0xFF2E7D32)),
-    (PondTreatment.bacteriaPellets, '🧫', 'Bacteria',   'Organic Waste',      Color(0xFF795548)),
-    (PondTreatment.filtrationUnit,  '🔧', 'Filtration', 'Chemical Pollution', Color(0xFF7B1FA2)),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: game,
-      builder: (_, __) {
-        final target = game.pendingTreatTarget;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: _treatments.map((spec) {
-            final (tr, emoji, label, hint, color) = spec;
-            final uses    = game.treatmentUses[tr] ?? 0;
-            final isEmpty = uses == 0;
-            final selected = game.selectedTreatment == tr;
-            final correct  = target != null && game._isCorrectTreatment(target.type, tr);
-
-            final borderColor = isEmpty ? Colors.white12
-                : selected ? color
-                : correct  ? color.withValues(alpha: 0.60)
-                : Colors.white.withValues(alpha: 0.12);
-            final bgColor = isEmpty ? Colors.black.withValues(alpha: 0.55)
-                : selected ? color.withValues(alpha: 0.25)
-                : correct  ? color.withValues(alpha: 0.10)
-                : Colors.black.withValues(alpha: 0.62);
-
-            return GestureDetector(
-              onTap: isEmpty ? null : () {
-                HapticFeedback.selectionClick();
-                game.selectTreatment(tr);
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                margin: const EdgeInsets.only(bottom: 5),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                constraints: const BoxConstraints(minWidth: 118, maxWidth: 138),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: borderColor, width: (selected||correct) ? 1.8 : 1.1),
-                  boxShadow: selected
-                      ? [BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 10)]
-                      : correct && !isEmpty
-                          ? [BoxShadow(color: color.withValues(alpha: 0.20), blurRadius: 6)]
-                          : [],
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Container(
-                    width: 28, height: 28,
-                    decoration: BoxDecoration(shape: BoxShape.circle,
-                        color: isEmpty ? Colors.white.withValues(alpha: 0.04) : color.withValues(alpha: 0.18),
-                        border: Border.all(color: isEmpty ? Colors.white12 : color.withValues(alpha: 0.45))),
-                    child: Center(child: Text(emoji, style: const TextStyle(fontSize: 13))),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min, children: [
-                    Text(label, style: TextStyle(
-                        color: isEmpty ? Colors.white24 : selected ? color : Colors.white,
-                        fontWeight: FontWeight.w800, fontSize: 10.5)),
-                    Text(hint, style: TextStyle(
-                        color: isEmpty ? Colors.white12 : color.withValues(alpha: 0.68), fontSize: 8)),
-                  ])),
-                  const SizedBox(width: 5),
-                  Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: isEmpty ? Colors.redAccent.withValues(alpha: 0.14) : color.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(5),
-                        border: Border.all(
-                            color: isEmpty ? Colors.redAccent.withValues(alpha: 0.42) : color.withValues(alpha: 0.38)),
-                      ),
-                      child: Text(isEmpty ? 'OUT' : '×$uses',
-                          style: TextStyle(color: isEmpty ? Colors.redAccent : color,
-                              fontSize: 7.5, fontWeight: FontWeight.bold)),
-                    ),
-                    if (correct && !isEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text('✓', style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold)),
-                    ],
-                  ]),
-                ]),
-              ),
-            );
-          }).toList(),
         );
       },
     );
@@ -2569,29 +1624,27 @@ class CleanupPhaseBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p1     = game.gamePhase == 1;
-    final accent = p1 ? const Color(0xFFFFB300) : const Color(0xFF00897B);
+    const accent = Color(0xFFFFB300);
     return IgnorePointer(child: Center(child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: p1
-            ? [const Color(0xFF1A1000), const Color(0xFF2E1800)]
-            : [const Color(0xFF001A14), const Color(0xFF003028)]),
+        gradient: const LinearGradient(colors: [Color(0xFF1A1000), Color(0xFF2E1800)]),
         borderRadius: BorderRadius.circular(18),
         boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 24)],
         border: Border.all(color: accent.withValues(alpha: 0.55), width: 1.5),
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(p1 ? 'PHASE 1' : 'PHASE 2',
-            style: const TextStyle(color: Colors.white54, fontSize: 13, letterSpacing: 2.5)),
+        const Text('PHASE 1',
+            style: TextStyle(color: Colors.white54, fontSize: 13, letterSpacing: 2.5)),
         const SizedBox(height: 4),
-        Text(p1 ? '🗑️  Waste Collection' : '💧  Water Purification',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22)),
+        const Text('🗑️  Waste Collection',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22)),
         const SizedBox(height: 6),
         Text(
-          p1
-              ? 'Fly near litter then hold 📡 SCAN (1.5 s).\nRead the eco-fact, then tap SORT IT!\nWrong bin keeps mini-game open — choose again.'
-              : 'Fly near a polluted pond then hold 🔬 SCAN.\nRead the analysis, then tap TREAT IT!\nWatch for critical alerts and algae spread!',
+          'Fly near litter then hold 📡 SCAN (1.5 s).\n'
+          'Read the eco-fact, then tap SORT IT!\n'
+          'Wrong bin keeps mini-game open — choose again.\n'
+          '10 waste types to identify — learn them well!',
           textAlign: TextAlign.center,
           style: TextStyle(color: accent.withValues(alpha: 0.85), fontSize: 11.5),
         ),
@@ -2601,7 +1654,7 @@ class CleanupPhaseBanner extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  SCAN RESULT OVERLAY  — non-blocking mini-card (Phase 1 + Phase 2)
+//  SCAN RESULT OVERLAY
 // ══════════════════════════════════════════════════════════════════════════════
 class HabitatScanResultOverlay extends StatefulWidget {
   final HabitatCleanupGame game;
@@ -2658,17 +1711,14 @@ class _HabitatScanResultOverlayState extends State<HabitatScanResultOverlay>
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
 
-                // Header
                 Row(children: [
                   SizedBox(width: 22, height: 22,
                     child: CustomPaint(painter: _ArcCountdownPainter(progress, result.color)),
                   ),
                   const SizedBox(width: 8),
-                  Expanded(child: Text(
-                    result.isLitter ? 'LITTER IDENTIFIED' : 'POND ANALYSED',
-                    style: const TextStyle(color: Colors.white54, fontSize: 9,
-                        fontWeight: FontWeight.w900, letterSpacing: 1.8),
-                  )),
+                  const Expanded(child: Text('LITTER IDENTIFIED',
+                      style: TextStyle(color: Colors.white54, fontSize: 9,
+                          fontWeight: FontWeight.w900, letterSpacing: 1.8))),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
@@ -2683,7 +1733,6 @@ class _HabitatScanResultOverlayState extends State<HabitatScanResultOverlay>
                 ]),
                 const SizedBox(height: 12),
 
-                // Identified issue card
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -2714,7 +1763,6 @@ class _HabitatScanResultOverlayState extends State<HabitatScanResultOverlay>
                 ),
                 const SizedBox(height: 10),
 
-                // Action recommendation
                 widget.game.scanResultShowsHints
                     ? Container(
                         width: double.infinity,
@@ -2762,11 +1810,8 @@ class _HabitatScanResultOverlayState extends State<HabitatScanResultOverlay>
                       ),
                 const SizedBox(height: 14),
 
-                // Primary action button
                 GestureDetector(
-                  onTap: () => result.isLitter
-                      ? widget.game.openSortSelectorForPending()
-                      : widget.game.openTreatmentSelectorForPending(),
+                  onTap: () => widget.game.openSortSelectorForPending(),
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -2779,7 +1824,7 @@ class _HabitatScanResultOverlayState extends State<HabitatScanResultOverlay>
                     child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                       Text(result.icon, style: const TextStyle(fontSize: 18)),
                       const SizedBox(width: 8),
-                      Text(result.isLitter ? 'SORT IT  →  SELECT BIN' : 'TREAT IT  →  SELECT TREATMENT',
+                      Text('SORT IT  →  SELECT BIN',
                           style: TextStyle(color: result.color, fontSize: 13,
                               fontWeight: FontWeight.w900, letterSpacing: 0.8)),
                     ]),
@@ -2817,7 +1862,7 @@ class _ArcCountdownPainter extends CustomPainter {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  SORT MINI-GAME  — wrong sort stays open to retry; correct closes & scores
+//  SORT MINI-GAME  — 4 bins, wrong sort stays open, hints only on first encounter
 // ══════════════════════════════════════════════════════════════════════════════
 class SortMiniGame extends StatelessWidget {
   final HabitatCleanupGame game;
@@ -2832,22 +1877,37 @@ class SortMiniGame extends StatelessWidget {
         if (litterType == null || !game.sortSelectorOpen) return const SizedBox.shrink();
 
         final litEmoji = {
-          LitterType.plastic: '🧴', LitterType.metal: '🥫',
-          LitterType.organic: '🍌', LitterType.glass:  '🍶',
+          LitterType.plasticBottle: '🥤',
+          LitterType.polythene:     '🛍️',
+          LitterType.foodWrap:      '🥡',
+          LitterType.glassBottle:   '🍾',
+          LitterType.metalCan:      '🥫',
+          LitterType.paper:         '📄',
+          LitterType.fruitPeel:     '🍌',
+          LitterType.clothes:       '👕',
+          LitterType.shoes:         '👟',
+          LitterType.eWaste:        '🔋',
         }[litterType] ?? '?';
 
         const bins = [
-          (WasteSort.recyclable,    '♻️', 'Recyclable',    Color(0xFF29B6F6)),
-          (WasteSort.reusable,      '🔄', 'Reusable',      Color(0xFF69F0AE)),
-          (WasteSort.biodegradable, '🌿', 'Biodegradable', Color(0xFF558B2F)),
+          (WasteSort.recyclable,    '♻️', 'Recyclable',    'Plastics · Paper · Metal', Color(0xFF29B6F6)),
+          (WasteSort.reusable,      '🔄', 'Reusable',      'Glass · Clothes · Shoes',  Color(0xFF69F0AE)),
+          (WasteSort.biodegradable, '🌿', 'Biodegradable', 'Food · Peels · Organic',   Color(0xFF558B2F)),
+          (WasteSort.harmful,       '☠️', 'Harmful',       'E-Waste · Batteries',      Color(0xFFEF5350)),
         ];
 
         final showHints  = game.sortShowsHints;
         final correctBin = {
-          LitterType.plastic: WasteSort.recyclable,
-          LitterType.metal:   WasteSort.recyclable,
-          LitterType.organic: WasteSort.biodegradable,
-          LitterType.glass:   WasteSort.reusable,
+          LitterType.plasticBottle: WasteSort.recyclable,
+          LitterType.polythene:     WasteSort.recyclable,
+          LitterType.foodWrap:      WasteSort.recyclable,
+          LitterType.metalCan:      WasteSort.recyclable,
+          LitterType.paper:         WasteSort.recyclable,
+          LitterType.glassBottle:   WasteSort.reusable,
+          LitterType.clothes:       WasteSort.reusable,
+          LitterType.shoes:         WasteSort.reusable,
+          LitterType.fruitPeel:     WasteSort.biodegradable,
+          LitterType.eWaste:        WasteSort.harmful,
         }[litterType];
 
         return Container(
@@ -2888,17 +1948,20 @@ class SortMiniGame extends StatelessWidget {
                 ),
               ]),
               const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                alignment: WrapAlignment.center,
                 children: bins.map((b) {
-                  final (sort, emoji, label, color) = b;
+                  final (sort, emoji, label, desc, color) = b;
                   final isCorrect = showHints && sort == correctBin;
+
                   return GestureDetector(
                     onTap: () => game.sortLitter(sort),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 130),
-                      margin: const EdgeInsets.symmetric(horizontal: 6),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      width: 140,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                       decoration: BoxDecoration(
                         color: isCorrect ? color.withValues(alpha: 0.22) : color.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(14),
@@ -2910,13 +1973,30 @@ class SortMiniGame extends StatelessWidget {
                             : [],
                       ),
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Text(emoji, style: const TextStyle(fontSize: 24)),
-                        const SizedBox(height: 4),
-                        Text(label, style: TextStyle(color: isCorrect ? color : color.withValues(alpha: 0.85),
-                            fontWeight: FontWeight.w900, fontSize: 10)),
+                        Text(emoji, style: const TextStyle(fontSize: 28)),
+                        const SizedBox(height: 6),
+                        Text(label,
+                            style: TextStyle(
+                                color: isCorrect ? color : color.withValues(alpha: 0.85),
+                                fontWeight: FontWeight.w900, fontSize: 11)),
+                        const SizedBox(height: 3),
+                        Text(desc,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: isCorrect ? color.withValues(alpha: 0.90) : Colors.white54,
+                                fontSize: 8.5, height: 1.3)),
                         if (isCorrect) ...[
-                          const SizedBox(height: 2),
-                          Text('✓ correct', style: TextStyle(color: color, fontSize: 7.5, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: color.withValues(alpha: 0.50)),
+                            ),
+                            child: Text('✓ correct', style: TextStyle(
+                                color: color, fontSize: 8, fontWeight: FontWeight.bold)),
+                          ),
                         ],
                       ]),
                     ),
@@ -2932,162 +2012,72 @@ class SortMiniGame extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  POND TREATMENT SELECTOR  — wrong treatment stays open to retry
+//  REACTION FLASH
 // ══════════════════════════════════════════════════════════════════════════════
-class PondTreatmentSelector extends StatelessWidget {
+class CleanupReactionFx extends StatelessWidget {
   final HabitatCleanupGame game;
-  const PondTreatmentSelector(this.game, {super.key});
-
-  static const _treatments = [
-    (PondTreatment.hyacinths,       '🌿', 'Water\nHyacinths',  'Algae Bloom',        Color(0xFF2E7D32)),
-    (PondTreatment.bacteriaPellets, '🧫', 'Bacteria\nPellets', 'Organic Waste',      Color(0xFF795548)),
-    (PondTreatment.filtrationUnit,  '🔧', 'Filtration\nUnit',  'Chemical Pollution', Color(0xFF7B1FA2)),
-  ];
+  const CleanupReactionFx(this.game, {super.key});
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: game,
       builder: (_, __) {
-        final target = game.pendingTreatTarget;
-        if (target == null || !game.treatmentSelectorOpen) return const SizedBox.shrink();
+        final ok      = game.reactionCorrect;
+        final inRange = game.reactionInRange;
+        final msg     = game.reactionMsg.isNotEmpty
+            ? game.reactionMsg
+            : (!inRange ? '🛰️  Out of range — fly closer'
+                : ok ? '✅  Done!' : '❌  Wrong approach');
+        final accent  = (ok && inRange)
+            ? const Color(0xFF69F0AE) : const Color(0xFFEF5350);
 
-        final showHints = game.treatmentShowsHints;
-        final (typeIcon, typeName, accent) = _pondMeta(target.type);
-
-        return Container(
-          color: Colors.black.withValues(alpha: 0.62),
-          child: Center(child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 24),
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: const Color(0xFF080E06),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: accent.withValues(alpha: 0.55), width: 1.5),
-              boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 20)],
-            ),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Row(children: [
-                Text(typeIcon, style: const TextStyle(fontSize: 22)),
-                const SizedBox(width: 10),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(typeName, style: const TextStyle(color: Colors.white,
-                      fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text('Select the correct water treatment:',
-                      style: TextStyle(color: accent, fontSize: 10, fontWeight: FontWeight.w700)),
-                ])),
-                GestureDetector(
-                  onTap: game.cancelTreatmentSelector,
-                  child: Container(width: 32, height: 32,
-                      decoration: BoxDecoration(shape: BoxShape.circle,
-                          color: Colors.white.withValues(alpha: 0.08),
-                          border: Border.all(color: Colors.white24)),
-                      child: const Center(child: Text('✕',
-                          style: TextStyle(color: Colors.white60, fontSize: 14)))),
-                ),
-              ]),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: accent.withValues(alpha: 0.35)),
-                ),
-                child: showHints
-                    ? Text('Pond: $typeName',
-                        style: TextStyle(color: accent, fontSize: 9.5, fontWeight: FontWeight.w700))
-                    : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        const Text('🧠', style: TextStyle(fontSize: 11)),
-                        const SizedBox(width: 5),
-                        Text('Recall from memory — no hints this time!',
-                            style: TextStyle(color: accent, fontSize: 9.5, fontWeight: FontWeight.w700)),
-                      ]),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 8, runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: _treatments.map((spec) {
-                  final (tr, emoji, label, hint, color) = spec;
-                  final uses    = game.treatmentUses[tr] ?? 0;
-                  final isEmpty = uses == 0;
-                  final correct = showHints && game._isCorrectTreatment(target.type, tr);
-
-                  return GestureDetector(
-                    onTap: isEmpty ? null : () {
-                      HapticFeedback.selectionClick();
-                      game.selectTreatment(tr);
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 130),
-                      width: 112,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-                      decoration: BoxDecoration(
-                        color: isEmpty ? Colors.black.withValues(alpha: 0.55)
-                            : correct ? color.withValues(alpha: 0.22)
-                            : Colors.black.withValues(alpha: 0.62),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isEmpty ? Colors.white12
-                              : correct ? color.withValues(alpha: 0.85)
-                              : Colors.white.withValues(alpha: 0.18),
-                          width: correct ? 2.0 : 1.2,
-                        ),
-                        boxShadow: correct && !isEmpty
-                            ? [BoxShadow(color: color.withValues(alpha: 0.32), blurRadius: 12)]
-                            : [],
-                      ),
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Text(emoji, style: TextStyle(fontSize: 22,
-                            color: isEmpty ? const Color(0xFF444444) : null)),
-                        const SizedBox(height: 4),
-                        Text(label, textAlign: TextAlign.center,
-                            style: TextStyle(
-                                color: isEmpty ? Colors.white24 : correct ? color : Colors.white70,
-                                fontWeight: FontWeight.w800, fontSize: 10.5)),
-                        showHints
-                            ? Text(hint, textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    color: isEmpty ? Colors.white12 : color.withValues(alpha: 0.68),
-                                    fontSize: 8))
-                            : const Text('— recall from memory —', textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.white24, fontSize: 7.5)),
-                        const SizedBox(height: 3),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: isEmpty ? Colors.redAccent.withValues(alpha: 0.14) : color.withValues(alpha: 0.18),
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: Text(isEmpty ? 'OUT' : '×$uses',
-                              style: TextStyle(
-                                  color: isEmpty ? Colors.redAccent : color,
-                                  fontSize: 7.5, fontWeight: FontWeight.bold)),
-                        ),
-                      ]),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ]),
+        return IgnorePointer(child: Stack(children: [
+          Container(decoration: BoxDecoration(
+            border: Border.all(color: accent, width: 8),
+            gradient: RadialGradient(
+                colors: [Colors.transparent, accent.withValues(alpha: 0.12)], radius: 1.5),
           )),
-        );
+          Center(child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 11),
+            decoration: BoxDecoration(
+              color: ok ? const Color(0xFF0A2A10).withValues(alpha: 0.94)
+                        : const Color(0xFF2A0A0A).withValues(alpha: 0.94),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 14, spreadRadius: 2)],
+            ),
+            child: Text(msg, textAlign: TextAlign.center,
+                style: TextStyle(color: accent, fontWeight: FontWeight.bold,
+                    fontSize: 15, letterSpacing: 0.5)),
+          )),
+          if (game.showComboFlash && game.comboCount >= 2)
+            Positioned(
+              top: MediaQuery.of(context).size.height * 0.30,
+              left: 0, right: 0,
+              child: Center(child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF6D00).withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [BoxShadow(color: const Color(0xFFFF6D00).withValues(alpha: 0.42), blurRadius: 18)],
+                ),
+                child: Text(
+                  game.comboCount >= 4 ? '🔥🔥🔥  ${game.comboCount}× COMBO!  3× POINTS!'
+                      : game.comboCount == 3 ? '🔥🔥  ${game.comboCount}× COMBO!  2× POINTS!'
+                      : '🔥  ${game.comboCount}× COMBO!  2× POINTS!',
+                  style: const TextStyle(color: Colors.white,
+                      fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.6),
+                ),
+              )),
+            ),
+        ]));
       },
     );
-  }
-
-  (String, String, Color) _pondMeta(PondType t) {
-    switch (t) {
-      case PondType.algaeBloom:        return ('🌿', 'Algae Bloom',         const Color(0xFF2E7D32));
-      case PondType.organicWaste:      return ('🦠', 'Organic Waste Pond',  const Color(0xFF795548));
-      case PondType.chemicalPollution: return ('☠️', 'Chemical Pollution',  const Color(0xFF7B1FA2));
-    }
   }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  ECO-DISCOVERY OVERLAY  — cultural marker popup
+//  ECO-DISCOVERY OVERLAY
 // ══════════════════════════════════════════════════════════════════════════════
 class CleanupEcoDiscoveryOverlay extends StatefulWidget {
   final HabitatCleanupGame game;
@@ -3113,8 +2103,6 @@ class _CleanupEcoDiscoveryState extends State<CleanupEcoDiscoveryOverlay>
 
   @override
   Widget build(BuildContext context) {
-    // Auto-dismisses via discoveryDisplayTimer in game loop.
-    // When it expires, the scan result card opens for the same litter item.
     return IgnorePointer(child: Center(child: ScaleTransition(
       scale: _scale,
       child: Container(
@@ -3157,231 +2145,7 @@ class _CleanupEcoDiscoveryState extends State<CleanupEcoDiscoveryOverlay>
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  REACTION FLASH  — full-screen border flash + message + combo toast
-// ══════════════════════════════════════════════════════════════════════════════
-class CleanupReactionFx extends StatelessWidget {
-  final HabitatCleanupGame game;
-  const CleanupReactionFx(this.game, {super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: game,
-      builder: (_, __) {
-        final ok      = game.reactionCorrect;
-        final inRange = game.reactionInRange;
-        final msg     = game.reactionMsg.isNotEmpty
-            ? game.reactionMsg
-            : (!inRange ? '🛰️  Out of range — fly closer'
-                : ok ? '✅  Done!' : '❌  Wrong approach');
-        final accent  = (ok && inRange)
-            ? const Color(0xFF69F0AE) : const Color(0xFFEF5350);
-
-        return IgnorePointer(child: Stack(children: [
-          // Border flash
-          Container(decoration: BoxDecoration(
-            border: Border.all(color: accent, width: 8),
-            gradient: RadialGradient(
-                colors: [Colors.transparent, accent.withValues(alpha: 0.12)], radius: 1.5),
-          )),
-          // Message bubble
-          Center(child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 11),
-            decoration: BoxDecoration(
-              color: ok ? const Color(0xFF0A2A10).withValues(alpha: 0.94)
-                        : const Color(0xFF2A0A0A).withValues(alpha: 0.94),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 14, spreadRadius: 2)],
-            ),
-            child: Text(msg, textAlign: TextAlign.center,
-                style: TextStyle(color: accent, fontWeight: FontWeight.bold,
-                    fontSize: 15, letterSpacing: 0.5)),
-          )),
-          // Combo toast
-          if (game.showComboFlash && game.comboCount >= 2)
-            Positioned(
-              top: MediaQuery.of(context).size.height * 0.30,
-              left: 0, right: 0,
-              child: Center(child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF6D00).withValues(alpha: 0.92),
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [BoxShadow(color: const Color(0xFFFF6D00).withValues(alpha: 0.42), blurRadius: 18)],
-                ),
-                child: Text(
-                  game.comboCount >= 4 ? '🔥🔥🔥  ${game.comboCount}× COMBO!  3× POINTS!'
-                      : game.comboCount == 3 ? '🔥🔥  ${game.comboCount}× COMBO!  2× POINTS!'
-                      : '🔥  ${game.comboCount}× COMBO!  2× POINTS!',
-                  style: const TextStyle(color: Colors.white,
-                      fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.6),
-                ),
-              )),
-            ),
-        ]));
-      },
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  CRITICAL POND ALERT OVERLAY
-// ══════════════════════════════════════════════════════════════════════════════
-class CriticalPondAlertOverlay extends StatelessWidget {
-  final HabitatCleanupGame game;
-  const CriticalPondAlertOverlay(this.game, {super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: game,
-      builder: (_, __) {
-        if (game.criticalAlerts.isEmpty) return const SizedBox.shrink();
-        final alert = game.criticalAlerts.first;
-
-        return IgnorePointer(child: Align(
-          alignment: Alignment.topCenter,
-          child: SafeArea(child: Container(
-            margin: const EdgeInsets.only(top: 55),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A0000).withValues(alpha: 0.95),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.red.withValues(alpha: 0.75), width: 1.5),
-              boxShadow: [BoxShadow(color: Colors.red.withValues(alpha: 0.28), blurRadius: 22)],
-            ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              const Text('⚡', style: TextStyle(fontSize: 20)),
-              const SizedBox(width: 8),
-              Column(mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('CRITICAL POND — TREAT NOW!',
-                    style: TextStyle(color: Colors.red, fontSize: 10,
-                        fontWeight: FontWeight.w900, letterSpacing: 1.3)),
-                const SizedBox(height: 2),
-                const Text(
-                  'A pond is on the verge of collapse.\nTreat it to save +15 pts — or lose -15!',
-                  style: TextStyle(color: Colors.white60, fontSize: 9.5),
-                ),
-              ]),
-              const SizedBox(width: 10),
-              Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.red.withValues(alpha: 0.14),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.55))),
-                child: Center(child: Text('${alert.timeLeft.ceil()}',
-                    style: const TextStyle(color: Colors.red,
-                        fontWeight: FontWeight.bold, fontSize: 16))),
-              ),
-            ]),
-          )),
-        ));
-      },
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ACID RAIN ALERT OVERLAY
-// ══════════════════════════════════════════════════════════════════════════════
-class AcidRainAlertOverlay extends StatelessWidget {
-  final HabitatCleanupGame game;
-  const AcidRainAlertOverlay(this.game, {super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: game,
-      builder: (_, __) {
-        if (!game.acidRainWarning) return const SizedBox.shrink();
-
-        return IgnorePointer(child: Align(
-          alignment: Alignment.topCenter,
-          child: SafeArea(child: Container(
-            margin: const EdgeInsets.only(top: 55),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A1A00).withValues(alpha: 0.95),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFCDDC39).withValues(alpha: 0.75), width: 1.5),
-              boxShadow: [BoxShadow(
-                  color: const Color(0xFFCDDC39).withValues(alpha: 0.22), blurRadius: 20)],
-            ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              const Text('🌧️', style: TextStyle(fontSize: 20)),
-              const SizedBox(width: 8),
-              Column(mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('ACID RAIN INCOMING!',
-                    style: TextStyle(color: Color(0xFFCDDC39), fontSize: 10,
-                        fontWeight: FontWeight.w900, letterSpacing: 1.3)),
-                const SizedBox(height: 2),
-                Text(
-                  'Purity will drop by 10%.\nTreat ponds quickly — impact in ${game._acidRainWarningCd.ceil()}s!',
-                  style: const TextStyle(color: Colors.white60, fontSize: 9.5),
-                ),
-              ]),
-              const SizedBox(width: 10),
-              Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFFCDDC39).withValues(alpha: 0.14),
-                    border: Border.all(color: const Color(0xFFCDDC39).withValues(alpha: 0.50))),
-                child: Center(child: Text('${game._acidRainWarningCd.ceil()}',
-                    style: const TextStyle(color: Color(0xFFCDDC39),
-                        fontWeight: FontWeight.bold, fontSize: 16))),
-              ),
-            ]),
-          )),
-        ));
-      },
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  TREATMENT RESUPPLY OVERLAY
-// ══════════════════════════════════════════════════════════════════════════════
-class TreatmentResupplyOverlay extends StatelessWidget {
-  final HabitatCleanupGame game;
-  const TreatmentResupplyOverlay(this.game, {super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(child: Align(
-      alignment: Alignment.topCenter,
-      child: SafeArea(child: Container(
-        margin: const EdgeInsets.only(top: 60),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF001A0A).withValues(alpha: 0.96),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFF69F0AE).withValues(alpha: 0.70), width: 1.5),
-          boxShadow: [BoxShadow(
-              color: const Color(0xFF69F0AE).withValues(alpha: 0.25), blurRadius: 22)],
-        ),
-        child: const Row(mainAxisSize: MainAxisSize.min, children: [
-          Text('📦', style: TextStyle(fontSize: 22)),
-          SizedBox(width: 10),
-          Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('TREATMENT RESUPPLY EARNED!',
-                style: TextStyle(color: Color(0xFF69F0AE), fontSize: 11,
-                    fontWeight: FontWeight.w900, letterSpacing: 1.3)),
-            SizedBox(height: 2),
-            Text('Low-stock treatment refilled with +3 uses.\nKeep cleaning ponds to earn more!',
-                style: TextStyle(color: Colors.white60, fontSize: 10)),
-          ]),
-        ]),
-      )),
-    ));
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  RESULTS OVERLAY  — fully dynamic, minimum gate, replay or continue
+//  RESULTS OVERLAY
 // ══════════════════════════════════════════════════════════════════════════════
 class CleanupResultsOverlay extends StatelessWidget {
   final HabitatCleanupGame game;
@@ -3391,12 +2155,11 @@ class CleanupResultsOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     final r        = HabitatCleanupResult.current!;
     final meetsMin = r.meetsMinimum;
-    final purity   = r.waterPurity;
-    final stars    = r.correctSorts >= 10 && r.pondsClean >= 6 ? '★★★'
-                   : r.correctSorts >= 6  && r.pondsClean >= 4 ? '★★☆'
+    final stars    = r.correctSorts >= 14 ? '★★★'
+                   : r.correctSorts >= 8  ? '★★☆'
                    : '★☆☆';
     final headerEmoji = meetsMin ? '🌿' : '🗑️';
-    final headerText  = meetsMin ? 'Habitat Restored!' : 'Mission Incomplete';
+    final headerText  = meetsMin ? 'Habitat Cleanup Complete!' : 'Mission Incomplete';
     final accent      = meetsMin ? const Color(0xFF69F0AE) : const Color(0xFFFFB300);
 
     return Container(
@@ -3405,7 +2168,6 @@ class CleanupResultsOverlay extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Column(children: [
 
-          // ── Header card ──────────────────────────────────────────────────────
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             decoration: BoxDecoration(
@@ -3426,7 +2188,7 @@ class CleanupResultsOverlay extends StatelessWidget {
                   style: TextStyle(color: accent, fontSize: 13,
                       fontWeight: FontWeight.w700, letterSpacing: 1.0)),
               const SizedBox(height: 4),
-              const Text('Phase 1 & 2 — Habitat Cleanup Results',
+              const Text('Phase 1 — Waste Collection Results',
                   style: TextStyle(color: Colors.white54, fontSize: 12)),
               const SizedBox(height: 8),
               Text(stars, style: const TextStyle(
@@ -3443,7 +2205,7 @@ class CleanupResultsOverlay extends StatelessWidget {
                   child: const Row(mainAxisSize: MainAxisSize.min, children: [
                     Text('🏅', style: TextStyle(fontSize: 14)),
                     SizedBox(width: 6),
-                    Text('Habitat Guardian Badge Unlocked!',
+                    Text('Eco-Sorter Badge Unlocked!',
                         style: TextStyle(color: Color(0xFF69F0AE),
                             fontWeight: FontWeight.w800, fontSize: 11.5)),
                   ]),
@@ -3453,50 +2215,27 @@ class CleanupResultsOverlay extends StatelessWidget {
           ),
           const SizedBox(height: 14),
 
-          // ── Litter + ponds row ───────────────────────────────────────────────
           _CRCard(children: [
             _CRBig('🗑️', '${r.correctSorts}/${r.litterCollected}', 'Sorted\nCorrectly', Colors.limeAccent),
-            _CRBig('💧', '${r.pondsClean}/${game.ponds.isEmpty ? HabitatCleanupGame.totalPonds : game.ponds.length}',
-                'Ponds\nCleaned', const Color(0xFF00897B)),
             _CRBig('🎯', '${r.accuracyPct}%', 'Sort\nAccuracy',
                 r.accuracyPct >= 80 ? const Color(0xFF69F0AE)
                     : r.accuracyPct >= 50 ? const Color(0xFFFFB300) : Colors.redAccent),
-          ]),
-          const SizedBox(height: 8),
-
-          // ── Purity + points row ─────────────────────────────────────────────
-          _CRCard(children: [
-            _CRBig('💦', '${purity.toStringAsFixed(0)}%', 'Water\nPurity',
-                purity >= 80 ? const Color(0xFF69F0AE)
-                    : purity >= 50 ? const Color(0xFF00897B) : Colors.redAccent),
-            _CRBig('⭐', '${r.ecoPoints}', 'Eco\nPoints', Colors.amber),
             _CRBig('🔥', '${r.maxCombo}×', 'Max\nCombo', const Color(0xFFFF6D00)),
           ]),
           const SizedBox(height: 8),
 
-          // ── Bonus events row ─────────────────────────────────────────────────
           _CRCard(children: [
-            _CRBig('⚡', '${r.criticalSaves}', 'Crits\nSaved', Colors.redAccent),
+            _CRBig('⭐', '${r.ecoPoints}', 'Eco\nPoints', Colors.amber),
+            if (r.scanStreakBonus > 0)
+              _CRBig('🎯', '+${r.scanStreakBonus}', 'Streak\nBonus', const Color(0xFFE040FB)),
             _CRBig('🌍', '${r.ecoDiscoveriesFound}/2', 'Eco\nDiscovers', const Color(0xFFE040FB)),
             _CRBig('⏱️', r.timeBonusCollected ? 'YES' : 'NO', 'Time\nBonus',
                 r.timeBonusCollected ? const Color(0xFFFFD700) : Colors.white38),
-            if (r.pondsSpread > 0)
-              _CRBig('⚠️', '${r.pondsSpread}', 'Ponds\nSpread', Colors.orange),
           ]),
-
-          if (r.scanStreakBonus > 0) ...[
-            const SizedBox(height: 8),
-            _CRCard(children: [
-              _CRBig('🎯', '+${r.scanStreakBonus}', 'Streak\nBonus', const Color(0xFFE040FB)),
-              if (r.resupplyTriggered > 0)
-                _CRBig('📦', '${r.resupplyTriggered}×', 'Resupply\nEarned', const Color(0xFF8BC34A)),
-            ]),
-          ],
           const SizedBox(height: 10),
 
-          // ── Performance summary ──────────────────────────────────────────────
           if (r.performanceSummary.isNotEmpty && r.performanceSummary !=
-              'Collect litter and treat ponds to maximise your score.')
+              'Collect and sort all litter to maximise your score.')
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -3516,7 +2255,25 @@ class CleanupResultsOverlay extends StatelessWidget {
             ),
           const SizedBox(height: 10),
 
-          // ── Treatment reference guide ────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0A1A08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Column(children: [
+              const Text('LEVEL SUMMARY',
+                  style: TextStyle(color: Colors.white54, fontSize: 10,
+                      fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+              const SizedBox(height: 8),
+              Text(r.endReason,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 11.5, height: 1.5)),
+            ]),
+          ),
+          const SizedBox(height: 10),
+
           Container(
             padding: const EdgeInsets.all(13),
             decoration: BoxDecoration(
@@ -3525,22 +2282,18 @@ class CleanupResultsOverlay extends StatelessWidget {
               border: Border.all(color: Colors.white12),
             ),
             child: Column(children: [
-              const Text('Sorting & Treatment Applied',
+              const Text('Sorting Reference',
                   style: TextStyle(color: Colors.white70, fontSize: 12,
                       fontWeight: FontWeight.bold, letterSpacing: 1)),
               const SizedBox(height: 10),
-              _CRRow('🧴', 'Plastic / Metal',   '♻️ Recyclable Bin'),
-              _CRRow('🍌', 'Organic Waste',      '🌿 Biodegradable Bin'),
-              _CRRow('🍶', 'Glass Items',         '🔄 Reusable Bin'),
-              const Divider(color: Colors.white12, height: 16),
-              _CRRow('🌿', 'Algae Bloom',         '💧 Water Hyacinths'),
-              _CRRow('🦠', 'Organic Waste Pond', '🧫 Bacteria Pellets'),
-              _CRRow('☠️', 'Chemical Pollution', '🔧 Filtration Unit'),
+              _CRRow('🥤🛍️📄🥫', 'Plastics · Paper · Metal', '♻️ Recyclable Bin'),
+              _CRRow('🍾👕👟', 'Glass · Clothes · Shoes', '🔄 Reusable Bin'),
+              _CRRow('🍌🥡', 'Fruit Peels · Organic', '🌿 Biodegradable Bin'),
+              _CRRow('🔋', 'E-Waste · Batteries', '☠️ Harmful Bin'),
             ]),
           ),
           const SizedBox(height: 18),
 
-          // ── Primary CTA ──────────────────────────────────────────────────────
           SizedBox(
             width: double.infinity,
             child: meetsMin
@@ -3549,12 +2302,12 @@ class CleanupResultsOverlay extends StatelessWidget {
                       game.resumeEngine();
                       game.onLevelComplete();
                     },
-                    icon: const Icon(Icons.park_rounded),
-                    label: const Text('Continue to Wildlife Rescue  →',
+                    icon: const Icon(Icons.water_drop_rounded),
+                    label: const Text('Continue to Pond Cleaning  →',
                         style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 0.7)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF69F0AE),
-                      foregroundColor: Colors.black87,
+                      backgroundColor: const Color(0xFF00897B),
+                      foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       elevation: 8,
@@ -3565,9 +2318,8 @@ class CleanupResultsOverlay extends StatelessWidget {
                       onPressed: () => Navigator.of(context).pop(),
                       icon: const Icon(Icons.replay_rounded),
                       label: Text(
-                        'Replay  — Collect ${r.minimumLitterRequired - r.correctSorts > 0 ? "${r.minimumLitterRequired - r.correctSorts} More Sort(s)" : ""}'
-                        '${r.minimumPondsRequired - r.pondsClean > 0 ? "  /  ${r.minimumPondsRequired - r.pondsClean} More Pond(s)" : ""}',
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                        'Replay  — Sort ${r.minimumLitterRequired - r.correctSorts} More Item(s)',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEF5350),
@@ -3589,7 +2341,7 @@ class CleanupResultsOverlay extends StatelessWidget {
                       child: Text(
                         '💡 Fly near litter and hold SCAN (1.5 s).\n'
                         'Read the eco-fact, tap SORT IT and pick the correct bin.\n'
-                        'Minimum ${r.minimumLitterRequired} correct sorts + ${r.minimumPondsRequired} cleaned ponds needed to advance.',
+                        'Minimum ${r.minimumLitterRequired} correct sorts needed to advance.',
                         textAlign: TextAlign.center,
                         style: const TextStyle(color: Color(0xFFFFB300), fontSize: 11, height: 1.5),
                       ),
@@ -3602,7 +2354,6 @@ class CleanupResultsOverlay extends StatelessWidget {
   }
 }
 
-// ── Results helper widgets ────────────────────────────────────────────────────
 class _CRCard extends StatelessWidget {
   final List<Widget> children;
   const _CRCard({required this.children});
