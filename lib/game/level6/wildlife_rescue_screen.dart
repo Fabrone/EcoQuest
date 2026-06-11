@@ -632,35 +632,20 @@ class WildlifeRescueGame extends FlameGame
       _triggerReaction(false);
     }
 
+    // ── FIXED: When all animals rescued, show results overlay instead of auto-advancing ──
     if (animals.every((a) => a.isRescued)) {
-      Future.delayed(const Duration(milliseconds: 600), _advanceToPhase4);
+      // Show results overlay — user must tap "Continue" button to proceed to Phase 4
+      Future.delayed(const Duration(milliseconds: 600), _endLevel);
     }
     notifyListeners();
   }
 
-  void _advanceToPhase4() {
-    if (levelDone) return;
-    levelDone = true;
-    pauseEngine();
-
-    // Save Phase 3 results
-    WildlifeRescueResult.current = WildlifeRescueResult(
-      animalsRescued:      animalsRescued,
-      postersPlaced:       0,  // Now in Phase 4
-      ecoPoints:           ecoPoints,
-      habitatHealth:       habitatHealth,
-      guardianOfNatureBadge: habitatHealth >= _targetHealth,
-      rescueStreakBonus:   totalRescueStreak,
-      ecoDiscoveriesFound: ecoDiscoveriesFound,
-      criticalSaves:       criticalSaves,
-      maxCombo:            maxCombo,
-      meetsMinimum:        animalsRescued >= kMinAnimalsRequired,
-      minimumRequired:     kMinAnimalsRequired,
-    );
-
-    // Navigate to Phase 4 — Phase4CarryOver is built in the screen wrapper's _onDone()
-    onLevelComplete();
-  }
+  /*void _advanceToPhase4() {
+    // DEPRECATED: This method is kept for compatibility but should not be used.
+    // All level completion now flows through _endLevel() which shows the results overlay.
+    // The user must explicitly tap "Continue" on the results screen to proceed.
+    _endLevel();
+  }*/
 
   // ── Phase 4: Place poster (immediate, mirrors applyTool) ──────────────────
   void placePost() {
@@ -810,6 +795,7 @@ class WildlifeRescueGame extends FlameGame
     levelDone = true;
     pauseEngine();
 
+    // Save Phase 3 results — these will be displayed in the results overlay
     WildlifeRescueResult.current = WildlifeRescueResult(
       animalsRescued:      animalsRescued,
       postersPlaced:       postersPlaced,
@@ -824,6 +810,9 @@ class WildlifeRescueGame extends FlameGame
       minimumRequired:     kMinAnimalsRequired,
     );
 
+    // ── FIXED: Show results overlay — user must tap button to call onLevelComplete ──
+    // Do NOT call onLevelComplete here — let the user view their stats first.
+    // The "Continue" button in RescueResultsOverlay will trigger navigation.
     overlays
       ..remove('reactionFx')
       ..remove('posterTray')
@@ -2812,7 +2801,7 @@ class RescueResultsOverlay extends StatelessWidget {
                     fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.0,
                   )),
               const SizedBox(height: 4),
-              const Text('Phase 3 & 4 — Wildlife & Awareness Results',
+              const Text('Phase 3 — Wildlife Rescue Results',
                   style: TextStyle(color: Colors.white54, fontSize: 12)),
               const SizedBox(height: 8),
               Text(stars, style: const TextStyle(
@@ -2927,7 +2916,7 @@ class RescueResultsOverlay extends StatelessWidget {
                       game.onLevelComplete();
                     },
                     icon: const Icon(Icons.emoji_events_rounded),
-                    label: const Text('Complete Level 6  →',
+                    label: const Text('Continue to Phase 4 - Awareness Campaign',
                         style: TextStyle(
                             fontSize: 15, fontWeight: FontWeight.bold,
                             letterSpacing: 0.8)),
