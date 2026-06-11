@@ -3,6 +3,7 @@ import 'package:ecoquest/game/level6/degraded_park_screen.dart';
 import 'package:ecoquest/game/level6/habitat_cleanup_game_screen.dart';
 import 'package:ecoquest/game/level6/pond_cleaning_game_screen.dart';
 import 'package:ecoquest/game/level6/wildlife_rescue_screen.dart';
+import 'package:ecoquest/game/level6/poster_crafting_game_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -66,7 +67,20 @@ class _Level6CompleteScreenState extends State<Level6CompleteScreen>
         guardianOfNatureBadge: false,
       );
 
-  int get _totalScore => _cleanup.ecoPoints + _pondResult.ecoPoints + _rescue.ecoPoints;
+  PosterCraftingResult get _posterResult =>
+      PosterCraftingResult.current ??
+      const PosterCraftingResult(
+        postersPlaced: 0, 
+        correctThemeMatches: 0, 
+        ecoPoints: 0, 
+        materialsUsed: 0,
+      );
+
+  int get _totalScore => 
+      _cleanup.ecoPoints + 
+      _pondResult.ecoPoints + 
+      _rescue.ecoPoints + 
+      _posterResult.ecoPoints;
 
   String get _grade {
     if (_totalScore >= 600) return 'S';
@@ -191,6 +205,7 @@ class _Level6CompleteScreenState extends State<Level6CompleteScreen>
                         cleanup:  _cleanup,
                         pond:     _pondResult,
                         rescue:   _rescue,
+                        poster:   _posterResult,
                         mobile:   mobile,
                       ),
 
@@ -543,15 +558,17 @@ class _L6ScoreBanner extends StatelessWidget {
 //  STAT GRID
 // ════════════════════════════════════════════════════════════════════════════
 class _L6StatGrid extends StatelessWidget {
-  final AnimationController stagger;
+  final AnimationController  stagger;
   final HabitatCleanupResult cleanup;
   final PondCleaningResult   pond;
   final WildlifeRescueResult  rescue;
+  final PosterCraftingResult  poster;
   final bool mobile;
 
   const _L6StatGrid({
     required this.stagger, required this.cleanup,
-    required this.pond,    required this.rescue,  required this.mobile,
+    required this.pond,    required this.rescue,
+    required this.poster,  required this.mobile,
   });
 
   @override
@@ -559,27 +576,31 @@ class _L6StatGrid extends StatelessWidget {
     final stats = [
       _L6SD('🗑️', 'Litter Collected',
           '${cleanup.litterCollected}/${HabitatCleanupGame.totalLitter}',
-          'Waste items collected &\nsorted in Phase 1',
+          'Waste items collected & sorted in Phase 1',
           _Level6CompleteScreenState.wildlifeGold),
       _L6SD('💧', 'Water Purity',
           '${pond.waterPurity.toStringAsFixed(0)}%',
-          'Final water purity\nacross all ponds',
+          'Final water purity across all ponds',
           _Level6CompleteScreenState.waterTeal),
       _L6SD('🦓', 'Animals Rescued',
           '${rescue.animalsRescued}/${WildlifeRescueGame.totalAnimals}',
-          'Injured wildlife treated\n& released in Phase 3',
+          'Injured wildlife treated & released in Phase 3',
           _Level6CompleteScreenState.wildlifeGold),
       _L6SD('📋', 'Posters Placed',
-          '${rescue.postersPlaced}/${WildlifeRescueGame.totalPosters}',
-          'Awareness posters crafted\n& installed in Phase 4',
+          '${poster.postersPlaced}/${PosterCraftingGame.totalPosters}',
+          'Awareness posters crafted & installed in Phase 4',
+          _Level6CompleteScreenState.posterBlue),
+      _L6SD('🎨', 'Poster Pts',
+          '${poster.ecoPoints}',
+          'Eco-points from poster campaign in Phase 4',
           _Level6CompleteScreenState.posterBlue),
       _L6SD('⭐', 'Cleanup Pts',
           '${cleanup.ecoPoints}',
-          'Eco-points from waste\n& water phases',
+          'Eco-points from waste & water phases',
           _Level6CompleteScreenState.wildlifeGold),
       _L6SD('🌿', 'Rescue Pts',
           '${rescue.ecoPoints}',
-          'Eco-points from rescue\n& awareness phases',
+          'Eco-points from rescue & awareness phases',
           _Level6CompleteScreenState.healthGreen),
     ];
 

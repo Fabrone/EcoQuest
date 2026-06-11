@@ -583,8 +583,9 @@ class _MissionPhases extends StatelessWidget {
         'clinic. Apply first aid in a quick mini-game to restore their health.',
         _DegradedParkScreenState._wildlifeGold, '03'),
     _Phase('📋', 'Design Awareness Posters',
-        'Use dyes, chalk, and recycled materials from earlier levels to craft '
-        'conservation posters. Place them around the park to raise awareness.',
+        'Use natural dyes from Level 1, gypsum from Level 4, compost '
+        'from Level 5 to craft conservation posters. Match themes to '
+        'board locations for maximum awareness impact!',
         _DegradedParkScreenState._posterBlue, '04'),
   ];
 

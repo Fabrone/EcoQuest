@@ -1,30 +1,14 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:ecoquest/game/level6/degraded_park_screen.dart';
-import 'package:ecoquest/game/level6/level6_complete_screen.dart';
 import 'package:flame/components.dart' hide Matrix4;
 import 'package:flame/game.dart' hide Matrix4;
 import 'package:flutter/material.dart' hide Matrix4;
 import 'package:flutter/services.dart';
+import 'package:ecoquest/game/level6/poster_crafting_game_screen.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  WILDLIFE RESCUE GAME SCREEN  ·  EcoQuest Level 6  ·  Phase 3 & 4
-//
-//  PHASE 3 — WILDLIFE RESCUE
-//   • Drone approaches injured animal; proximity assessment lock (1.5 s)
-//   • On lock completion: "ASSESSMENT COMPLETE" card shows condition + eco-fact
-//   • Player taps "TREAT IT" → FirstAid picker opens → instant application
-//   • Rescue streaks reward rapid multi-animal saves with bonus points
-//   • 2 animals carry hidden Eco-Discovery markers (cultural/ecological facts)
-//   • Critical Animal Events — must treat within 12 s or lose pts + health drop
-//   • Consecutive correct first-aid → combo multiplier (2× / 3×)
-//   • Show-once consciousness: first encounter shows correct-aid hint;
-//     subsequent same-type animals require recall from memory
-//
-//  PHASE 4 — AWARENESS CAMPAIGN
-//   • Each board has a Recommended Theme — matching it earns a bonus
-//   • Select theme → fly to board → PLACE → instant installation
-//   • Consecutive correct placements → combo multiplier
+//  WILDLIFE RESCUE GAME SCREEN  ·  EcoQuest Level 6  ·  
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ── Result class passed forward ───────────────────────────────────────────────
@@ -236,8 +220,19 @@ class _WildlifeRescueScreenState extends State<WildlifeRescueScreen> {
 
   void _onDone() {
     if (!mounted) return;
+
+    // Build Phase 4 carry-over from Phase 3 results
+    final phase4CarryOver = Phase4CarryOver(
+      level5Data:         widget.carryOver,
+      animalsRescued:     _game.animalsRescued,
+      criticalSaves:      _game.criticalSaves,
+      ecoDiscoveriesFound: _game.ecoDiscoveriesFound,
+      rescueEcoPoints:    _game.ecoPoints,
+      habitatHealth:      _game.habitatHealth,
+    );
+
     Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => Level6CompleteScreen(carryOver: widget.carryOver),
+      builder: (_) => PosterCraftingGameScreen(carryOver: phase4CarryOver),
     ));
   }
 
@@ -437,7 +432,7 @@ class WildlifeRescueGame extends FlameGame
     ecoDiscoveryIndices.add(indices[1]);
   }
 
-  void _spawnPosterBoards() {
+  /*void _spawnPosterBoards() {
     final locs = [
       (0.12, 0.25, PosterTheme.deforestation),
       (0.38, 0.18, PosterTheme.waterPollution),
@@ -456,7 +451,7 @@ class WildlifeRescueGame extends FlameGame
       add(b);
       posterBoards.add(b);
     }
-  }
+  }*/
 
   void _onSecond() {
     if (!gameStarted || levelDone) return;
@@ -476,17 +471,6 @@ class WildlifeRescueGame extends FlameGame
   bool get _hasNearbyBoard =>
       posterBoards.any((b) => !b.hasPosted &&
           (b.boardPos - dronePos).length <= _posterRange);
-
-  /*InjuredAnimal? get _nearestAnimal {
-    InjuredAnimal? target;
-    double best = _assessRange;
-    for (final a in animals) {
-      if (a.isRescued) continue;
-      final d = (a.animalPos - dronePos).length;
-      if (d < best) { best = d; target = a; }
-    }
-    return target;
-  }*/
 
   PosterBoard? get _nearestBoard {
     PosterBoard? target;
@@ -656,11 +640,26 @@ class WildlifeRescueGame extends FlameGame
 
   void _advanceToPhase4() {
     if (levelDone) return;
-    gamePhase   = 4;
-    bannerTimer = 3.0;
-    _spawnPosterBoards();
-    overlays..add('banner')..add('posterTray');
-    notifyListeners();
+    levelDone = true;
+    pauseEngine();
+
+    // Save Phase 3 results
+    WildlifeRescueResult.current = WildlifeRescueResult(
+      animalsRescued:      animalsRescued,
+      postersPlaced:       0,  // Now in Phase 4
+      ecoPoints:           ecoPoints,
+      habitatHealth:       habitatHealth,
+      guardianOfNatureBadge: habitatHealth >= _targetHealth,
+      rescueStreakBonus:   totalRescueStreak,
+      ecoDiscoveriesFound: ecoDiscoveriesFound,
+      criticalSaves:       criticalSaves,
+      maxCombo:            maxCombo,
+      meetsMinimum:        animalsRescued >= kMinAnimalsRequired,
+      minimumRequired:     kMinAnimalsRequired,
+    );
+
+    // Navigate to Phase 4 — Phase4CarryOver is built in the screen wrapper's _onDone()
+    onLevelComplete();
   }
 
   // ── Phase 4: Place poster (immediate, mirrors applyTool) ──────────────────
