@@ -2228,21 +2228,22 @@ class CleanupResultsOverlay extends StatelessWidget {
           const SizedBox(height: 14),
 
           _CRCard(children: [
-            _CRBig('🗑️', '${r.correctSorts}/${r.litterCollected}', 'Sorted\nCorrectly', Colors.limeAccent),
-            _CRBig('🎯', '${r.accuracyPct}%', 'Sort\nAccuracy',
+            _CRBig('🗑️', '${r.correctSorts}/${r.litterCollected}', 'Sorted Correctly', Colors.limeAccent),
+            _CRBig('❌', '${r.wrongSorts}', 'Wrong Sorts', r.wrongSorts > 0 ? Colors.redAccent : Colors.white38),
+            _CRBig('🎯', '${r.accuracyPct}%', 'Sort Accuracy',
                 r.accuracyPct >= 80 ? const Color(0xFF69F0AE)
                     : r.accuracyPct >= 50 ? const Color(0xFFFFB300) : Colors.redAccent),
-            _CRBig('🔥', '${r.maxCombo}×', 'Max\nCombo', const Color(0xFFFF6D00)),
+            _CRBig('🔥', '${r.maxCombo}×', 'Max Combo', const Color(0xFFFF6D00)),
           ]),
           const SizedBox(height: 8),
 
           _CRCard(children: [
-            _CRBig('⭐', '${r.ecoPoints}', 'Eco\nPoints', Colors.amber),
+            _CRBig('⭐', '${r.ecoPoints}', 'Eco Points', Colors.amber),
+            _CRBig('📊', '${r.correctSorts + r.wrongSorts}', 'Total Attempts', const Color(0xFF90A4AE)),
             if (r.scanStreakBonus > 0)
-              _CRBig('🎯', '+${r.scanStreakBonus}', 'Streak\nBonus', const Color(0xFFE040FB)),
-            _CRBig('🌍', '${r.ecoDiscoveriesFound}/2', 'Eco\nDiscovers', const Color(0xFFE040FB)),
-            _CRBig('⏱️', r.timeBonusCollected ? 'YES' : 'NO', 'Time\nBonus',
-                r.timeBonusCollected ? const Color(0xFFFFD700) : Colors.white38),
+              _CRBig('🎯', '+${r.scanStreakBonus}', 'Streak Bonus', const Color(0xFFE040FB)),
+            _CRBig('🌍', '${r.ecoDiscoveriesFound}/2', 'Eco Discovers', const Color(0xFFE040FB)),
+            _CRBig('⏱️', r.timeBonusCollected ? 'YES' : 'NO', 'Time Bonus', r.timeBonusCollected ? const Color(0xFFFFD700) : Colors.white38),
           ]),
           const SizedBox(height: 10),
 
