@@ -49,7 +49,7 @@ class _Level6CompleteScreenState extends State<Level6CompleteScreen>
   HabitatCleanupResult get _cleanup =>
       HabitatCleanupResult.current ??
       const HabitatCleanupResult(
-        litterCollected: 0, correctSorts: 0, ecoPoints: 0,
+        litterCollected: 0, correctSorts: 0, ecoPoints: 0, wrongSorts: 0,
       );
 
   PondCleaningResult get _pondResult =>

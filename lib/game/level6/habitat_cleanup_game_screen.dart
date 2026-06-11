@@ -16,6 +16,7 @@ import 'package:flutter/services.dart';
 class HabitatCleanupResult {
   final int    litterCollected;
   final int    correctSorts;
+  final int    wrongSorts;        // ── NEW: Tracks failed sort attempts ──
   final int    ecoPoints;
   final int    maxCombo;
   final int    scanStreakBonus;
@@ -29,6 +30,7 @@ class HabitatCleanupResult {
   const HabitatCleanupResult({
     required this.litterCollected,
     required this.correctSorts,
+    required this.wrongSorts,      // ── NEW: Required field ──
     required this.ecoPoints,
     this.maxCombo              = 1,
     this.scanStreakBonus        = 0,
@@ -40,13 +42,19 @@ class HabitatCleanupResult {
     this.completionState       = LevelCompletionState.failed,
   });
 
-  int get accuracyPct =>
-      litterCollected == 0 ? 0 : ((correctSorts / litterCollected) * 100).round();
+  int get accuracyPct {
+    final totalAttempts = correctSorts + wrongSorts;
+    return totalAttempts == 0 ? 0 : ((correctSorts / totalAttempts) * 100).round();
+  }
 
   String get performanceGrade {
-    if (correctSorts >= 14) return 'MASTER ECOLOGIST';
-    if (correctSorts >= 10) return 'HABITAT GUARDIAN';
-    if (correctSorts >= 6)  return 'ECO FIELD AGENT';
+    final totalAttempts = correctSorts + wrongSorts;
+    final accuracy = totalAttempts == 0 ? 0 : (correctSorts / totalAttempts);
+
+    if (correctSorts >= 14 && accuracy >= 0.85) return 'MASTER ECOLOGIST';
+    if (correctSorts >= 10 && accuracy >= 0.75) return 'HABITAT GUARDIAN';
+    if (correctSorts >= 6  && accuracy >= 0.60) return 'ECO FIELD AGENT';
+    if (correctSorts >= 3)                      return 'ECO LEARNER';
     return 'JUNIOR RANGER';
   }
 
@@ -336,6 +344,7 @@ class HabitatCleanupGame extends FlameGame
   int ecoPoints    = 0;
   int litterCount  = 0;
   int correctSorts = 0;
+  int wrongSorts   = 0;   // ── NEW: Tracks failed sort attempts ──
   int maxCombo     = 1;
 
   static const double _scanRange     = 145.0;
@@ -623,9 +632,11 @@ class HabitatCleanupGame extends FlameGame
         Future.delayed(const Duration(milliseconds: 600), _endCleanup);
       }
     } else {
+      // ── FIXED: Track wrong sort attempts ──
+      wrongSorts++;
       ecoPoints = math.max(0, ecoPoints - 5);
       _breakCombo();
-      reactionMsg = '❌ Wrong bin — try another!';
+      reactionMsg = '❌ Wrong bin — try another!  (Wrong sorts: $wrongSorts)';
       _triggerReaction(false);
     }
     notifyListeners();
@@ -728,6 +739,7 @@ class HabitatCleanupGame extends FlameGame
     HabitatCleanupResult.current = HabitatCleanupResult(
       litterCollected:       litterCount,
       correctSorts:          correctSorts,
+      wrongSorts:            wrongSorts,   // ── NEW: Pass wrong sorts to results ──
       ecoPoints:             ecoPoints,
       maxCombo:              maxCombo,
       scanStreakBonus:        totalScanStreak,
